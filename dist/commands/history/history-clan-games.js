@@ -1,0 +1,139 @@
+import { EmbedBuilder } from 'discord.js';
+import moment from 'moment';
+import { Command } from '../../lib/handlers.js';
+import { padStart } from '../../util/helper.js';
+import { handlePagination } from '../../util/pagination.js';
+import { cluster } from 'radash';
+export default class ClanGamesHistoryCommand extends Command {
+    constructor() {
+        super('clan-games-history', {
+            category: 'activity',
+            channel: 'guild',
+            clientPermissions: ['EmbedLinks', 'UseExternalEmojis'],
+            defer: true
+        });
+    }
+    async exec(interaction, args) {
+        if (args.user) {
+            const playerTags = await this.client.resolver.getLinkedPlayerTags(args.user.id);
+            const { embeds, result } = await this.getHistory(interaction, playerTags);
+            if (!result.length) {
+                return interaction.editReply(this.i18n('common.no_data', { lng: interaction.locale }));
+            }
+            return handlePagination(interaction, embeds);
+        }
+        if (args.player) {
+            const player = await this.client.resolver.resolvePlayer(interaction, args.player);
+            if (!player)
+                return null;
+            const playerTags = [player.tag];
+            const { embeds, result } = await this.getHistory(interaction, playerTags);
+            if (!result.length) {
+                return interaction.editReply(this.i18n('common.no_data', { lng: interaction.locale }));
+            }
+            return handlePagination(interaction, embeds);
+        }
+        const { clans } = await this.client.storage.handleSearch(interaction, { args: args.clans });
+        if (!clans)
+            return;
+        const _clans = (await Promise.all(clans.map((clan) => this.client.coc.getClan(clan.tag))))
+            .filter((r) => r.res.ok)
+            .map((r) => r.body);
+        const playerTags = _clans.flatMap((clan) => clan.memberList.map((member) => member.tag));
+        const { embeds, result } = await this.getHistory(interaction, playerTags);
+        if (!result.length) {
+            return interaction.editReply(this.i18n('common.no_data', { lng: interaction.locale }));
+        }
+        return handlePagination(interaction, embeds);
+    }
+    async getHistory(interaction, playerTags) {
+        const result = await this.client.db
+            .collection("ClanGamesPoints" /* Collections.CLAN_GAMES_POINTS */)
+            .aggregate([
+            {
+                $match: {
+                    tag: {
+                        $in: [...playerTags]
+                    },
+                    createdAt: {
+                        $gte: moment().startOf('month').subtract(12, 'month').toDate()
+                    }
+                }
+            },
+            {
+                $set: {
+                    points: {
+                        $subtract: ['$current', '$initial']
+                    },
+                    clan: {
+                        $arrayElemAt: ['$clans', 0]
+                    }
+                }
+            },
+            {
+                $project: {
+                    name: 1,
+                    tag: 1,
+                    clan: 1,
+                    points: 1,
+                    season: 1
+                }
+            },
+            {
+                $sort: {
+                    _id: -1
+                }
+            },
+            {
+                $group: {
+                    _id: '$tag',
+                    name: {
+                        $first: '$name'
+                    },
+                    tag: {
+                        $first: '$tag'
+                    },
+                    seasons: {
+                        $push: {
+                            points: '$points',
+                            season: '$season',
+                            clan: {
+                                name: '$clan.name',
+                                tag: '$clan.tag'
+                            }
+                        }
+                    }
+                }
+            }
+        ])
+            .toArray();
+        result.sort((a, b) => b.seasons.length - a.seasons.length);
+        const displayClanTag = this.client.settings.get(interaction.guild, "displayClanTag" /* Settings.DISPLAY_CLAN_TAG */, false);
+        const embeds = [];
+        for (const chunk of cluster(result, 10)) {
+            const embed = new EmbedBuilder();
+            embed.setColor(this.client.embed(interaction));
+            embed.setTitle('Clan Games History (last 12 months)');
+            chunk.forEach((player) => {
+                const total = player.seasons.reduce((a, b) => a + b.points, 0);
+                embed.addFields({
+                    name: `${player.name} (${player.tag})`,
+                    value: [
+                        `\`\`\`\n\u200e # POINTS  SEASON  CLAN`,
+                        player.seasons
+                            .slice(0, 12)
+                            .map((m, n) => {
+                            const season = moment(m.season).format('MMM YY');
+                            return `\u200e${padStart(n + 1, 2)} ${padStart(m.points, 6)}  ${season}  ${displayClanTag ? m.clan.tag : m.clan.name}`;
+                        })
+                            .join('\n'),
+                        `\`\`\`Total: ${total} (Avg: ${(total / player.seasons.length).toFixed(2)})`
+                    ].join('\n')
+                });
+            });
+            embeds.push(embed);
+        }
+        return { embeds, result };
+    }
+}
+//# sourceMappingURL=history-clan-games.js.map

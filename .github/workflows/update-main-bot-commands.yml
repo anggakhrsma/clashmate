@@ -1,0 +1,48 @@
+name: update-main-bot-commands
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 7 * * 5'
+    - cron: '0 8 * * 1'
+  push:
+    tags:
+      - 'v*'
+    paths:
+      - scripts/**
+
+jobs:
+  build:
+    environment: Production
+    name: update-main-bot-commands
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v6
+        with:
+          cache: 'npm'
+          node-version: 20
+
+      - name: Switch to latest Tag
+        if: github.event_name == 'schedule'
+        run: git checkout $(git describe --tags `git rev-list --tags --max-count=1`)
+
+      - name: Init Submodule
+        run: git submodule init && git submodule update
+
+      - name: NPM Install
+        run: npm i
+
+      - name: Build
+        run: npm run build
+
+      - name: Deploy
+        run: npm run deploy -- --gh-action
+        env:
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}

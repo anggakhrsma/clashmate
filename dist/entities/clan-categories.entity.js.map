@@ -1,0 +1,1 @@
+{"version":3,"file":"clan-categories.entity.js","sourceRoot":"","sources":["../../src/entities/clan-categories.entity.ts"],"names":[],"mappings":"","sourcesContent":["export interface ClanCategoriesEntity {\n  guildId: string;\n  name: string;\n  order: number;\n  displayName: string;\n}\n"]}

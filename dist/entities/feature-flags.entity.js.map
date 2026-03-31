@@ -1,0 +1,1 @@
+{"version":3,"file":"feature-flags.entity.js","sourceRoot":"","sources":["../../src/entities/feature-flags.entity.ts"],"names":[],"mappings":"","sourcesContent":["import { FeatureFlags } from '@app/constants';\n\nexport interface FeatureFlagsEntity {\n  key: FeatureFlags;\n  enabled: boolean;\n  limited: boolean;\n  guildIds: string[];\n}\n"]}

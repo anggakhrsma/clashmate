@@ -1,0 +1,4084 @@
+[
+  {
+    "name": "activity",
+    "description": "Shows a graph of hourly-active clan members.",
+    "description_long": "command.activity.description_long",
+    "options": [
+      {
+        "name": "clans",
+        "description": "Clan tags or aliases (Maximum 3)",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "days",
+        "description": "The number of days is displayed in the graph.",
+        "type": "Integer",
+        "choices": [
+          "1",
+          "3",
+          "7",
+          "15",
+          "30"
+        ]
+      },
+      {
+        "name": "limit",
+        "description": "Number of clans to show in the graph.",
+        "type": "Integer",
+        "choices": []
+      },
+      {
+        "name": "timezone",
+        "description": "Search timezone by city or country. (e.g. London, New York, Singapore, India, Sydney)",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "alias create",
+    "description": "Creates a clan alias (short code or abbreviation) or clan nickname.",
+    "description_long": "command.alias.create.description_long",
+    "options": [
+      {
+        "name": "clan",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "alias_name",
+        "description": "Name of the alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "clan_nickname",
+        "description": "Nickname of the clan (Experimental)",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "alias delete",
+    "description": "Deletes a clan alias.",
+    "description_long": "command.alias.delete.description_long",
+    "options": [
+      {
+        "name": "alias",
+        "description": "Tag of a clan or name of an alias",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "alias list",
+    "description": "List all clan aliases.",
+    "description_long": "command.alias.list.description_long",
+    "options": []
+  },
+  {
+    "name": "army",
+    "description": "Parse an army composition link.",
+    "description_long": "command.army.description_long",
+    "options": [
+      {
+        "name": "link",
+        "description": "Army composition link.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "army_name",
+        "description": "An optional name for this army.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "tips",
+        "description": "Some tips (type anything)",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "attacks",
+    "description": "Displays attack and defense info of clan members.",
+    "description_long": "command.attacks.description_long",
+    "options": [
+      {
+        "name": "clan",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "user",
+        "description": "Clan by @user mention or ID.",
+        "type": "User",
+        "choices": []
+      },
+      {
+        "name": "season",
+        "description": "The season to show attacks for.",
+        "type": "String",
+        "choices": [
+          "Apr 2026",
+          "Mar 2026",
+          "Feb 2026",
+          "Jan 2026",
+          "Dec 2025",
+          "Nov 2025",
+          "Oct 2025",
+          "Sep 2025",
+          "Aug 2025",
+          "Jul 2025",
+          "Jun 2025",
+          "May 2025",
+          "Apr 2025",
+          "Mar 2025",
+          "Feb 2025",
+          "Jan 2025",
+          "Dec 2024",
+          "Nov 2024"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "autorole builder-hall",
+    "description": "Manage automatic Builder Hall roles.",
+    "description_long": "command.autorole.builder_hall.description_long",
+    "options": [
+      {
+        "name": "bh_1",
+        "description": "Builder Hall 1 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "bh_2",
+        "description": "Builder Hall 2 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "bh_3",
+        "description": "Builder Hall 3 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "bh_4",
+        "description": "Builder Hall 4 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "bh_5",
+        "description": "Builder Hall 5 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "bh_6",
+        "description": "Builder Hall 6 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "bh_7",
+        "description": "Builder Hall 7 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "bh_8",
+        "description": "Builder Hall 8 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "bh_9",
+        "description": "Builder Hall 9 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "bh_10",
+        "description": "Builder Hall 10 role.",
+        "type": "Role",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "autorole builder-leagues",
+    "description": "Set builder base league roles.",
+    "description_long": "command.autorole.builder_leagues.description_long",
+    "options": [
+      {
+        "name": "wood",
+        "description": "Wood league role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "clay",
+        "description": "Clay league role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "stone",
+        "description": "Stone league role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "copper",
+        "description": "Copper league role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "brass",
+        "description": "Brass league role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "iron",
+        "description": "Iron league role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "steel",
+        "description": "Steel league role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "titanium",
+        "description": "Titanium league role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "platinum",
+        "description": "Platinum league role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "emerald",
+        "description": "Emerald league role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "ruby",
+        "description": "Ruby league role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "diamond",
+        "description": "Diamond league role.",
+        "type": "Role",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "autorole clan-roles",
+    "description": "Manage automatic role management for clan roles.",
+    "description_long": "command.autorole.clan_roles.description_long",
+    "options": [
+      {
+        "name": "clans",
+        "description": "Clan tags or aliases to filter clans.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "leader_role",
+        "description": "The Leader role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "co_leader_role",
+        "description": "The Co-Leader role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "elder_role",
+        "description": "The Elder role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "member_role",
+        "description": "The Member role (below Elder)",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "everyone_role",
+        "description": "Clan role for everyone in the clan.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "only_verified",
+        "description": "Roles will be given to the verified players only. (API token verification is required)",
+        "type": "String",
+        "choices": [
+          "Yes",
+          "No"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "autorole config",
+    "description": "Manage automatic roles settings.",
+    "description_long": "command.autorole.config.description_long",
+    "options": [
+      {
+        "name": "auto_update_roles",
+        "description": "Whether to update roles automatically.",
+        "type": "String",
+        "choices": [
+          "Yes",
+          "No"
+        ]
+      },
+      {
+        "name": "role_removal_delays",
+        "description": "Whether to delay the removal of roles.",
+        "type": "String",
+        "choices": [
+          "Off",
+          "1h",
+          "2h",
+          "4h",
+          "6h",
+          "8h",
+          "12h",
+          "18h",
+          "24h",
+          "36h",
+          "48h",
+          "72h",
+          "7d",
+          "12d"
+        ]
+      },
+      {
+        "name": "role_addition_delays",
+        "description": "Whether to delay the addition of roles.",
+        "type": "String",
+        "choices": [
+          "Off",
+          "1h",
+          "2h",
+          "4h",
+          "6h",
+          "8h",
+          "12h",
+          "18h",
+          "24h"
+        ]
+      },
+      {
+        "name": "delay_exclusion_roles",
+        "description": "Roles that are excluded from delays.",
+        "type": "String",
+        "choices": [
+          "Town Hall Roles",
+          "Builder Hall Roles",
+          "League Roles",
+          "Builder League Roles",
+          "Guest Role"
+        ]
+      },
+      {
+        "name": "always_force_refresh_roles",
+        "description": "Whether to enforce role refresh for individual users by default.",
+        "type": "Boolean",
+        "choices": []
+      },
+      {
+        "name": "allow_not_linked",
+        "description": "Whether to allow not linked players to get roles.",
+        "type": "Boolean",
+        "choices": []
+      },
+      {
+        "name": "verified_only_clan_roles",
+        "description": "Whether to grant clans roles to verified players only.",
+        "type": "String",
+        "choices": [
+          "Yes",
+          "No"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "autorole disable",
+    "description": "Disable automatic clan roles.",
+    "description_long": "Disable automatic role management for clan roles, town hall levels, or leagues.",
+    "options": [
+      {
+        "name": "type",
+        "description": "Type of roles to disable.",
+        "type": "String",
+        "choices": [
+          "Clan Roles",
+          "Town Hall Roles",
+          "Leagues Roles",
+          "Builder Hall Roles",
+          "Builder Leagues Roles",
+          "War Roles",
+          "End of Season Push Role",
+          "Family Leaders Role",
+          "Family Roles",
+          "Exclusive Family Role",
+          "Guest Role",
+          "Verified Role",
+          "Account Linked Role"
+        ]
+      },
+      {
+        "name": "clans",
+        "description": "Clan tags or aliases to filter clans.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "autorole eos-push",
+    "description": "Set end of season push roles.",
+    "description_long": "command.autorole.eos_push.description_long",
+    "options": [
+      {
+        "name": "role",
+        "description": "The end of season push role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "clans",
+        "description": "The clans for which to set the end of season push role.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "autorole family",
+    "description": "Set family roles.",
+    "description_long": "command.autorole.family.description_long",
+    "options": [
+      {
+        "name": "family_leaders_role",
+        "description": "Family leaders role (Leaders and Co-Leaders)",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "family_role",
+        "description": "Family role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "exclusive_family_role",
+        "description": "Exclusive family role (all linked accounts are in the family)",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "guest_role",
+        "description": "Guest role (not in the family)",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "verified_role",
+        "description": "Verified role (API token verified)",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "account_linked_role",
+        "description": "Account linked role (account linked but may not be verified)",
+        "type": "Role",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "autorole leagues",
+    "description": "Manage automatic role management for leagues.",
+    "description_long": "command.autorole.leagues.description_long",
+    "options": [
+      {
+        "name": "unranked",
+        "description": "Unranked league role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "skeleton",
+        "description": "Skeleton league role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "barbarian",
+        "description": "Barbarian league role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "archer",
+        "description": "Archer league role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "wizard",
+        "description": "Wizard league role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "valkyrie",
+        "description": "Valkyrie league role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "witch",
+        "description": "Witch league role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "golem",
+        "description": "Golem league role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "pekka",
+        "description": "Pekka league role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "titan",
+        "description": "Titan league role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "dragon",
+        "description": "Dragon league role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "electro",
+        "description": "Electro league role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "legend",
+        "description": "Legend league role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "5200_5249",
+        "description": "Trophy range 5200 - 5249 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "5250_5499",
+        "description": "Trophy range 5250 - 5499 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "5500_5749",
+        "description": "Trophy range 5500 - 5749 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "5750_5999",
+        "description": "Trophy range 5750 - 5999 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "6000_8000",
+        "description": "Trophy range 6000 - 8000 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "allow_non_family_accounts",
+        "description": "Whether to give roles to the members that are not in the family clans.",
+        "type": "String",
+        "choices": [
+          "Yes",
+          "No"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "autorole list",
+    "description": "List all auto roles and settings.",
+    "description_long": "command.autorole.list.description_long",
+    "options": []
+  },
+  {
+    "name": "autorole refresh",
+    "description": "Refresh roles manually.",
+    "description_long": "Refresh roles manually. (Use this command if the roles are not updated automatically)",
+    "options": [
+      {
+        "name": "user_or_role",
+        "description": "Refresh an individual user or a role.",
+        "type": "Mentionable",
+        "choices": []
+      },
+      {
+        "name": "is_test_run",
+        "description": "Test run to see the changes without applying.",
+        "type": "Boolean",
+        "choices": []
+      },
+      {
+        "name": "force_refresh",
+        "description": "Whether to bypass delays and force refresh roles.",
+        "type": "Boolean",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "autorole town-hall",
+    "description": "Manage automatic role management for town hall levels.",
+    "description_long": "command.autorole.town_hall.description_long",
+    "options": [
+      {
+        "name": "th_1",
+        "description": "Town Hall 1 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "th_2",
+        "description": "Town Hall 2 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "th_3",
+        "description": "Town Hall 3 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "th_4",
+        "description": "Town Hall 4 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "th_5",
+        "description": "Town Hall 5 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "th_6",
+        "description": "Town Hall 6 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "th_7",
+        "description": "Town Hall 7 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "th_8",
+        "description": "Town Hall 8 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "th_9",
+        "description": "Town Hall 9 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "th_10",
+        "description": "Town Hall 10 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "th_11",
+        "description": "Town Hall 11 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "th_12",
+        "description": "Town Hall 12 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "th_13",
+        "description": "Town Hall 13 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "th_14",
+        "description": "Town Hall 14 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "th_15",
+        "description": "Town Hall 15 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "th_16",
+        "description": "Town Hall 16 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "th_17",
+        "description": "Town Hall 17 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "th_18",
+        "description": "Town Hall 18 role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "allow_non_family_accounts",
+        "description": "Whether to give roles to the members that are not in the family clans.",
+        "type": "String",
+        "choices": [
+          "Yes",
+          "No"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "autorole wars",
+    "description": "Set automatic war roles.",
+    "description_long": "command.autorole.wars.description_long",
+    "options": [
+      {
+        "name": "role",
+        "description": "The war role.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "clan",
+        "description": "The clan for which to set the war role.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "boosts",
+    "description": "Displays active super troops of clan members.",
+    "description_long": "command.boosts.description_long",
+    "options": [
+      {
+        "name": "clan",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "caller assign",
+    "description": "Set a target for a player in the current war.",
+    "description_long": "command.caller.assign.description_long",
+    "options": [
+      {
+        "name": "defense_target",
+        "description": "The base target # of your opponent.",
+        "type": "Integer",
+        "choices": []
+      },
+      {
+        "name": "offense_target",
+        "description": "The base target # of your clan.",
+        "type": "Integer",
+        "choices": []
+      },
+      {
+        "name": "notes",
+        "description": "Notes to add to the target.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "hours",
+        "description": "The number of hours to set the target for.",
+        "type": "Number",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "caller clear",
+    "description": "Clear the target for a player in the current war.",
+    "description_long": "command.caller.clear.description_long",
+    "options": [
+      {
+        "name": "defense_target",
+        "description": "The base target # of your opponent.",
+        "type": "Number",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "capital contribution",
+    "description": "Shows clan capital contribution of clan members.",
+    "description_long": "command.capital.contribution.description_long",
+    "options": [
+      {
+        "name": "clan",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "user",
+        "description": "Clan by @user mention or ID.",
+        "type": "User",
+        "choices": []
+      },
+      {
+        "name": "week",
+        "description": "The week to show contributions for.",
+        "type": "String",
+        "choices": [
+          "27 Mar, 2026",
+          "20 Mar, 2026",
+          "13 Mar, 2026",
+          "06 Mar, 2026",
+          "27 Feb, 2026",
+          "20 Feb, 2026"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "capital raids",
+    "description": "Shows raid weekend scores of clan members.",
+    "description_long": "command.capital.raids.description_long",
+    "options": [
+      {
+        "name": "clan",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "user",
+        "description": "Clan by @user mention or ID.",
+        "type": "User",
+        "choices": []
+      },
+      {
+        "name": "week",
+        "description": "Retrieve data for the specified raid weekend.",
+        "type": "String",
+        "choices": [
+          "27 Mar, 2026",
+          "20 Mar, 2026",
+          "13 Mar, 2026",
+          "06 Mar, 2026",
+          "27 Feb, 2026",
+          "20 Feb, 2026"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "category create",
+    "description": "Create a new clan category.",
+    "description_long": "command.category.create.description_long",
+    "options": [
+      {
+        "name": "category_name",
+        "description": "Name of the clan category.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "category delete",
+    "description": "Delete a clan category.",
+    "description_long": "command.category.delete.description_long",
+    "options": [
+      {
+        "name": "category",
+        "description": "Select a clan category.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "category edit",
+    "description": "Edit a clan category.",
+    "description_long": "command.category.edit.description_long",
+    "options": [
+      {
+        "name": "category",
+        "description": "Select a clan category.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "category_name",
+        "description": "Name of the clan category.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "category list",
+    "description": "List all clan categories.",
+    "description_long": "command.category.list.description_long",
+    "options": []
+  },
+  {
+    "name": "clan",
+    "description": "Shows comprehensive overview of a clan.",
+    "description_long": "command.clan.description_long",
+    "options": [
+      {
+        "name": "tag",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "user",
+        "description": "Clan by @user mention or ID.",
+        "type": "User",
+        "choices": []
+      },
+      {
+        "name": "by_player_tag",
+        "description": "Get clan by a player tag.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "clan-games",
+    "description": "Clan games scoreboard of clan members.",
+    "description_long": "command.clan_games.description_long",
+    "options": [
+      {
+        "name": "clan",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "user",
+        "description": "Clan by @user mention or ID.",
+        "type": "User",
+        "choices": []
+      },
+      {
+        "name": "season",
+        "description": "The season to show the scoreboard for.",
+        "type": "String",
+        "choices": [
+          "Apr 2026",
+          "Mar 2026",
+          "Feb 2026",
+          "Jan 2026",
+          "Dec 2025",
+          "Nov 2025",
+          "Oct 2025",
+          "Sep 2025",
+          "Aug 2025",
+          "Jul 2025",
+          "Jun 2025",
+          "May 2025",
+          "Apr 2025",
+          "Mar 2025",
+          "Feb 2025",
+          "Jan 2025",
+          "Dec 2024",
+          "Nov 2024"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "clans",
+    "description": "Show all linked clans.",
+    "description_long": "command.clans.description_long",
+    "options": [
+      {
+        "name": "category",
+        "description": "Filter clans by category.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "compo",
+    "description": "Shows Town Hall composition of a clan.",
+    "description_long": "command.compo.description_long",
+    "options": [
+      {
+        "name": "clan",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "user",
+        "description": "Clan by @user mention or ID.",
+        "type": "User",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "config",
+    "description": "Configure server settings.",
+    "description_long": "command.config.description_long",
+    "options": [
+      {
+        "name": "bot_manager_role",
+        "description": "Role that can manage the bot.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "roster_manager_role",
+        "description": "Role that can manage the roster members.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "flags_manager_role",
+        "description": "Role that can manage the flags.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "links_manager_role",
+        "description": "Role that can manage the Discord links.",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "color_code",
+        "description": "Hex color code (e.g #ed4245)",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "webhook_limit",
+        "description": "The maximum number of webhooks that can be created in a channel.",
+        "type": "Integer",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "cwl attacks",
+    "description": "Shows an overview of attacks for different CWL rounds.",
+    "description_long": "command.cwl.attacks.description_long",
+    "options": [
+      {
+        "name": "clan",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "season",
+        "description": "CWL season",
+        "type": "String",
+        "choices": [
+          "Apr 2026",
+          "Mar 2026",
+          "Feb 2026",
+          "Jan 2026",
+          "Dec 2025",
+          "Nov 2025",
+          "Oct 2025",
+          "Sep 2025",
+          "Aug 2025",
+          "Jul 2025",
+          "Jun 2025",
+          "May 2025",
+          "Apr 2025",
+          "Mar 2025",
+          "Feb 2025",
+          "Jan 2025",
+          "Dec 2024",
+          "Nov 2024"
+        ]
+      },
+      {
+        "name": "user",
+        "description": "Clan by @user mention or ID.",
+        "type": "User",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "cwl lineup",
+    "description": "Shows CWL lineup for a round (sorted by town hall and heroes).",
+    "description_long": "command.cwl.lineup.description_long",
+    "options": [
+      {
+        "name": "clan",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "user",
+        "description": "Clan by @user mention or ID.",
+        "type": "User",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "cwl members",
+    "description": "Shows a list of all CWL participants.",
+    "description_long": "command.cwl.members.description_long",
+    "options": [
+      {
+        "name": "clan",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "user",
+        "description": "Clan by @user mention or ID.",
+        "type": "User",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "cwl roster",
+    "description": "CWL roster and town hall distribution.",
+    "description_long": "command.cwl.roster.description_long",
+    "options": [
+      {
+        "name": "clan",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "user",
+        "description": "Clan by @user mention or ID.",
+        "type": "User",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "cwl round",
+    "description": "CWL summary for the current round.",
+    "description_long": "command.cwl.round.description_long",
+    "options": [
+      {
+        "name": "clan",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "season",
+        "description": "CWL season",
+        "type": "String",
+        "choices": [
+          "Apr 2026",
+          "Mar 2026",
+          "Feb 2026",
+          "Jan 2026",
+          "Dec 2025",
+          "Nov 2025",
+          "Oct 2025",
+          "Sep 2025",
+          "Aug 2025",
+          "Jul 2025",
+          "Jun 2025",
+          "May 2025",
+          "Apr 2025",
+          "Mar 2025",
+          "Feb 2025",
+          "Jan 2025",
+          "Dec 2024",
+          "Nov 2024"
+        ]
+      },
+      {
+        "name": "user",
+        "description": "Clan by @user mention or ID.",
+        "type": "User",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "cwl stars",
+    "description": "Shows CWL member ranking by stars.",
+    "description_long": "command.cwl.stars.description_long",
+    "options": [
+      {
+        "name": "clan",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "season",
+        "description": "CWL season",
+        "type": "String",
+        "choices": [
+          "Apr 2026",
+          "Mar 2026",
+          "Feb 2026",
+          "Jan 2026",
+          "Dec 2025",
+          "Nov 2025",
+          "Oct 2025",
+          "Sep 2025",
+          "Aug 2025",
+          "Jul 2025",
+          "Jun 2025",
+          "May 2025",
+          "Apr 2025",
+          "Mar 2025",
+          "Feb 2025",
+          "Jan 2025",
+          "Dec 2024",
+          "Nov 2024"
+        ]
+      },
+      {
+        "name": "user",
+        "description": "Clan by @user mention or ID.",
+        "type": "User",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "cwl stats",
+    "description": "Shows an overview of all CWL rounds and group standings.",
+    "description_long": "command.cwl.stats.description_long",
+    "options": [
+      {
+        "name": "clan",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "season",
+        "description": "CWL season",
+        "type": "String",
+        "choices": [
+          "Apr 2026",
+          "Mar 2026",
+          "Feb 2026",
+          "Jan 2026",
+          "Dec 2025",
+          "Nov 2025",
+          "Oct 2025",
+          "Sep 2025",
+          "Aug 2025",
+          "Jul 2025",
+          "Jun 2025",
+          "May 2025",
+          "Apr 2025",
+          "Mar 2025",
+          "Feb 2025",
+          "Jan 2025",
+          "Dec 2024",
+          "Nov 2024"
+        ]
+      },
+      {
+        "name": "user",
+        "description": "Clan by @user mention or ID.",
+        "type": "User",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "debug",
+    "description": "Displays some basic debug information.",
+    "description_long": "command.debug.description_long",
+    "options": []
+  },
+  {
+    "name": "donations",
+    "description": "Shows donations and donations received of clan members.",
+    "description_long": "command.donations.description_long",
+    "options": [
+      {
+        "name": "clan",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "user",
+        "description": "Donation history of a linked user.",
+        "type": "User",
+        "choices": []
+      },
+      {
+        "name": "season",
+        "description": "The season to show donations for.",
+        "type": "String",
+        "choices": [
+          "Apr 2026",
+          "Mar 2026",
+          "Feb 2026",
+          "Jan 2026",
+          "Dec 2025",
+          "Nov 2025",
+          "Oct 2025",
+          "Sep 2025",
+          "Aug 2025",
+          "Jul 2025",
+          "Jun 2025",
+          "May 2025",
+          "Apr 2025",
+          "Mar 2025",
+          "Feb 2025",
+          "Jan 2025",
+          "Dec 2024",
+          "Nov 2024"
+        ]
+      },
+      {
+        "name": "start_date",
+        "description": "Starting date (YYYY-MM-DD)",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "end_date",
+        "description": "Ending date (YYYY-MM-DD)",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "emojis",
+    "description": "List all static emojis in this server (owner only)",
+    "description_long": "command.emojis.description_long",
+    "options": []
+  },
+  {
+    "name": "eval",
+    "description": "You can't use it anyway, so why explain?",
+    "description_long": "command.eval.description_long",
+    "options": [
+      {
+        "name": "code",
+        "description": "Code to evaluate.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "shard",
+        "description": "Whether to run the code on all shards or just the current one.",
+        "type": "Boolean",
+        "choices": []
+      },
+      {
+        "name": "depth",
+        "description": "Depth of the returned object.",
+        "type": "Number",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "events",
+    "description": "Shows the next in-game events.",
+    "description_long": "command.events.description_long",
+    "options": []
+  },
+  {
+    "name": "flag create",
+    "description": "Create a player flag to mark the player as banned or flagged.",
+    "description_long": "command.flag.create.description_long",
+    "options": [
+      {
+        "name": "flag_type",
+        "description": "The type of the flag (ban or strike)",
+        "type": "String",
+        "choices": [
+          "Ban",
+          "Strike"
+        ]
+      },
+      {
+        "name": "player",
+        "description": "The tag of a player to flag.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "reason",
+        "description": "Reason for the flag.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "dm_user",
+        "description": "Whether to DM the user about the flag",
+        "type": "Boolean",
+        "choices": []
+      },
+      {
+        "name": "flag_expiry_days",
+        "description": "Flag expiry days (auto deletes the flag)",
+        "type": "Integer",
+        "choices": []
+      },
+      {
+        "name": "flag_impact",
+        "description": "Number of flags this should count as",
+        "type": "Integer",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "flag delete",
+    "description": "Delete a player flag.",
+    "description_long": "command.flag.delete.description_long",
+    "options": [
+      {
+        "name": "flag_type",
+        "description": "The type of the flag (ban or strike)",
+        "type": "String",
+        "choices": [
+          "Ban",
+          "Strike"
+        ]
+      },
+      {
+        "name": "player",
+        "description": "The tag of a player to delete.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "flag_ref",
+        "description": "Flag reference of this player.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "clan",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "flag list",
+    "description": "List all player flags.",
+    "description_long": "command.flag.list.description_long",
+    "options": [
+      {
+        "name": "flag_type",
+        "description": "The type of the flag (ban or strike)",
+        "type": "String",
+        "choices": [
+          "Ban",
+          "Strike"
+        ]
+      },
+      {
+        "name": "player",
+        "description": "Show all flags against a player",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "clans",
+        "description": "Clan tags or aliases to filter clans.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "help",
+    "description": "Get a list of commands or info about a specific command.",
+    "description_long": "command.help.description_long",
+    "options": [
+      {
+        "name": "command",
+        "description": "Name of the command.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "ask",
+        "description": "Find answers with AI.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "history",
+    "description": "Clan Games, Capital Raids, Donations, and CWL attacks history.",
+    "description_long": "command.history.description_long",
+    "options": [
+      {
+        "name": "option",
+        "description": "Select an option",
+        "type": "String",
+        "choices": [
+          "Clan Games",
+          "Capital Raids",
+          "Capital Contribution",
+          "CWL Attacks",
+          "War Attacks",
+          "Donations/Received",
+          "Attacks/Defenses",
+          "Loot (Gold/Elixir/Dark)",
+          "Join/Leave",
+          "Legend Attacks",
+          "Season end Trophies"
+        ]
+      },
+      {
+        "name": "clans",
+        "description": "Select clans for the history.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "player",
+        "description": "Select a player for the history.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "user",
+        "description": "Select a user for the history.",
+        "type": "User",
+        "choices": []
+      },
+      {
+        "name": "roster",
+        "description": "Select a roster for the history.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "invite",
+    "description": "Get the bot invite and support server link.",
+    "description_long": "command.invite.description_long",
+    "options": []
+  },
+  {
+    "name": "lastseen",
+    "description": "The last seen time and activities of clan members.",
+    "description_long": "command.lastseen.description_long",
+    "options": [
+      {
+        "name": "clan",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "user",
+        "description": "Clan by @user mention or ID.",
+        "type": "User",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "layout config",
+    "description": "Adjust settings related to layout posting and interactions.",
+    "description_long": "command.layout.config.description_long",
+    "options": [
+      {
+        "name": "allow_voting",
+        "description": "Enable or disable voting on posted layouts.",
+        "type": "Boolean",
+        "choices": []
+      },
+      {
+        "name": "allow_tracking",
+        "description": "Enable or disable tracking of layout copies.",
+        "type": "Boolean",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "layout post",
+    "description": "Post your village layout to showcase it to the community.",
+    "description_long": "command.layout.post.description_long",
+    "options": [
+      {
+        "name": "screenshot",
+        "description": "Upload a screenshot showing your village layout.",
+        "type": "Attachment",
+        "choices": []
+      },
+      {
+        "name": "layout_link",
+        "description": "Provide a shareable link to your layout.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "notes",
+        "description": "Add custom notes or details about your layout.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "leaderboard capital",
+    "description": "Top capital leaderboard.",
+    "description_long": "command.leaderboard.capital.description_long",
+    "options": [
+      {
+        "name": "location",
+        "description": "Location of the leaderboard",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "season",
+        "description": "Retrieve data for the specified season.",
+        "type": "String",
+        "choices": [
+          "Apr 2026",
+          "Mar 2026",
+          "Feb 2026",
+          "Jan 2026",
+          "Dec 2025",
+          "Nov 2025",
+          "Oct 2025",
+          "Sep 2025",
+          "Aug 2025",
+          "Jul 2025",
+          "Jun 2025",
+          "May 2025",
+          "Apr 2025",
+          "Mar 2025",
+          "Feb 2025",
+          "Jan 2025",
+          "Dec 2024",
+          "Nov 2024"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "leaderboard clans",
+    "description": "Top clans leaderboard.",
+    "description_long": "command.leaderboard.clans.description_long",
+    "options": [
+      {
+        "name": "location",
+        "description": "Location of the leaderboard",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "season",
+        "description": "Retrieve data for the specified season.",
+        "type": "String",
+        "choices": [
+          "Apr 2026",
+          "Mar 2026",
+          "Feb 2026",
+          "Jan 2026",
+          "Dec 2025",
+          "Nov 2025",
+          "Oct 2025",
+          "Sep 2025",
+          "Aug 2025",
+          "Jul 2025",
+          "Jun 2025",
+          "May 2025",
+          "Apr 2025",
+          "Mar 2025",
+          "Feb 2025",
+          "Jan 2025",
+          "Dec 2024",
+          "Nov 2024"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "leaderboard players",
+    "description": "Top players leaderboard.",
+    "description_long": "command.leaderboard.players.description_long",
+    "options": [
+      {
+        "name": "location",
+        "description": "Location of the leaderboard",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "season",
+        "description": "Retrieve data for the specified season.",
+        "type": "String",
+        "choices": [
+          "Apr 2026",
+          "Mar 2026",
+          "Feb 2026",
+          "Jan 2026",
+          "Dec 2025",
+          "Nov 2025",
+          "Oct 2025",
+          "Sep 2025",
+          "Aug 2025",
+          "Jul 2025",
+          "Jun 2025",
+          "May 2025",
+          "Apr 2025",
+          "Mar 2025",
+          "Feb 2025",
+          "Jan 2025",
+          "Dec 2024",
+          "Nov 2024"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "legend attacks",
+    "description": "Shows per-day legend attacks for a clan.",
+    "description_long": "command.legend.attacks.description_long",
+    "options": [
+      {
+        "name": "clans",
+        "description": "Clan tags or aliases to filter clans.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "user",
+        "description": "Player by @user mention or ID.",
+        "type": "User",
+        "choices": []
+      },
+      {
+        "name": "day",
+        "description": "The league day.",
+        "type": "Number",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "legend days",
+    "description": "Shows per-day legend attacks for a player.",
+    "description_long": "command.legend.days.description_long",
+    "options": [
+      {
+        "name": "player",
+        "description": "Player by @user mention or ID.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "user",
+        "description": "Clan by @user mention or ID.",
+        "type": "User",
+        "choices": []
+      },
+      {
+        "name": "day",
+        "description": "The league day.",
+        "type": "Number",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "legend leaderboard",
+    "description": "Shows legend leaderboard.",
+    "description_long": "command.legend.leaderboard.description_long",
+    "options": [
+      {
+        "name": "clans",
+        "description": "Clan tags or aliases to filter clans.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "limit",
+        "description": "Limit the number of results.",
+        "type": "Number",
+        "choices": []
+      },
+      {
+        "name": "season",
+        "description": "Retrieve data for the specified season.",
+        "type": "String",
+        "choices": [
+          "Apr 2026",
+          "Mar 2026",
+          "Feb 2026",
+          "Jan 2026",
+          "Dec 2025",
+          "Nov 2025",
+          "Oct 2025",
+          "Sep 2025",
+          "Aug 2025",
+          "Jul 2025",
+          "Jun 2025",
+          "May 2025",
+          "Apr 2025",
+          "Mar 2025",
+          "Feb 2025",
+          "Jan 2025",
+          "Dec 2024",
+          "Nov 2024"
+        ]
+      },
+      {
+        "name": "enable_auto_updating",
+        "description": "Enable auto updating (every 30-60 mins)",
+        "type": "String",
+        "choices": [
+          "Legend Trophies",
+          "Builder Trophies"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "legend stats",
+    "description": "Shows statistics of legend ranks and trophies.",
+    "description_long": "command.legend.stats.description_long",
+    "options": [
+      {
+        "name": "reference_date",
+        "description": "The date to view the end-of-day thresholds (YYYY-MM-DD)",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "lineup",
+    "description": "Displays war line-up of a clan.",
+    "description_long": "command.lineup.description_long",
+    "options": [
+      {
+        "name": "clan",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "user",
+        "description": "Clan by @user mention or ID.",
+        "type": "User",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "link create",
+    "description": "Links a player account/clan to a Discord account.",
+    "description_long": "command.link.create.description_long",
+    "options": [
+      {
+        "name": "player_tag",
+        "description": "The player tag to link.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "clan_tag",
+        "description": "The default clan tag to link.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "user",
+        "description": "User account to link to the tag.",
+        "type": "User",
+        "choices": []
+      },
+      {
+        "name": "is_default",
+        "description": "Whether to set this as the default account.",
+        "type": "String",
+        "choices": [
+          "Yes",
+          "No"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "link delete",
+    "description": "Deletes a player account/clan from a Discord account.",
+    "description_long": "command.link.delete.description_long",
+    "options": [
+      {
+        "name": "player_tag",
+        "description": "The player tag to unlink.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "clan_tag",
+        "description": "The clan tag to unlink.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "link list",
+    "description": "List all player links of a clan.",
+    "description_long": "command.link.list.description_long",
+    "options": [
+      {
+        "name": "clan",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "members",
+    "description": "Get a clan member list with heroes, trophies, war preferences and much more.",
+    "description_long": "List clan members sorted by heroes, trophies, war preferences, discord links, clan roles, player tags, attacks, etc.",
+    "options": [
+      {
+        "name": "clan",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "user",
+        "description": "Clan by @user mention or ID.",
+        "type": "User",
+        "choices": []
+      },
+      {
+        "name": "option",
+        "description": "Select an option",
+        "type": "String",
+        "choices": [
+          "Heroes/War Weight",
+          "Discord Links",
+          "War Preferences",
+          "Player Tags and Roles",
+          "Trophies and Leagues",
+          "Last Joining Date",
+          "Player Progress",
+          "Attacks & Defenses",
+          "Clan Overview"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "myip",
+    "description": "Show the bot outbound IP (owner only)",
+    "description_long": "command.myip.description_long",
+    "options": []
+  },
+  {
+    "name": "nickname config",
+    "description": "Configure automatic server nickname settings.",
+    "description_long": "command.nickname.config.description_long",
+    "options": [
+      {
+        "name": "family_nickname_format",
+        "description": "Set family nickname format (e.g. {CLAN} | {ALIAS} | {TH} | {ROLE} | {NAME})",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "non_family_nickname_format",
+        "description": "Set non-family nickname format (e.g. {NAME} | {TH})",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "change_nicknames",
+        "description": "Whether to update nicknames automatically.",
+        "type": "String",
+        "choices": [
+          "Yes",
+          "No"
+        ]
+      },
+      {
+        "name": "account_preference_for_naming",
+        "description": "Whether to use the default account or the best account in the family.",
+        "type": "String",
+        "choices": [
+          "Default Account",
+          "Best Account",
+          "Default or Best Account"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "player",
+    "description": "Player summary and overview.",
+    "description_long": "Shows comprehensive overview of a player (including war attack history)",
+    "options": [
+      {
+        "name": "tag",
+        "description": "Player tag or name.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "user",
+        "description": "Player by @user mention or ID.",
+        "type": "User",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "profile",
+    "description": "Shows linked accounts and clan of a user.",
+    "description_long": "command.profile.description_long",
+    "options": [
+      {
+        "name": "user",
+        "description": "User ID or @user mention.",
+        "type": "User",
+        "choices": []
+      },
+      {
+        "name": "player",
+        "description": "Player tag or name.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "remaining",
+    "description": "Shows remaining or missed war hits of a clan.",
+    "description_long": "command.remaining.description_long",
+    "options": [
+      {
+        "name": "clan",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "type",
+        "description": "The type of remaining tasks to show.",
+        "type": "String",
+        "choices": [
+          "War Attacks",
+          "Clan Games",
+          "Capital Raids",
+          "Legend Attacks"
+        ]
+      },
+      {
+        "name": "player",
+        "description": "Remaining attacks of a player.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "user",
+        "description": "Remaining attacks of a linked user.",
+        "type": "User",
+        "choices": []
+      },
+      {
+        "name": "war_id",
+        "description": "Search by war ID.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "reminders config",
+    "description": "Create an instant reminder to notify members.",
+    "description_long": "command.reminders.config.description_long",
+    "options": [
+      {
+        "name": "reminder_ping_exclusion",
+        "description": "Set reminder ping exclusion settings.",
+        "type": "String",
+        "choices": [
+          "Enable",
+          "Disable"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "reminders create",
+    "description": "Create reminders for clan wars, capital raids or clan games.",
+    "description_long": "command.reminders.create.description_long",
+    "options": [
+      {
+        "name": "type",
+        "description": "Type of the reminder.",
+        "type": "String",
+        "choices": [
+          "Clan Wars",
+          "Capital Raids",
+          "Clan Games"
+        ]
+      },
+      {
+        "name": "duration",
+        "description": "Remaining duration to mention members (e.g. 6h, 12h, 1d, 2d)",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "clans",
+        "description": "Clan tags or aliases to filter clans.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "message",
+        "description": "Reminder message for the notification.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "exclude_participant_list",
+        "description": "Whether to exclude participant list and only include the message (clan wars only)",
+        "type": "Boolean",
+        "choices": []
+      },
+      {
+        "name": "channel",
+        "description": "Reminder channel for the notification.",
+        "type": "Channel",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "reminders delete",
+    "description": "Delete a reminder by ID (do /reminders list to get the ID)",
+    "description_long": "command.reminders.delete.description_long",
+    "options": [
+      {
+        "name": "type",
+        "description": "Type of the reminder.",
+        "type": "String",
+        "choices": [
+          "Clan Wars",
+          "Capital Raids",
+          "Clan Games"
+        ]
+      },
+      {
+        "name": "id",
+        "description": "Reminder ID (use /reminders list to get the ID)",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "reminders edit",
+    "description": "Edit a reminder by ID (do /reminders list to get the ID)",
+    "description_long": "command.reminders.edit.description_long",
+    "options": [
+      {
+        "name": "type",
+        "description": "Type of the reminder.",
+        "type": "String",
+        "choices": [
+          "Clan Wars",
+          "Capital Raids",
+          "Clan Games"
+        ]
+      },
+      {
+        "name": "id",
+        "description": "Reminder ID (use /reminders list to get the ID)",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "duration",
+        "description": "Remaining duration to mention members (e.g. 6h, 12h, 1d, 2d)",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "reminders list",
+    "description": "List all war reminders for clan wars, capital raids or clan games.",
+    "description_long": "command.reminders.list.description_long",
+    "options": [
+      {
+        "name": "type",
+        "description": "Type of the reminder.",
+        "type": "String",
+        "choices": [
+          "Clan Wars",
+          "Capital Raids",
+          "Clan Games"
+        ]
+      },
+      {
+        "name": "compact_list",
+        "description": "Show a compact list of the reminders and disable ephemeral.",
+        "type": "Boolean",
+        "choices": []
+      },
+      {
+        "name": "clans",
+        "description": "Clan tags or aliases to filter clans.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "channel",
+        "description": "Reminder channel for the notification.",
+        "type": "Channel",
+        "choices": []
+      },
+      {
+        "name": "reminder_id",
+        "description": "List a reminder by ID (do /reminders list to get the ID)",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "reminders now",
+    "description": "Create an instant reminder to notify members.",
+    "description_long": "command.reminders.now.description_long",
+    "options": [
+      {
+        "name": "type",
+        "description": "Type of the reminder.",
+        "type": "String",
+        "choices": [
+          "Clan Wars",
+          "Capital Raids",
+          "Clan Games"
+        ]
+      },
+      {
+        "name": "message",
+        "description": "Reminder message for the notification.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "clans",
+        "description": "Clan tags or aliases to filter clans.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "reorder",
+    "description": "Reorder clans or categories for this server",
+    "description_long": "command.reorder.description_long",
+    "options": [
+      {
+        "name": "type",
+        "description": "What to reorder",
+        "type": "String",
+        "choices": [
+          "Clans",
+          "Categories"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "roster clone",
+    "description": "Clone a roster to create a new one",
+    "description_long": "command.roster.clone.description_long",
+    "options": [
+      {
+        "name": "roster",
+        "description": "Select a roster to clone",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "name",
+        "description": "Name of the cloned roster",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "roster create",
+    "description": "Create a roster",
+    "description_long": "command.roster.create.description_long",
+    "options": [
+      {
+        "name": "clan",
+        "description": "Clan of the roster",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "name",
+        "description": "Name of the roster",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "category",
+        "description": "Category of the roster",
+        "type": "String",
+        "choices": [
+          "CWL",
+          "WAR",
+          "E-SPORTS",
+          "TROPHY"
+        ]
+      },
+      {
+        "name": "import_members",
+        "description": "Whether to import members from the clan",
+        "type": "Boolean",
+        "choices": []
+      },
+      {
+        "name": "allow_unlinked",
+        "description": "Whether to allow unlinked members",
+        "type": "Boolean",
+        "choices": []
+      },
+      {
+        "name": "max_members",
+        "description": "Roster size",
+        "type": "Integer",
+        "choices": []
+      },
+      {
+        "name": "max_accounts_per_user",
+        "description": "Max accounts per user",
+        "type": "Integer",
+        "choices": []
+      },
+      {
+        "name": "min_town_hall",
+        "description": "Minimum Town Hall level",
+        "type": "Integer",
+        "choices": []
+      },
+      {
+        "name": "max_town_hall",
+        "description": "Maximum Town Hall level",
+        "type": "Integer",
+        "choices": []
+      },
+      {
+        "name": "min_hero_level",
+        "description": "Minimum combined Hero level",
+        "type": "Integer",
+        "choices": []
+      },
+      {
+        "name": "roster_role",
+        "description": "Roster role",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "sort_by",
+        "description": "Sorting order of the roster member list",
+        "type": "String",
+        "choices": [
+          "Player Name",
+          "Discord Name",
+          "Discord Username",
+          "Town Hall Level",
+          "Hero Levels",
+          "TH + Hero Levels",
+          "Clan Name",
+          "Signup Time",
+          "Trophies",
+          "Leagues"
+        ]
+      },
+      {
+        "name": "start_time",
+        "description": "Roster start time (YYYY-MM-DD HH:mm, in 24 hours format)",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "end_time",
+        "description": "Roster end time (YYYY-MM-DD HH:mm, in 24 hours format)",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "timezone",
+        "description": "Search timezone by city or country (e.g. London, Singapore, India, Sydney)",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "allow_group_selection",
+        "description": "Whether to allow members to select group",
+        "type": "Boolean",
+        "choices": []
+      },
+      {
+        "name": "allow_multi_signup",
+        "description": "Whether to allow multiple roster signups",
+        "type": "Boolean",
+        "choices": []
+      },
+      {
+        "name": "use_clan_alias",
+        "description": "Whether to use clan alias in the roster (created by /alias command)",
+        "type": "Boolean",
+        "choices": []
+      },
+      {
+        "name": "roster_image_url",
+        "description": "Image to be used in the roster embed",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "color_code",
+        "description": "Hex color code of the roster embed",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "roster delete",
+    "description": "Permanently delete a roster.",
+    "description_long": "command.roster.delete.description_long",
+    "options": [
+      {
+        "name": "roster",
+        "description": "Select a roster to delete",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "roster edit",
+    "description": "Edit a roster",
+    "description_long": "command.roster.edit.description_long",
+    "options": [
+      {
+        "name": "roster",
+        "description": "Select a roster to edit",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "name",
+        "description": "Name of the roster",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "category",
+        "description": "Category of the roster",
+        "type": "String",
+        "choices": [
+          "CWL",
+          "WAR",
+          "E-SPORTS",
+          "TROPHY"
+        ]
+      },
+      {
+        "name": "clan",
+        "description": "Clan of the roster",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "detach_clan",
+        "description": "Detach clan from the roster",
+        "type": "Boolean",
+        "choices": []
+      },
+      {
+        "name": "allow_unlinked",
+        "description": "Whether to allow unlinked members",
+        "type": "Boolean",
+        "choices": []
+      },
+      {
+        "name": "max_members",
+        "description": "Roster size",
+        "type": "Integer",
+        "choices": []
+      },
+      {
+        "name": "max_accounts_per_user",
+        "description": "Max accounts per user",
+        "type": "Integer",
+        "choices": []
+      },
+      {
+        "name": "min_town_hall",
+        "description": "Minimum Town Hall level",
+        "type": "Integer",
+        "choices": []
+      },
+      {
+        "name": "max_town_hall",
+        "description": "Maximum Town Hall level",
+        "type": "Integer",
+        "choices": []
+      },
+      {
+        "name": "min_hero_level",
+        "description": "Minimum combined Hero level",
+        "type": "Integer",
+        "choices": []
+      },
+      {
+        "name": "roster_role",
+        "description": "Roster role",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "sort_by",
+        "description": "Sorting order of the roster member list",
+        "type": "String",
+        "choices": [
+          "Player Name",
+          "Discord Name",
+          "Discord Username",
+          "Town Hall Level",
+          "Hero Levels",
+          "TH + Hero Levels",
+          "Clan Name",
+          "Signup Time",
+          "Trophies",
+          "Leagues"
+        ]
+      },
+      {
+        "name": "delete_role",
+        "description": "Whether to delete the roster role",
+        "type": "Boolean",
+        "choices": []
+      },
+      {
+        "name": "start_time",
+        "description": "Roster start time (YYYY-MM-DD HH:mm, in 24 hours format)",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "end_time",
+        "description": "Roster end time (YYYY-MM-DD HH:mm, in 24 hours format)",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "timezone",
+        "description": "Search timezone by city or country (e.g. London, Singapore, India, Sydney)",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "allow_group_selection",
+        "description": "Whether to allow members to select group",
+        "type": "Boolean",
+        "choices": []
+      },
+      {
+        "name": "allow_multi_signup",
+        "description": "Whether to allow multiple roster signups",
+        "type": "Boolean",
+        "choices": []
+      },
+      {
+        "name": "use_clan_alias",
+        "description": "Whether to use clan alias in the roster (created by /alias command)",
+        "type": "Boolean",
+        "choices": []
+      },
+      {
+        "name": "roster_image_url",
+        "description": "Image to be used in the roster embed",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "color_code",
+        "description": "Hex color code of the roster embed",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "log_channel",
+        "description": "Channel to log roster changes",
+        "type": "Channel",
+        "choices": []
+      },
+      {
+        "name": "delete_log_channel",
+        "description": "Whether to delete the log channel",
+        "type": "Boolean",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "roster groups create",
+    "description": "Create a group",
+    "description_long": "command.roster.groups.create.description_long",
+    "options": [
+      {
+        "name": "name",
+        "description": "Name of the group",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "group_role",
+        "description": "Role of the group",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "selectable",
+        "description": "Whether to allow members to select this group",
+        "type": "Boolean",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "roster groups modify",
+    "description": "Modify or delete a group",
+    "description_long": "command.roster.groups.modify.description_long",
+    "options": [
+      {
+        "name": "group",
+        "description": "Select a group to modify",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "name",
+        "description": "Name of the group",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "order",
+        "description": "Order of the group",
+        "type": "Integer",
+        "choices": []
+      },
+      {
+        "name": "group_role",
+        "description": "Role of the group",
+        "type": "Role",
+        "choices": []
+      },
+      {
+        "name": "selectable",
+        "description": "Whether to allow members to select this group",
+        "type": "Boolean",
+        "choices": []
+      },
+      {
+        "name": "delete_role",
+        "description": "Whether to delete the role of the group",
+        "type": "Boolean",
+        "choices": []
+      },
+      {
+        "name": "delete_group",
+        "description": "Whether to delete the group",
+        "type": "Boolean",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "roster list",
+    "description": "Search rosters or list all rosters and groups",
+    "description_long": "command.roster.list.description_long",
+    "options": [
+      {
+        "name": "name",
+        "description": "Search rosters by name",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "user",
+        "description": "Search rosters by user",
+        "type": "User",
+        "choices": []
+      },
+      {
+        "name": "player",
+        "description": "Search rosters by player",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "clan",
+        "description": "Search rosters by clan",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "category",
+        "description": "Search rosters by category",
+        "type": "String",
+        "choices": [
+          "CWL",
+          "WAR",
+          "E-SPORTS",
+          "TROPHY",
+          "Un-categorized"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "roster manage",
+    "description": "Add or remove users or change their group or roster",
+    "description_long": "command.roster.manage.description_long",
+    "options": [
+      {
+        "name": "roster",
+        "description": "Select a roster to manage",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "action",
+        "description": "Select an action to perform",
+        "type": "String",
+        "choices": [
+          "Add Players",
+          "Remove Players",
+          "Change Roster",
+          "Change Group"
+        ]
+      },
+      {
+        "name": "player",
+        "description": "Select a player to manage",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "user",
+        "description": "Select a user to manage",
+        "type": "User",
+        "choices": []
+      },
+      {
+        "name": "from_clan",
+        "description": "Select a clan to add players from",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "from_current_wars",
+        "description": "Choose a clan to add players from the ongoing wars.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "target_group",
+        "description": "Group of the user to move to",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "target_roster",
+        "description": "Roster of the user to move to",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "roster ping",
+    "description": "Ping members in the roster",
+    "description_long": "command.roster.ping.description_long",
+    "options": [
+      {
+        "name": "roster",
+        "description": "Select a roster to ping",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "message",
+        "description": "Message for the members",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "ping_option",
+        "description": "Select a ping option",
+        "type": "String",
+        "choices": [
+          "Unregistered (didn't signup, but in the clan)",
+          "Missing (opted-in, but not in the clan)",
+          "Everyone (all opted-in members)"
+        ]
+      },
+      {
+        "name": "group",
+        "description": "Select a group to ping (overwrites ping_option)",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "roster post",
+    "description": "Post a roster to signup or view members",
+    "description_long": "command.roster.post.description_long",
+    "options": [
+      {
+        "name": "roster",
+        "description": "Select a roster to post",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "rushed",
+    "description": "Rushed units and rushed % of a player or clan members.",
+    "description_long": "command.rushed.description_long",
+    "options": [
+      {
+        "name": "player",
+        "description": "Player tag or name.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "user",
+        "description": "Player by @user mention or ID.",
+        "type": "User",
+        "choices": []
+      },
+      {
+        "name": "clan",
+        "description": "Displays rushed units of a clan.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "search",
+    "description": "Search clans by name.",
+    "description_long": "command.search.description_long",
+    "options": [
+      {
+        "name": "name",
+        "description": "Clan name (must be 3 characters long)",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "setup buttons",
+    "description": "Setup buttons for the server.",
+    "description_long": "command.setup.buttons.description_long",
+    "options": [
+      {
+        "name": "button_type",
+        "description": "Select the button type to setup",
+        "type": "String",
+        "choices": [
+          "Link Button",
+          "Role Refresh Button",
+          "My Rosters Button"
+        ]
+      },
+      {
+        "name": "embed_color",
+        "description": "Hex color code for the embed",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "setup clan",
+    "description": "Link/unlink clans to the server or channels.",
+    "description_long": "Manage clans on the server (link server, link channel, clan embed)",
+    "options": [
+      {
+        "name": "clan",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "category",
+        "description": "Category of the clan. (select from the menu or type your own)",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "clan_channel",
+        "description": "Link the clan to a channel.",
+        "type": "Channel",
+        "choices": []
+      },
+      {
+        "name": "unlink_clan_channel",
+        "description": "Unlink a channel from the clan.",
+        "type": "Channel",
+        "choices": []
+      },
+      {
+        "name": "unlink_clan",
+        "description": "Unlink a clan from the server and remove all the features related to it.",
+        "type": "Boolean",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "setup clan-embed",
+    "description": "Enable/disable clan embed on the server or add/remove clans.",
+    "description_long": "command.setup.clan_embed.description_long",
+    "options": [
+      {
+        "name": "clan",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "channel",
+        "description": "Channel to send updates to (defaults to the current channel)",
+        "type": "Channel",
+        "choices": []
+      },
+      {
+        "name": "color",
+        "description": "Hex color code for the embed (for donation log, clan games, last seen, etc)",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "disable_embed",
+        "description": "Disable clan embed.",
+        "type": "Boolean",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "setup clan-logs",
+    "description": "Setup automatic logs for the clan.",
+    "description_long": "command.setup.clan_logs.description_long",
+    "options": [
+      {
+        "name": "clan",
+        "description": "Select the clan to setup logs.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "action",
+        "description": "What logs to enable or disable.",
+        "type": "String",
+        "choices": [
+          "Enable",
+          "Disable"
+        ]
+      },
+      {
+        "name": "channel",
+        "description": "Channel to send updates to (defaults to the current channel)",
+        "type": "Channel",
+        "choices": []
+      },
+      {
+        "name": "color",
+        "description": "Hex color code for the embed (for donation log, clan games, last seen, etc)",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "ping_role",
+        "description": "Ping this role in the logs (only for town hall upgrade log)",
+        "type": "Role",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "setup disable",
+    "description": "This command has been replaced with /setup clan and /setup clan-embed",
+    "description_long": "command.setup.disable.description_long",
+    "options": []
+  },
+  {
+    "name": "setup enable",
+    "description": "This command has been replaced with /setup clan and /setup clan-embed",
+    "description_long": "command.setup.enable.description_long",
+    "options": []
+  },
+  {
+    "name": "setup events",
+    "description": "Setup automatic events for the server.",
+    "description_long": "command.setup.events.description_long",
+    "options": [
+      {
+        "name": "disable",
+        "description": "Disable the events schedular.",
+        "type": "String",
+        "choices": [
+          "Yes",
+          "No"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "setup list",
+    "description": "List all enabled features and clans.",
+    "description_long": "command.setup.list.description_long",
+    "options": [
+      {
+        "name": "clans",
+        "description": "Select the clans to list.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "setup server-logs",
+    "description": "Setup automatic logs for the server.",
+    "description_long": "command.setup.server_logs.description_long",
+    "options": [
+      {
+        "name": "log_type",
+        "description": "Select the log type to setup.",
+        "type": "String",
+        "choices": [
+          "Flag Alert Log",
+          "Roster Change Log",
+          "Maintenance Break Log",
+          "Welcome Log"
+        ]
+      },
+      {
+        "name": "disable",
+        "description": "Whether to disable the log.",
+        "type": "String",
+        "choices": [
+          "Yes",
+          "No"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "stats attacks",
+    "description": "Shows attack success rates of clan members.",
+    "description_long": "command.stats.attacks.description_long",
+    "options": [
+      {
+        "name": "clan",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "user",
+        "description": "Clan by @user mention or ID.",
+        "type": "User",
+        "choices": []
+      },
+      {
+        "name": "roster",
+        "description": "Stats of a roster.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "compare",
+        "description": "Compare Town Halls (e.g. 14vs13, *vs15, all, equal)",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "stars",
+        "description": "War stars earned. (Default: 3)",
+        "type": "String",
+        "choices": [
+          "3",
+          "2",
+          ">= 2",
+          "1",
+          ">= 1"
+        ]
+      },
+      {
+        "name": "type",
+        "description": "War Type [e.g. Regular, CWL, Friendly] (Default: Regular and CWL)",
+        "type": "String",
+        "choices": [
+          "Regular",
+          "CWL",
+          "Friendly",
+          "Regular and CWL",
+          "Regular and Friendly",
+          "Regular, CWL and Friendly"
+        ]
+      },
+      {
+        "name": "season",
+        "description": "Retrieve data since the specified season.",
+        "type": "String",
+        "choices": [
+          "Since Apr 2026",
+          "Since Mar 2026",
+          "Since Feb 2026",
+          "Since Jan 2026",
+          "Since Dec 2025",
+          "Since Nov 2025",
+          "Since Oct 2025",
+          "Since Sep 2025",
+          "Since Aug 2025",
+          "Since Jul 2025",
+          "Since Jun 2025",
+          "Since May 2025",
+          "Since Apr 2025",
+          "Since Mar 2025",
+          "Since Feb 2025",
+          "Since Jan 2025",
+          "Since Dec 2024",
+          "Since Nov 2024"
+        ]
+      },
+      {
+        "name": "days",
+        "description": "Number of days to include (last x days of wars)",
+        "type": "Integer",
+        "choices": []
+      },
+      {
+        "name": "wars",
+        "description": "Number of last wars to include.",
+        "type": "Integer",
+        "choices": []
+      },
+      {
+        "name": "attempt",
+        "description": "Fresh attacks or clean-up attacks. (Default: Both)",
+        "type": "String",
+        "choices": [
+          "Fresh",
+          "Cleanup"
+        ]
+      },
+      {
+        "name": "filter_loot_hits",
+        "description": "Filter out loot hits (attacks targeting 3-starred bases)",
+        "type": "Boolean",
+        "choices": []
+      },
+      {
+        "name": "filter_farm_hits",
+        "description": "Filter out farm hits (1 star and < 50% destruction)",
+        "type": "Boolean",
+        "choices": []
+      },
+      {
+        "name": "clan_only",
+        "description": "Only include the specified clan's war attacks.",
+        "type": "Boolean",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "stats defense",
+    "description": "Shows defense failure rates of clan members.",
+    "description_long": "command.stats.defense.description_long",
+    "options": [
+      {
+        "name": "clan",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "user",
+        "description": "Clan by @user mention or ID.",
+        "type": "User",
+        "choices": []
+      },
+      {
+        "name": "roster",
+        "description": "Stats of a roster.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "compare",
+        "description": "Compare Town Halls (e.g. 14vs13, *vs15, all, equal)",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "stars",
+        "description": "War stars earned. (Default: 3)",
+        "type": "String",
+        "choices": [
+          "3",
+          "2",
+          ">= 2",
+          "1",
+          ">= 1"
+        ]
+      },
+      {
+        "name": "type",
+        "description": "War Type [e.g. Regular, CWL, Friendly] (Default: Regular and CWL)",
+        "type": "String",
+        "choices": [
+          "Regular",
+          "CWL",
+          "Friendly",
+          "Regular and CWL",
+          "Regular and Friendly",
+          "Regular, CWL and Friendly"
+        ]
+      },
+      {
+        "name": "season",
+        "description": "Retrieve data since the specified season.",
+        "type": "String",
+        "choices": [
+          "Since Apr 2026",
+          "Since Mar 2026",
+          "Since Feb 2026",
+          "Since Jan 2026",
+          "Since Dec 2025",
+          "Since Nov 2025",
+          "Since Oct 2025",
+          "Since Sep 2025",
+          "Since Aug 2025",
+          "Since Jul 2025",
+          "Since Jun 2025",
+          "Since May 2025",
+          "Since Apr 2025",
+          "Since Mar 2025",
+          "Since Feb 2025",
+          "Since Jan 2025",
+          "Since Dec 2024",
+          "Since Nov 2024"
+        ]
+      },
+      {
+        "name": "attempt",
+        "description": "Fresh attacks or clean-up attacks. (Default: Both)",
+        "type": "String",
+        "choices": [
+          "Fresh",
+          "Cleanup"
+        ]
+      },
+      {
+        "name": "clan_only",
+        "description": "Only show defense stats for the clan.",
+        "type": "Boolean",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "status",
+    "description": "Shows information about the bot's status.",
+    "description_long": "command.status.description_long",
+    "options": []
+  },
+  {
+    "name": "summary activity",
+    "description": "Shows a summary of clan activity (last seen).",
+    "description_long": "command.summary.activity.description_long",
+    "options": [
+      {
+        "name": "clans",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "season",
+        "description": "Retrieve data for the specified season.",
+        "type": "String",
+        "choices": [
+          "Apr 2026",
+          "Mar 2026",
+          "Feb 2026",
+          "Jan 2026",
+          "Dec 2025",
+          "Nov 2025",
+          "Oct 2025",
+          "Sep 2025",
+          "Aug 2025",
+          "Jul 2025",
+          "Jun 2025",
+          "May 2025",
+          "Apr 2025",
+          "Mar 2025",
+          "Feb 2025",
+          "Jan 2025",
+          "Dec 2024",
+          "Nov 2024"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "summary attacks",
+    "description": "Shows a summary of multiplayer attacks and defenses.",
+    "description_long": "command.summary.attacks.description_long",
+    "options": [
+      {
+        "name": "clans",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "season",
+        "description": "Retrieve data for the specified season.",
+        "type": "String",
+        "choices": [
+          "Apr 2026",
+          "Mar 2026",
+          "Feb 2026",
+          "Jan 2026",
+          "Dec 2025",
+          "Nov 2025",
+          "Oct 2025",
+          "Sep 2025",
+          "Aug 2025",
+          "Jul 2025",
+          "Jun 2025",
+          "May 2025",
+          "Apr 2025",
+          "Mar 2025",
+          "Feb 2025",
+          "Jan 2025",
+          "Dec 2024",
+          "Nov 2024"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "summary best",
+    "description": "Shows a summary of best members.",
+    "description_long": "command.summary.best.description_long",
+    "options": [
+      {
+        "name": "clans",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "season",
+        "description": "Retrieve data for the specified season.",
+        "type": "String",
+        "choices": [
+          "Apr 2026",
+          "Mar 2026",
+          "Feb 2026",
+          "Jan 2026",
+          "Dec 2025",
+          "Nov 2025",
+          "Oct 2025",
+          "Sep 2025",
+          "Aug 2025",
+          "Jul 2025",
+          "Jun 2025",
+          "May 2025",
+          "Apr 2025",
+          "Mar 2025",
+          "Feb 2025",
+          "Jan 2025",
+          "Dec 2024",
+          "Nov 2024"
+        ]
+      },
+      {
+        "name": "limit",
+        "description": "Number of members to show (Default: 5)",
+        "type": "Integer",
+        "choices": []
+      },
+      {
+        "name": "order",
+        "description": "Order of the list.",
+        "type": "String",
+        "choices": [
+          "Descending",
+          "Ascending"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "summary capital-contribution",
+    "description": "Shows a summary of capital contributions.",
+    "description_long": "command.summary.capital_contribution.description_long",
+    "options": [
+      {
+        "name": "clans",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "season",
+        "description": "Retrieve data for the specified season.",
+        "type": "String",
+        "choices": [
+          "Apr 2026",
+          "Mar 2026",
+          "Feb 2026",
+          "Jan 2026",
+          "Dec 2025",
+          "Nov 2025",
+          "Oct 2025",
+          "Sep 2025",
+          "Aug 2025",
+          "Jul 2025",
+          "Jun 2025",
+          "May 2025",
+          "Apr 2025",
+          "Mar 2025",
+          "Feb 2025",
+          "Jan 2025",
+          "Dec 2024",
+          "Nov 2024"
+        ]
+      },
+      {
+        "name": "week",
+        "description": "The week to show capital contributions for.",
+        "type": "String",
+        "choices": [
+          "27 Mar, 2026",
+          "20 Mar, 2026",
+          "13 Mar, 2026",
+          "06 Mar, 2026",
+          "27 Feb, 2026",
+          "20 Feb, 2026"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "summary capital-raids",
+    "description": "Shows information about capital raids.",
+    "description_long": "command.summary.capital_raids.description_long",
+    "options": [
+      {
+        "name": "clans",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "week",
+        "description": "Retrieve data for the specified raid weekend.",
+        "type": "String",
+        "choices": [
+          "27 Mar, 2026",
+          "20 Mar, 2026",
+          "13 Mar, 2026",
+          "06 Mar, 2026",
+          "27 Feb, 2026",
+          "20 Feb, 2026"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "summary clan-games",
+    "description": "Shows a summary of clan games scores.",
+    "description_long": "command.summary.clan_games.description_long",
+    "options": [
+      {
+        "name": "season",
+        "description": "Retrieve data for the specified season.",
+        "type": "String",
+        "choices": [
+          "Apr 2026",
+          "Mar 2026",
+          "Feb 2026",
+          "Jan 2026",
+          "Dec 2025",
+          "Nov 2025",
+          "Oct 2025",
+          "Sep 2025",
+          "Aug 2025",
+          "Jul 2025",
+          "Jun 2025",
+          "May 2025",
+          "Apr 2025",
+          "Mar 2025",
+          "Feb 2025",
+          "Jan 2025",
+          "Dec 2024",
+          "Nov 2024"
+        ]
+      },
+      {
+        "name": "clans",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "summary clans",
+    "description": "Shows a summary of family clans.",
+    "description_long": "command.summary.clans.description_long",
+    "options": [
+      {
+        "name": "clans",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "summary compo",
+    "description": "Shows a summary of Town Hall composition.",
+    "description_long": "command.summary.compo.description_long",
+    "options": [
+      {
+        "name": "clans",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "summary cwl-ranks",
+    "description": "Shows a summary of CWL ranks.",
+    "description_long": "command.summary.cwl_ranks.description_long",
+    "options": [
+      {
+        "name": "season",
+        "description": "Retrieve data for the specified season.",
+        "type": "String",
+        "choices": [
+          "Apr 2026",
+          "Mar 2026",
+          "Feb 2026",
+          "Jan 2026",
+          "Dec 2025",
+          "Nov 2025",
+          "Oct 2025",
+          "Sep 2025",
+          "Aug 2025",
+          "Jul 2025",
+          "Jun 2025",
+          "May 2025",
+          "Apr 2025",
+          "Mar 2025",
+          "Feb 2025",
+          "Jan 2025",
+          "Dec 2024",
+          "Nov 2024"
+        ]
+      },
+      {
+        "name": "clans",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "summary cwl-status",
+    "description": "Shows a summary of CWL spin status.",
+    "description_long": "command.summary.cwl_status.description_long",
+    "options": [
+      {
+        "name": "clans",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "summary donations",
+    "description": "Shows a summary of donations.",
+    "description_long": "command.summary.donations.description_long",
+    "options": [
+      {
+        "name": "season",
+        "description": "Retrieve data for the specified season.",
+        "type": "String",
+        "choices": [
+          "Apr 2026",
+          "Mar 2026",
+          "Feb 2026",
+          "Jan 2026",
+          "Dec 2025",
+          "Nov 2025",
+          "Oct 2025",
+          "Sep 2025",
+          "Aug 2025",
+          "Jul 2025",
+          "Jun 2025",
+          "May 2025",
+          "Apr 2025",
+          "Mar 2025",
+          "Feb 2025",
+          "Jan 2025",
+          "Dec 2024",
+          "Nov 2024"
+        ]
+      },
+      {
+        "name": "clans",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "summary leagues",
+    "description": "Shows a summary of clan leagues.",
+    "description_long": "command.summary.leagues.description_long",
+    "options": [
+      {
+        "name": "clans",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "summary missed-wars",
+    "description": "Shows a summary of missed wars.",
+    "description_long": "command.summary.missed_wars.description_long",
+    "options": [
+      {
+        "name": "clans",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "war_type",
+        "description": "Regular, CWL or Friendly Wars (defaults to Regular)",
+        "type": "String",
+        "choices": [
+          "Regular",
+          "CWL",
+          "Friendly",
+          "Regular and CWL"
+        ]
+      },
+      {
+        "name": "season",
+        "description": "Retrieve data since the specified season.",
+        "type": "String",
+        "choices": [
+          "Since Apr 2026",
+          "Since Mar 2026",
+          "Since Feb 2026",
+          "Since Jan 2026",
+          "Since Dec 2025",
+          "Since Nov 2025",
+          "Since Oct 2025",
+          "Since Sep 2025",
+          "Since Aug 2025",
+          "Since Jul 2025",
+          "Since Jun 2025",
+          "Since May 2025",
+          "Since Apr 2025",
+          "Since Mar 2025",
+          "Since Feb 2025",
+          "Since Jan 2025",
+          "Since Dec 2024",
+          "Since Nov 2024"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "summary trophies",
+    "description": "Shows a summary of trophies.",
+    "description_long": "command.summary.trophies.description_long",
+    "options": [
+      {
+        "name": "clans",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "limit",
+        "description": "Limit the number of members.",
+        "type": "Integer",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "summary war-results",
+    "description": "Shows a summary of seasonal war results.",
+    "description_long": "command.summary.war_results.description_long",
+    "options": [
+      {
+        "name": "clans",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "season",
+        "description": "Retrieve data for the specified season.",
+        "type": "String",
+        "choices": [
+          "Apr 2026",
+          "Mar 2026",
+          "Feb 2026",
+          "Jan 2026",
+          "Dec 2025",
+          "Nov 2025",
+          "Oct 2025",
+          "Sep 2025",
+          "Aug 2025",
+          "Jul 2025",
+          "Jun 2025",
+          "May 2025",
+          "Apr 2025",
+          "Mar 2025",
+          "Feb 2025",
+          "Jan 2025",
+          "Dec 2024",
+          "Nov 2024"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "summary wars",
+    "description": "Shows a summary of current wars.",
+    "description_long": "command.summary.wars.description_long",
+    "options": [
+      {
+        "name": "clans",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "sync-emojis",
+    "description": "Scan all servers and sync emoji IDs into emojis.ts (owner only)",
+    "description_long": "command.sync_emojis.description_long",
+    "options": []
+  },
+  {
+    "name": "timezone",
+    "description": "Set your timezone offset for /activity command.",
+    "description_long": "command.timezone.description_long",
+    "options": [
+      {
+        "name": "location",
+        "description": "Search timezone by city or country. (e.g. London, New York, Singapore, India, Sydney)",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "units",
+    "description": "Shows home village and builder base units of a player (with max/min levels)",
+    "description_long": "command.units.description_long",
+    "options": [
+      {
+        "name": "player",
+        "description": "Player tag or name.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "user",
+        "description": "Player by @user mention or ID.",
+        "type": "User",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "upgrades",
+    "description": "Remaining upgrades of a player with upgrading cost.",
+    "description_long": "command.upgrades.description_long",
+    "options": [
+      {
+        "name": "player",
+        "description": "Player tag or name.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "user",
+        "description": "Player by @user mention or ID.",
+        "type": "User",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "usage",
+    "description": "You can't use it anyway, so why explain?",
+    "description_long": "command.usage.description_long",
+    "options": [
+      {
+        "name": "chart",
+        "description": "It does something, yeah?",
+        "type": "Boolean",
+        "choices": []
+      },
+      {
+        "name": "limit",
+        "description": "It does something, yeah?",
+        "type": "Integer",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "verify",
+    "description": "Verify and link a player account using an API token.",
+    "description_long": "command.verify.description_long",
+    "options": [
+      {
+        "name": "player",
+        "description": "Tag of the player to verify.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "token",
+        "description": "API token that can be found in the game settings.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "war",
+    "description": "Shows war summary and overview of a clan.",
+    "description_long": "command.war.description_long",
+    "options": [
+      {
+        "name": "clan",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "user",
+        "description": "Clan by @user mention or ID.",
+        "type": "User",
+        "choices": []
+      },
+      {
+        "name": "war_id",
+        "description": "Search by war ID.",
+        "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "warlog",
+    "description": "Shows the last 10 clan war logs.",
+    "description_long": "command.warlog.description_long",
+    "options": [
+      {
+        "name": "clan",
+        "description": "Clan tag or name or alias.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "user",
+        "description": "Clan by @user mention or ID.",
+        "type": "User",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "whitelist",
+    "description": "Whitelist a role or user to use specific commands.",
+    "description_long": "command.whitelist.description_long",
+    "options": [
+      {
+        "name": "user_or_role",
+        "description": "User or role to whitelist.",
+        "type": "Mentionable",
+        "choices": []
+      },
+      {
+        "name": "command",
+        "description": "Command to whitelist.",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "clear",
+        "description": "Clear the whitelist.",
+        "type": "Boolean",
+        "choices": []
+      },
+      {
+        "name": "list",
+        "description": "List all whitelisted users and roles.",
+        "type": "Boolean",
+        "choices": []
+      }
+    ]
+  }
+]

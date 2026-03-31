@@ -1,0 +1,112 @@
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
+import { ObjectId } from 'mongodb';
+import { Command } from '../../lib/handlers.js';
+import { EMOJIS } from '../../util/emojis.js';
+import { Util } from '../../util/toolkit.js';
+export default class ClansCommand extends Command {
+    constructor() {
+        super('clans', {
+            category: 'setup',
+            channel: 'guild',
+            clientPermissions: ['EmbedLinks'],
+            defer: true
+        });
+    }
+    async exec(interaction, args) {
+        let clans = await this.client.storage.find(interaction.guildId);
+        if (!clans.length) {
+            return interaction.editReply({
+                content: this.i18n('common.no_clans_linked', {
+                    lng: interaction.locale,
+                    command: this.client.commands.SETUP_CLAN
+                })
+            });
+        }
+        const hasCategoryFilter = !!(args.category && ObjectId.isValid(args.category));
+        if (hasCategoryFilter) {
+            clans = clans.filter((clan) => clan.categoryId && clan.categoryId.toHexString() === args.category);
+        }
+        if (!clans.length && hasCategoryFilter) {
+            return interaction.editReply({ content: 'No clans found for the specified category.' });
+        }
+        const clansMap = await this.getClansMap(clans.map((clan) => clan.tag));
+        const categories = await this.getCategoriesMap(interaction.guildId);
+        const categoryIds = Object.keys(categories);
+        const clansReduced = clans.reduce((prev, curr) => {
+            let categoryId = curr.categoryId?.toHexString() || 'general';
+            if (!(categoryId in categories))
+                categoryId = 'general';
+            prev[categoryId] ??= [];
+            prev[categoryId].push(curr);
+            return prev;
+        }, {});
+        const clanGroups = Object.entries(clansReduced).sort(([a], [b]) => categoryIds.indexOf(a) - categoryIds.indexOf(b));
+        const embed = new EmbedBuilder()
+            .setAuthor({ name: `${interaction.guild.name} Clans`, iconURL: interaction.guild.iconURL() })
+            .setColor(this.client.embed(interaction))
+            .setFooter({ text: `Total ${clans.length}` });
+        const clanCategoryExclusionList = this.client.settings
+            .get(interaction.guildId, "clanCategoryExclusion" /* Settings.CLAN_CATEGORY_EXCLUSION */, [])
+            .filter((id) => categories[id]);
+        if (!args.category_filter && clanCategoryExclusionList.length)
+            args.category_filter = 'exclude';
+        const chunk = clanGroups
+            .filter(([categoryId]) => {
+            if (hasCategoryFilter || !args.category_filter || !clanCategoryExclusionList.length)
+                return true;
+            if (args.category_filter === 'include') {
+                return clanCategoryExclusionList.includes(categoryId);
+            }
+            return !clanCategoryExclusionList.includes(categoryId);
+        })
+            .map(([categoryId, clans]) => {
+            return [
+                `**${categories[categoryId] || 'General'}**`,
+                ...clans.map((clan) => {
+                    const mem = clansMap[clan.tag] || 0;
+                    const tag = clan.tag.replace('#', '');
+                    return `[\u200e${clan.nickname || clan.name} (${clan.tag}) - ${mem}](http://cprk.us/c/${tag})`;
+                })
+            ].join('\n');
+        })
+            .join('\n\n');
+        const [description, ...fields] = Util.splitMessage(chunk, { maxLength: 4096 });
+        embed.setDescription(description);
+        for (const field of fields) {
+            embed.addFields({ name: '\u200b', value: field });
+        }
+        const payload = {
+            cmd: this.id,
+            category: args.category
+        };
+        const customIds = {
+            switch: this.createId({
+                ...payload,
+                category_filter: args.category_filter === 'exclude' ? 'include' : 'exclude'
+            }),
+            refresh: this.createId({ ...payload })
+        };
+        const row = new ActionRowBuilder().addComponents(new ButtonBuilder()
+            .setCustomId(customIds.refresh)
+            .setEmoji(EMOJIS.REFRESH)
+            .setStyle(ButtonStyle.Secondary));
+        if (args.category_filter && clanCategoryExclusionList.length && !hasCategoryFilter) {
+            row.addComponents(new ButtonBuilder()
+                .setCustomId(customIds.switch)
+                .setLabel(args.category_filter === 'exclude' ? 'Secondary' : 'Primary')
+                .setStyle(args.category_filter === 'exclude' ? ButtonStyle.Secondary : ButtonStyle.Primary));
+        }
+        return interaction.editReply({ embeds: [embed], components: [row] });
+    }
+    async getCategoriesMap(guildId) {
+        const categories = await this.client.storage.getOrCreateDefaultCategories(guildId);
+        return Object.fromEntries(categories.map((cat) => [cat.value, cat.name]));
+    }
+    async getClansMap(clanTags) {
+        const clans = (await Promise.all(clanTags.map((t) => this.client.coc.getClan(t))))
+            .filter((r) => r.res.ok)
+            .map((r) => r.body);
+        return Object.fromEntries(clans.map((clan) => [clan.tag, clan.members]));
+    }
+}
+//# sourceMappingURL=clans.js.map

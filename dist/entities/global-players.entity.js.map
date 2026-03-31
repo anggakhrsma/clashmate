@@ -1,0 +1,1 @@
+{"version":3,"file":"global-players.entity.js","sourceRoot":"","sources":["../../src/entities/global-players.entity.ts"],"names":[],"mappings":"","sourcesContent":["import { ObjectId } from 'mongodb';\n\nexport interface GlobalPlayersEntity {\n  tag: string;\n  name: string;\n  clanTag: string;\n  trackingId: ObjectId;\n  createdAt: Date;\n}\n"]}

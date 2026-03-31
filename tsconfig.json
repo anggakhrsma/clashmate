@@ -1,0 +1,58 @@
+{
+  // Mapped from https://www.typescriptlang.org/tsconfig
+  "compilerOptions": {
+    // Bot
+    "module": "Node16",
+    "moduleResolution": "Node16",
+    "resolveJsonModule": true,
+    "outDir": "dist",
+    "lib": ["ESNext"],
+
+    // Type Checking
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
+    "alwaysStrict": true,
+    "exactOptionalPropertyTypes": false,
+    "noFallthroughCasesInSwitch": true,
+    // "noImplicitOverride": true,
+    // "noImplicitReturns": true,
+    // "noUnusedLocals": true,
+    // "noUnusedParameters": true,
+    "strict": true,
+    "useUnknownInCatchVariables": false,
+    // "noUncheckedIndexedAccess": true,
+
+    // Emit
+    "declaration": false,
+    "importHelpers": true,
+    // "importsNotUsedAsValues": "error",
+    "inlineSources": true,
+    "newLine": "lf",
+    "noEmitHelpers": true,
+    "preserveConstEnums": false,
+    "removeComments": false,
+    "sourceMap": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "allowImportingTsExtensions": false,
+
+    // Language and Environment
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "target": "ES2021",
+    "useDefineForClassFields": true,
+
+    // Completeness
+    "skipLibCheck": true,
+    "typeRoots": ["./node_modules/@types", "./src/types"],
+
+    // Interop Constraints
+    "allowSyntheticDefaultImports": true,
+
+    "paths": {
+      "@app/constants": ["./src/util/constants.ts"],
+      "@app/entities": ["./src/entities/index.ts"]
+    }
+  },
+  "include": ["src", "src/types", "locales", "locales/**/*.json"]
+}

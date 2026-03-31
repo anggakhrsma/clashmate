@@ -1,0 +1,24 @@
+import { flattenApplicationCommands } from '../../helper/commands.helper.js';
+import { Listener } from '../../lib/handlers.js';
+export default class ReadyListener extends Listener {
+    constructor() {
+        super('clientReady', {
+            event: 'clientReady',
+            emitter: 'client',
+            category: 'client'
+        });
+    }
+    async exec() {
+        this.client.logger.info(`${this.client.user.displayName} (${this.client.user.id}) [${(process.env.NODE_ENV ?? 'development').toUpperCase()}]`, { label: 'READY' });
+        const applicationCommands = await this.client.application.commands.fetch();
+        const commands = await flattenApplicationCommands([...applicationCommands.values()]);
+        commands.map((cmd) => {
+            this.client.commands.set(cmd.name, cmd.formatted, cmd.mappedId);
+            const name = cmd.name.replace('/', '').replace(/\s+/g, '-');
+            const mod = this.client.commandHandler.getCommand(name);
+            if (!mod)
+                this.client.logger.warn(`${cmd.name}`, { label: 'MissingCommand' });
+        });
+    }
+}
+//# sourceMappingURL=ready.js.map

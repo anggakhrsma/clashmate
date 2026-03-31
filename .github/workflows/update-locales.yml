@@ -1,0 +1,80 @@
+name: update-locales
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**/locales.ts'
+
+jobs:
+  build:
+    environment: Production
+    name: update-locales
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+
+      - name: Checkout locales Repository
+        uses: actions/checkout@v6
+        with:
+          repository: clashperk/locales
+          path: locales
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v6
+        with:
+          cache: 'npm'
+          node-version: 20
+
+      - name: NPM Install
+        run: npm i
+
+      - name: Check Duplicates
+        run: npm run check:locales
+
+      - name: Build
+        run: npm run build
+
+      - name: Create PR in locales Repo
+        uses: peter-evans/create-pull-request@v8
+        id: cpr
+        with:
+          token: ${{ secrets.PR_ACTION_GITHUB_PAT }}
+          commit-message: 'chore: update locales'
+          title: 'chore: update locales'
+          branch: chore/update-locales
+          base: main
+          path: locales
+          delete-branch: true
+          committer: GitHub <noreply@github.com>
+          author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+
+      - name: Approve and Merge PR
+        run: |
+          cd locales
+          gh pr review --approve ${{steps.cpr.outputs.pull-request-number }}
+          gh pr merge --squash ${{steps.cpr.outputs.pull-request-number }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.ORG_GITHUB_PAT }}
+
+      - name: Pull
+        run: |
+          cd locales
+          git checkout main
+          git pull
+
+      - name: Create PR in main Repo
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.ORG_GITHUB_PAT }}
+          commit-message: 'chore: update submodules'
+          title: 'chore: update submodules'
+          branch: chore/update-submodules
+          base: main
+          delete-branch: true
+          committer: GitHub <noreply@github.com>
+          author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>

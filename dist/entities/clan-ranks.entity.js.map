@@ -1,0 +1,1 @@
+{"version":3,"file":"clan-ranks.entity.js","sourceRoot":"","sources":["../../src/entities/clan-ranks.entity.ts"],"names":[],"mappings":"","sourcesContent":["export interface ClanRanksEntity {\n  countryCode: string;\n  clans: {\n    tag: string;\n    name: string;\n    rank: number;\n    clanPoints: number;\n  }[];\n  country: string;\n  season: string;\n}\n"]}

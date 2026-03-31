@@ -1,0 +1,135 @@
+import { EmbedBuilder, User } from 'discord.js';
+import moment from 'moment';
+import 'moment-duration-format';
+import { cluster } from 'radash';
+import { Command } from '../../lib/handlers.js';
+import { EMOJIS } from '../../util/emojis.js';
+import { handleMessagePagination } from '../../util/pagination.js';
+export default class AutoTownHallRoleCommand extends Command {
+    constructor() {
+        super('autorole-refresh', {
+            category: 'roles',
+            channel: 'guild',
+            userPermissions: ['ManageGuild'],
+            clientPermissions: [
+                'EmbedLinks',
+                'ManageRoles',
+                'SendMessagesInThreads',
+                'SendMessages',
+                'ViewChannel',
+                'UseExternalEmojis'
+            ],
+            defer: true
+        });
+    }
+    refine(interaction, args) {
+        return {
+            ...this.options,
+            roleKey: args.user_or_role && args.user_or_role instanceof User ? "linksManagerRole" /* Settings.LINKS_MANAGER_ROLE */ : null,
+            ephemeral: interaction.isButton()
+        };
+    }
+    async exec(interaction, args) {
+        if (interaction.isButton() || (args.user_or_role && args.user_or_role instanceof User)) {
+            args.force_refresh ??= this.client.settings.get(interaction.guild, "forceRefreshRoles" /* Settings.FORCE_REFRESH_ROLES */, false);
+        }
+        const inProgress = this.client.rolesManager.getChangeLogs(interaction.guildId);
+        if (inProgress) {
+            return interaction.editReply('Previous refresh is currently being processed.');
+        }
+        if (this.client.inMaintenance) {
+            return interaction.editReply('Command is blocked due to ongoing maintenance break.');
+        }
+        const refreshCounter = {
+            startTime: Date.now(),
+            attempts: 0
+        };
+        const labels = {
+            test: args.is_test_run ? ' [TestRun]' : '',
+            force: args.force_refresh ? ' [Forced]' : ''
+        };
+        const embed = new EmbedBuilder();
+        embed.setColor(this.client.embed(interaction));
+        embed.setDescription(`### Refreshing... ${EMOJIS.LOADING}`);
+        embed.setFooter({ text: `Progress: (0%)${labels.test}${labels.force}` });
+        const message = await interaction.editReply({ embeds: [embed] });
+        const handleChanges = async (closed = false) => {
+            const changes = this.client.rolesManager.getChangeLogs(interaction.guildId);
+            if (!changes)
+                return null;
+            if (closed)
+                embed.setDescription('### Refresh Completed!');
+            const percentage = ((changes.progress / changes.memberCount) * 100).toFixed(2);
+            embed.setFooter({
+                text: [
+                    `Time Elapsed: ${moment.duration(Date.now() - refreshCounter.startTime).format('h[h] m[m] s[s]', { trim: 'both mid' })}`,
+                    `Progress: ${changes.progress}/${changes.memberCount} (${percentage}%)${labels.test}${labels.force}`
+                ].join('\n')
+            });
+            refreshCounter.attempts += 1;
+            const roleChanges = this.client.rolesManager.getFilteredChangeLogs(changes);
+            const embeds = [];
+            cluster(roleChanges, 20).forEach((changes) => {
+                const roleChangeEmbed = new EmbedBuilder(embed.toJSON());
+                changes.forEach(({ included, excluded, nickname, userId, displayName }, itemIndex) => {
+                    const values = [`> \u200e${displayName} | <@${userId}>`];
+                    if (included.length)
+                        values.push(`**+** ${included.map((id) => `<@&${id}>`).join(' ')}`);
+                    if (excluded.length)
+                        values.push(`**-** ~~${excluded.map((id) => `<@&${id}>`).join(' ')}~~`);
+                    if (nickname)
+                        values.push(nickname);
+                    roleChangeEmbed.addFields({
+                        name: itemIndex === 0 ? `Changes Detected: ${roleChanges.length}\n\u200b` : '\u200b',
+                        value: values.join('\n')
+                    });
+                });
+                embeds.push(roleChangeEmbed);
+            });
+            if (interaction.isButton()) {
+                return interaction.editReply({ embeds: [embeds.length ? embeds.at(-1) : embed] });
+            }
+            if (closed) {
+                return handleMessagePagination(interaction.user.id, message, embeds.length ? embeds : [embed]);
+            }
+            else {
+                return message.edit({ embeds: [embeds.length ? embeds.at(-1) : embed] });
+            }
+        };
+        const timeoutId = setInterval(handleChanges, 5000);
+        this.client.storage.updateClanLinks(interaction.guildId);
+        try {
+            const changes = await this.client.rolesManager.updateMany(interaction.guildId, {
+                isDryRun: Boolean(args.is_test_run),
+                userOrRole: interaction.isButton() ? interaction.user : (args.user_or_role ?? null),
+                logging: true,
+                forced: Boolean(args.force_refresh),
+                nicknameOnly: Boolean(args.nickname_only),
+                reason: `manually ${args.force_refresh ? 'force ' : ''}updated by ${interaction.user.displayName}`
+            });
+            const roleChanges = this.client.rolesManager.getFilteredChangeLogs(changes);
+            if (!roleChanges?.length) {
+                embed.setDescription(`### No changes detected!`);
+                if (!refreshCounter.attempts)
+                    embed.setFooter(null);
+                if (interaction.isButton()) {
+                    return interaction.editReply({ embeds: [embed] });
+                }
+                else {
+                    return message.edit({ embeds: [embed], components: [] });
+                }
+            }
+            return await handleChanges(true);
+        }
+        finally {
+            clearInterval(timeoutId);
+            this.client.rolesManager.clearChangeLogs(interaction.guildId);
+        }
+    }
+    async onExport(interaction, [embed, ...embeds]) {
+        await interaction.editReply({ embeds: [embed], components: [] });
+        for (const embed of embeds)
+            await interaction.followUp({ embeds: [embed] });
+    }
+}
+//# sourceMappingURL=autorole-refresh.js.map

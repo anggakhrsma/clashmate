@@ -1,0 +1,1 @@
+{"version":3,"file":"capital-ranks.entity.js","sourceRoot":"","sources":["../../src/entities/capital-ranks.entity.ts"],"names":[],"mappings":"","sourcesContent":["export interface CapitalRanksEntity {\n  countryCode: string;\n  clans: {\n    tag: string;\n    name: string;\n    rank: number;\n    clanCapitalPoints: number;\n  }[];\n  country: string;\n  season: string;\n}\n"]}

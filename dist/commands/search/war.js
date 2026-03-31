@@ -1,0 +1,502 @@
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, StringSelectMenuBuilder, escapeMarkdown, time } from 'discord.js';
+import moment from 'moment';
+import pluralize from 'pluralize';
+import { cluster } from 'radash';
+import { Command } from '../../lib/handlers.js';
+import { WarCommandOptions } from '../../util/command.options.js';
+import { EMOJIS, TOWN_HALLS, WHITE_NUMBERS } from '../../util/emojis.js';
+import { padStart } from '../../util/helper.js';
+import { Util } from '../../util/toolkit.js';
+const stars = {
+    0: '☆☆☆',
+    1: '★☆☆',
+    2: '★★☆',
+    3: '★★★'
+};
+export default class WarCommand extends Command {
+    constructor() {
+        super('war', {
+            category: 'war',
+            channel: 'guild',
+            clientPermissions: ['UseExternalEmojis', 'EmbedLinks'],
+            defer: true
+        });
+    }
+    args() {
+        return {
+            clan: {
+                id: 'tag',
+                match: 'STRING'
+            }
+        };
+    }
+    async exec(interaction, args) {
+        const clan = await this.client.resolver.resolveClan(interaction, args.tag ?? args.user?.id);
+        if (!clan)
+            return;
+        if (args.attacks && args.war_id) {
+            const collection = this.client.db.collection("ClanWars" /* Collections.CLAN_WARS */);
+            const body = await collection.findOne({ id: args.war_id });
+            if (!body)
+                return interaction.followUp({
+                    content: 'No war found with that ID.',
+                    flags: MessageFlags.Ephemeral
+                });
+            const clan = body.clan.tag === args.tag ? body.clan : body.opponent;
+            const opponent = body.clan.tag === args.tag ? body.opponent : body.clan;
+            const embed = this.attacks(interaction, { ...body, clan, opponent });
+            return interaction.followUp({ embeds: [embed], flags: MessageFlags.Ephemeral });
+        }
+        if ((args.open_bases || args.openBases) && args.war_id) {
+            const collection = this.client.db.collection("ClanWars" /* Collections.CLAN_WARS */);
+            const body = await collection.findOne({ id: args.war_id });
+            if (!body)
+                return interaction.followUp({
+                    content: 'No war found with that ID.',
+                    flags: MessageFlags.Ephemeral
+                });
+            const clan = body.clan.tag === args.tag ? body.clan : body.opponent;
+            const opponent = body.clan.tag === args.tag ? body.opponent : body.clan;
+            const embed = await this.openBases(interaction, {
+                ...body,
+                clan,
+                opponent
+            });
+            return interaction.followUp({ embeds: [embed], flags: MessageFlags.Ephemeral });
+        }
+        let body = null;
+        if (args.war_id) {
+            const war = await this.getWar(args.war_id, clan.tag);
+            if (!war)
+                return interaction.editReply(this.i18n('command.war.no_war_id', { lng: interaction.locale }));
+            body = war;
+        }
+        const embed = new EmbedBuilder()
+            .setColor(this.client.embed(interaction))
+            .setAuthor({ name: `\u200e${clan.name} (${clan.tag})`, iconURL: clan.badgeUrls.medium });
+        if (!clan.isWarLogPublic && !interaction.isMessageComponent()) {
+            const { res } = await this.client.coc.getClanWarLeagueGroup(clan.tag);
+            if (res.ok) {
+                return this.handler.exec(interaction, this.handler.getCommand('cwl-round'), {
+                    tag: clan.tag
+                });
+            }
+            embed.setDescription('Private War Log');
+            return interaction.followUp({ embeds: [embed] });
+        }
+        if (!body) {
+            const { body: war, res } = await this.client.coc.getCurrentWar(clan.tag);
+            if (!res.ok)
+                return interaction.followUp('**504 Request Timeout!**');
+            body = war;
+        }
+        if (body.state === 'notInWar') {
+            const { res } = await this.client.coc.getClanWarLeagueGroup(clan.tag);
+            if (res.ok) {
+                return this.handler.exec(interaction, this.handler.getCommand('cwl-round'), {
+                    tag: clan.tag
+                });
+            }
+            embed.setDescription(this.i18n('command.war.not_in_war', { lng: interaction.locale }));
+            return interaction.followUp({ embeds: [embed] });
+        }
+        if (args.selected === WarCommandOptions.ATTACKS) {
+            const clan = body.clan.tag === args.tag ? body.clan : body.opponent;
+            const opponent = body.clan.tag === args.tag ? body.opponent : body.clan;
+            const embed = this.attacks(interaction, { ...body, clan, opponent });
+            const components = this.getComponents({ body, selected: args.selected });
+            return interaction.editReply({ embeds: [embed], components });
+        }
+        if (args.selected === WarCommandOptions.GROUP_ATTACKS) {
+            const clan = body.clan.tag === args.tag ? body.clan : body.opponent;
+            const opponent = body.clan.tag === args.tag ? body.opponent : body.clan;
+            const embed = this.groupAttacks(interaction, {
+                ...body,
+                clan,
+                opponent
+            });
+            const components = this.getComponents({ body, selected: args.selected });
+            return interaction.editReply({ embeds: [embed], components });
+        }
+        if (args.selected === WarCommandOptions.DEFENSES) {
+            const opponent = body.clan.tag === args.tag ? body.clan : body.opponent;
+            const clan = body.clan.tag === args.tag ? body.opponent : body.clan;
+            const embed = this.attacks(interaction, { ...body, clan, opponent });
+            const components = this.getComponents({ body, selected: args.selected });
+            return interaction.editReply({ embeds: [embed], components });
+        }
+        if (args.selected === WarCommandOptions.OPEN_BASES) {
+            const clan = body.clan.tag === args.tag ? body.clan : body.opponent;
+            const opponent = body.clan.tag === args.tag ? body.opponent : body.clan;
+            const embed = await this.openBases(interaction, {
+                ...body,
+                clan,
+                opponent
+            });
+            const components = this.getComponents({ body, selected: args.selected });
+            return interaction.editReply({ embeds: [embed], components });
+        }
+        return this.sendResult(interaction, body);
+    }
+    async getWar(id, tag) {
+        const collection = this.client.db.collection("ClanWars" /* Collections.CLAN_WARS */);
+        const data = id === 'last'
+            ? await collection.findOne({
+                $or: [{ 'clan.tag': tag }, { 'opponent.tag': tag }],
+                warType: { $ne: 3 /* WarType.CWL */ },
+                state: 'warEnded'
+            }, { sort: { _id: -1 } })
+            : await collection.findOne({
+                id: Number(id),
+                $or: [{ 'clan.tag': tag }, { 'opponent.tag': tag }]
+            });
+        if (!data)
+            return null;
+        const clan = data.clan.tag === tag ? data.clan : data.opponent;
+        const opponent = data.clan.tag === tag ? data.opponent : data.clan;
+        return { ...data, clan, opponent };
+    }
+    async sendResult(interaction, body) {
+        const embed = new EmbedBuilder().setColor(this.client.embed(interaction)).setAuthor({
+            name: `\u200e${body.clan.name} (${body.clan.tag})`,
+            iconURL: body.clan.badgeUrls.medium
+        });
+        if (body.state === 'preparation') {
+            const startTimestamp = new Date(moment(body.startTime).toDate());
+            embed.setDescription([
+                '**War Against**',
+                `\u200e${escapeMarkdown(body.opponent.name)} (${body.opponent.tag})`,
+                '',
+                '**War State**',
+                'Preparation',
+                `War Start Time: ${time(startTimestamp, 'R')}`,
+                '',
+                '**War Size**',
+                `${body.teamSize} vs ${body.teamSize}`
+            ].join('\n'));
+        }
+        if (body.state === 'inWar') {
+            const endTimestamp = new Date(moment(body.endTime).toDate());
+            embed.setDescription([
+                '**War Against**',
+                `\u200e${escapeMarkdown(body.opponent.name)} (${body.opponent.tag})`,
+                '',
+                '**War State**',
+                `Battle Day (${body.teamSize} vs ${body.teamSize})`,
+                `End Time: ${time(endTimestamp, 'R')}`,
+                '',
+                '**War Size**',
+                `${body.teamSize} vs ${body.teamSize}`,
+                '',
+                '**War Stats**',
+                `${this.getLeaderBoard(body.clan, body.opponent, body.attacksPerMember ?? 2)}`
+            ].join('\n'));
+        }
+        if (body.state === 'warEnded') {
+            const endTimestamp = new Date(moment(body.endTime).toDate());
+            embed.setDescription([
+                '**War Against**',
+                `\u200e${escapeMarkdown(body.opponent.name)} (${body.opponent.tag})`,
+                '',
+                '**War State**',
+                `War Ended (${body.teamSize} vs ${body.teamSize})`,
+                `Ended: ${time(endTimestamp, 'R')}`,
+                '',
+                '**War Stats**',
+                `${this.getLeaderBoard(body.clan, body.opponent, body.attacksPerMember ?? 2)}`
+            ].join('\n'));
+        }
+        embed.addFields([
+            {
+                name: 'Rosters',
+                value: [`\u200e${escapeMarkdown(body.clan.name)}`, `${this.count(body.clan.members)}`].join('\n')
+            },
+            {
+                name: '\u200b',
+                value: [
+                    `\u200e${escapeMarkdown(body.opponent.name)}`,
+                    `${this.count(body.opponent.members)}`
+                ].join('\n')
+            }
+        ]);
+        if (body.id) {
+            embed.setFooter({ text: `War ID #${body.id}` });
+        }
+        const components = this.getComponents({ body, selected: WarCommandOptions.OVERVIEW });
+        return interaction.editReply({ embeds: [embed], components: [...components] });
+    }
+    getComponents({ body, selected }) {
+        const payload = {
+            cmd: this.id,
+            tag: body.clan.tag,
+            war_id: body.id
+        };
+        const customIds = {
+            refresh: this.createId(payload),
+            menu: this.createId({ ...payload, string_key: 'selected' })
+        };
+        const primaryRow = new ActionRowBuilder().addComponents(new ButtonBuilder()
+            .setEmoji(EMOJIS.REFRESH)
+            .setCustomId(customIds.refresh)
+            .setStyle(ButtonStyle.Secondary));
+        const options = [
+            {
+                label: 'Attacks',
+                description: 'View clan attacks.',
+                value: WarCommandOptions.ATTACKS,
+                emoji: EMOJIS.SWORD
+            },
+            {
+                label: 'Defenses',
+                description: 'View opponent attacks.',
+                value: WarCommandOptions.DEFENSES,
+                emoji: EMOJIS.SHIELD
+            },
+            {
+                label: 'Group War Stars',
+                description: 'Group participants by stars.',
+                value: WarCommandOptions.GROUP_ATTACKS,
+                emoji: EMOJIS.SWORD
+            },
+            {
+                label: 'Open Bases',
+                description: 'View open bases.',
+                value: WarCommandOptions.OPEN_BASES,
+                emoji: EMOJIS.EMPTY_STAR
+            }
+            // {
+            // 	label: 'Lineup',
+            // 	description: 'View clan lineup.',
+            // 	value: WarCommandOptions.LINEUP,
+            // 	emoji: EMOJIS.TOWN_HALL
+            // },
+            // {
+            // 	label: 'Remaining',
+            // 	description: 'View remaining attacks.',
+            // 	value: WarCommandOptions.REMAINING,
+            // 	emoji: EMOJIS.EMPTY_STAR
+            // }
+        ];
+        if (selected && selected !== WarCommandOptions.OVERVIEW) {
+            options.unshift({
+                label: 'Overview',
+                description: 'View war overview.',
+                value: WarCommandOptions.OVERVIEW,
+                emoji: EMOJIS.WAR
+            });
+        }
+        const menuRow = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder()
+            .setCustomId(customIds.menu)
+            .setPlaceholder('Select an option...')
+            .setOptions(options.map((option) => ({
+            ...option,
+            default: option.value === selected
+        }))));
+        return [primaryRow, menuRow];
+    }
+    count(members = []) {
+        const reduced = members.reduce((count, member) => {
+            const townHall = member.townhallLevel;
+            count[townHall] = (count[townHall] || 0) + 1;
+            return count;
+        }, {});
+        const townHalls = Object.entries(reduced)
+            .map((entry) => ({ level: Number(entry[0]), total: Number(entry[1]) }))
+            .sort((a, b) => b.level - a.level);
+        return cluster(townHalls, 5)
+            .map((chunks) => chunks.map((th) => `${TOWN_HALLS[th.level]}${WHITE_NUMBERS[th.total]}`).join(' '))
+            .join('\n');
+    }
+    toFixed(num) {
+        if (!num)
+            return num;
+        return Number(num.toFixed(2));
+    }
+    getLeaderBoard(clan, opponent, attacksPerMember) {
+        const attacksTotal = Math.floor(clan.members.length * attacksPerMember);
+        return [
+            `\`\u200e${clan.stars.toString().padStart(8, ' ')} \u200f\`\u200e \u2002 ${EMOJIS.STAR} \u2002 \`\u200e ${opponent.stars
+                .toString()
+                .padEnd(8, ' ')}\u200f\``,
+            `\`\u200e${`${clan.attacks}/${attacksTotal}`.padStart(8, ' ')} \u200f\`\u200e \u2002 ${EMOJIS.SWORD} \u2002 \`\u200e ${`${opponent.attacks}/${attacksTotal}`.padEnd(8, ' ')}\u200f\``,
+            `\`\u200e${`${clan.destructionPercentage.toFixed(2)}%`.padStart(8, ' ')} \u200f\`\u200e \u2002 ${EMOJIS.FIRE} \u2002 \`\u200e ${`${opponent.destructionPercentage.toFixed(2)}%`.padEnd(8, ' ')}\u200f\``
+        ].join('\n');
+    }
+    flatHits(data) {
+        const __attacks = data.clan.members.flatMap((m) => m.attacks ?? []);
+        const members = data.clan.members.map((member) => {
+            const attacks = (member.attacks ?? []).map((atk) => {
+                const previousBestAttack = this.client.coc.getPreviousBestAttack(__attacks, atk);
+                return {
+                    ...atk,
+                    trueStars: previousBestAttack
+                        ? Math.max(0, atk.stars - previousBestAttack.stars)
+                        : atk.stars
+                };
+            });
+            return {
+                ...member,
+                attacks
+            };
+        });
+        return members
+            .sort((a, b) => a.mapPosition - b.mapPosition)
+            .reduce((previous, member) => {
+            const atk = member.attacks.map((attack, num) => ({
+                attack,
+                tag: member.tag,
+                name: member.name,
+                mapPosition: member.mapPosition,
+                townhallLevel: member.townhallLevel,
+                bestOpponentAttack: num === 0 ? member.bestOpponentAttack : {},
+                defender: data.opponent.members.find((m) => m.tag === attack.defenderTag)
+            }));
+            if (atk.length) {
+                previous.push(...atk);
+            }
+            else {
+                previous.push({
+                    tag: member.tag,
+                    name: member.name,
+                    mapPosition: member.mapPosition,
+                    townhallLevel: member.townhallLevel,
+                    bestOpponentAttack: member.bestOpponentAttack
+                });
+            }
+            previous.push({});
+            return previous;
+        }, []);
+    }
+    attacks(interaction, body) {
+        const embed = new EmbedBuilder().setColor(this.client.embed(interaction)).setAuthor({
+            name: `\u200e${body.clan.name} (${body.clan.tag})`,
+            iconURL: body.clan.badgeUrls.medium
+        });
+        embed.setDescription([
+            embed.data.description,
+            '',
+            `**Total Attacks - ${body.clan.attacks}/${body.teamSize * (body.attacksPerMember ?? 1)}**`,
+            `**\u200e\` # TH ${stars[3]} DEST ${'NAME'.padEnd(15, ' ')}\u200f\`**`,
+            body.clan.members
+                .sort((a, b) => a.mapPosition - b.mapPosition)
+                .map((member, n) => ({ ...member, mapPosition: n + 1 }))
+                .filter((m) => m.attacks?.length)
+                .map((member) => {
+                return member
+                    .attacks.map((atk, i) => {
+                    const n = i === 0 ? member.mapPosition.toString() : ' ';
+                    const th = i === 0 ? padStart(member.townhallLevel, 2) : ' ';
+                    const name = i === 0 ? member.name : ' ';
+                    return `\`\u200e${padStart(n, 3)} ${th} ${stars[atk.stars]} ${padStart(atk.destructionPercentage, 3)}% ${this.padEnd(`${name}`)}\``;
+                })
+                    .join('\n');
+            })
+                .join('\n')
+        ].join('\n'));
+        return embed;
+    }
+    groupAttacks(interaction, body) {
+        const embed = new EmbedBuilder().setColor(this.client.embed(interaction)).setAuthor({
+            name: `\u200e${body.clan.name} (${body.clan.tag})`,
+            iconURL: body.clan.badgeUrls.medium
+        });
+        const attacks = [];
+        for (const member of body.clan.members) {
+            const stars = (member.attacks ?? []).reduce((num, atk) => {
+                num += atk.stars;
+                return num;
+            }, 0);
+            const attacksPerMember = body.attacksPerMember || 2;
+            const attackCount = member.attacks?.length || 0;
+            attacks.push({
+                tag: member.tag,
+                name: member.name,
+                stars,
+                townHallLevel: member.townhallLevel,
+                attackCount,
+                attacksPerMember
+            });
+        }
+        const groups = Object.entries(attacks.reduce((record, mem) => {
+            record[mem.stars] = (record[mem.stars] || []).concat(mem);
+            return record;
+        }, {})).map(([stars, members]) => {
+            members.sort((a, b) => b.townHallLevel - a.townHallLevel);
+            return {
+                stars: +stars,
+                members
+            };
+        });
+        groups.sort((a, b) => b.stars - a.stars);
+        embed.setDescription([
+            embed.data.description,
+            '',
+            `**Total Attacks - ${body.clan.attacks}/${body.teamSize * (body.attacksPerMember ?? 1)}**`,
+            `**Total Stars - ${body.clan.stars}/${body.teamSize * 3}**`,
+            '',
+            ...groups.map((group, n) => {
+                return [
+                    `${n === 0 ? '' : '\n'}**${group.stars} ${pluralize('Star', +group.stars)}**`,
+                    ...group.members.map((member) => {
+                        return `${TOWN_HALLS[member.townHallLevel]} ${member.name} - ${member.attackCount}/${member.attacksPerMember}`;
+                    })
+                ].join('\n');
+            })
+        ].join('\n'));
+        return embed;
+    }
+    toDate(ISO) {
+        return new Date(moment(ISO).toDate());
+    }
+    createWarId(data) {
+        const ISO = this.toDate(data.preparationStartTime).toISOString().slice(0, 16);
+        return `${ISO}-${[data.clan.tag, data.opponent.tag].sort((a, b) => a.localeCompare(b)).join('-')}`;
+    }
+    async openBases(interaction, body) {
+        const openBases = body.opponent.members
+            .sort((a, b) => a.mapPosition - b.mapPosition)
+            .map((member, n) => ({
+            ...member,
+            mapPosition: n + 1,
+            originalMapPosition: member.mapPosition,
+            stars: member.bestOpponentAttack?.stars ?? 0,
+            isOpen: body.attacksPerMember === 1
+                ? !member.bestOpponentAttack
+                : member.bestOpponentAttack?.stars !== 3,
+            destructionPercentage: member.bestOpponentAttack?.destructionPercentage ?? 0
+        }))
+            .filter((m) => m.isOpen);
+        const callerData = await this.client.db
+            .collection("WarBaseCalls" /* Collections.WAR_BASE_CALLS */)
+            .findOne({ warId: this.createWarId(body), guild: interaction.guildId });
+        const caller = callerData?.caller ?? {};
+        const embed = new EmbedBuilder().setColor(this.client.embed(interaction)).setAuthor({
+            name: `\u200e${body.clan.name} (${body.clan.tag})`,
+            iconURL: body.clan.badgeUrls.medium
+        });
+        embed.setDescription([
+            embed.data.description,
+            '',
+            `**Enemy Clan Open Bases - ${openBases.length}/${body.teamSize}**`,
+            `**\u200e\`${stars[3]} DEST  # TH ${'Caller'.padEnd(15, ' ')}\u200f\`**`,
+            openBases
+                .map((member) => {
+                const n = member.mapPosition.toString();
+                const map = padStart(n, 2);
+                const th = member.townhallLevel.toString().padStart(2, ' ');
+                const dest = padStart(member.destructionPercentage, 3);
+                const key = `${member.tag}-${member.originalMapPosition}`;
+                const callerName = this.padEnd(caller[key]?.note ?? '');
+                return `\u200e\`${stars[member.stars]} ${dest}% ${map} ${th} ${callerName}\``;
+            })
+                .join('\n'),
+            '',
+            `Use ${this.client.commands.get('/caller assign')} command to assign a caller to a base.`
+        ].join('\n'));
+        return embed;
+    }
+    padEnd(name) {
+        return Util.escapeBackTick(name).padEnd(15, ' ');
+    }
+}
+//# sourceMappingURL=war.js.map

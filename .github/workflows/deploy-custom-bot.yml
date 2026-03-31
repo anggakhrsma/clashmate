@@ -1,0 +1,17 @@
+name: deploy-custom-bot
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  deploy:
+    environment: Production
+    name: deploy-custom-bot
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy
+        run: |
+          curl --fail --location --request POST '${{ secrets.DOCKER_SERVICE_API_BASE_URL }}/github-webhook' \
+            --header 'x-api-key: ${{ secrets.DOCKER_SERVICE_API_KEY }}'

@@ -1,0 +1,38 @@
+name: aws-ecr-publish-and-deploy
+
+on:
+  push:
+    tags:
+      - 'v*'
+    paths-ignore:
+      - scripts/**
+  workflow_dispatch:
+
+jobs:
+  build:
+    uses: ./.github/workflows/aws-ecr-publish.yml
+    secrets: inherit
+
+  deploy-main-bot:
+    needs: build
+    environment: Production
+    name: deploy-main-bot
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            cd clashperk
+            docker compose pull
+            docker compose up -d
+
+  deploy-custom-bot:
+    needs: build
+    uses: ./.github/workflows/deploy-custom-bot.yml
+    secrets: inherit

@@ -1,0 +1,37 @@
+name: eslint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: eslint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v6
+        with:
+          cache: 'npm'
+          node-version: 20
+
+      - name: Init Submodule
+        run: git submodule init && git submodule update
+
+      - name: NPM Install
+        run: npm i
+
+      - name: Run ESLint
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+
+      - name: Check Duplicates
+        run: npm run check:locales

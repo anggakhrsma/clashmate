@@ -1,0 +1,1 @@
+{"version":3,"file":"auto-role-delays.entity.js","sourceRoot":"","sources":["../../src/entities/auto-role-delays.entity.ts"],"names":[],"mappings":"","sourcesContent":["export interface AutoRoleDelaysEntity {\n  guildId: string;\n  userId: string;\n  additionDelays: Record<string, number>;\n  deletionDelays: Record<string, number>;\n  createdAt: Date;\n}\n"]}

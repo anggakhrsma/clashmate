@@ -1,0 +1,29 @@
+version: 2
+updates:
+  - package-ecosystem: 'github-actions'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+    open-pull-requests-limit: 1
+
+  - package-ecosystem: 'npm'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+    open-pull-requests-limit: 1
+    groups:
+      eslint:
+        patterns:
+          - 'eslint'
+          - 'globals'
+          - 'prettier'
+          - 'eslint-*'
+          - '@eslint/*'
+          - '@typescript-eslint/*'
+    ignore:
+      - dependency-name: 'i18next'
+      - dependency-name: 'posthog-node'
+      - dependency-name: '@google-cloud/*'
+      - dependency-name: '@googleapis/*'
+      - dependency-name: 'google-auth-library'
+      - dependency-name: '@elastic/elasticsearch'

@@ -1,0 +1,108 @@
+import ms from 'ms';
+import { Command } from '../../lib/handlers.js';
+import { EMOJIS } from '../../util/emojis.js';
+import { padEnd, padStart } from '../../util/helper.js';
+import { Util } from '../../util/toolkit.js';
+export default class DebugCommand extends Command {
+    constructor() {
+        super('debug', {
+            category: 'config',
+            channel: 'guild',
+            defer: true
+        });
+    }
+    args(interaction) {
+        return {
+            channel: {
+                match: 'CHANNEL',
+                default: interaction.channel
+            }
+        };
+    }
+    async exec(interaction, { channel }) {
+        const permissions = [
+            'ViewChannel',
+            'SendMessages',
+            'EmbedLinks',
+            'AttachFiles',
+            'UseExternalEmojis',
+            'ReadMessageHistory',
+            'ManageWebhooks'
+        ];
+        const clans = await this.client.storage.find(interaction.guild.id);
+        const fetched = await this.client.coc._getClans(clans);
+        const timings = { clanLoop: 0, playerLoop: 0, warLoop: 0 };
+        const UEE_FOR_SLASH = interaction.appPermissions.has('UseExternalEmojis');
+        const emojis = UEE_FOR_SLASH
+            ? { cross: EMOJIS.WRONG, tick: EMOJIS.OK, none: EMOJIS.EMPTY }
+            : { cross: '❌', tick: '☑️', none: '⬛' };
+        const webhookChannel = channel.isThread() ? channel.parent : channel;
+        const webhooks = webhookChannel
+            .permissionsFor(this.client.user.id)
+            ?.has(['ManageWebhooks', 'ViewChannel'])
+            ? await webhookChannel.fetchWebhooks()
+            : null;
+        const chunks = Util.splitMessage([
+            `**${this.client.user.displayName} Debug Menu**`,
+            '',
+            '**Server ID**',
+            `${interaction.guild.id}`,
+            '**Shard ID**',
+            `[Shard 0 / 1]`,
+            '**Channel**',
+            `<#${interaction.channelId}> (${interaction.channelId})`,
+            '**Patreon Status**',
+            `Active`,
+            '',
+            '**Channel Permissions**',
+            permissions
+                .map((perm) => {
+                const hasPerm = channel.permissionsFor(interaction.guild.members.me).has(perm);
+                return `${hasPerm ? emojis.tick : emojis.cross} ${this.fixName(perm)}`;
+            })
+                .join('\n'),
+            '',
+            '**Webhooks**',
+            webhooks?.size ?? 0,
+            '',
+            `**Loop Time ${timings.clanLoop && timings.playerLoop && timings.warLoop ? '' : '(Processing...)'}**`,
+            `${emojis.none} \`\u200e ${'CLANS'.padStart(8, ' ')} \u200b ${'WARS'.padStart(8, ' ')} \u200b ${' PLAYERS'} \u200f\``,
+            `${emojis.tick} \`\u200e ${this.fixTime(timings.clanLoop).padStart(8, ' ')} \u200b ${this.fixTime(timings.warLoop).padStart(8, ' ')} \u200b ${this.fixTime(timings.playerLoop).padStart(8, ' ')} \u200f\``,
+            '',
+            '**Clan Status and Player Loop Info**',
+            '*The war log must be made publicly accessible for the bot to function properly.*',
+            `${emojis.none} \`\u200e${'CLAN NAME'.padEnd(15, ' ')} ${'SYNC'} \u200b ${'WAR LOG'} \u200f\``,
+            clans
+                .map((clan) => {
+                const lastRan = clan.lastRan ? ms(Date.now() - clan.lastRan.getTime()) : '...';
+                const warLog = fetched.find((data) => data.tag === clan.tag)?.isWarLogPublic;
+                const sign = clan.active && !clan.paused && warLog ? emojis.tick : emojis.cross;
+                return `${sign} \`\u200e${padEnd(clan.name, 15)} ${padStart(lastRan, 4)} \u200b ${padEnd(warLog ? 'Public' : 'Private', 7)} \u200f\``;
+            })
+                .join('\n')
+        ].join('\n'));
+        await interaction.editReply({ content: chunks[0], allowedMentions: { roles: [] } });
+        for (const chunk of chunks.slice(1)) {
+            if (interaction.channel &&
+                interaction.appPermissions.has(['SendMessages', 'ViewChannel', 'SendMessagesInThreads'])) {
+                await interaction.channel.send({ content: chunk, allowedMentions: { roles: [] } });
+            }
+            else {
+                await interaction.followUp({ content: chunk, allowedMentions: { roles: [] } });
+            }
+        }
+    }
+    fixTime(num) {
+        return num === 0 ? `...` : `${ms(num)}`;
+    }
+    fixName(perm) {
+        if (perm === 'VIEW_CHANNEL')
+            return 'Read Messages';
+        return perm
+            .replace(/([A-Z])/g, ' $1')
+            .toLowerCase()
+            .trim()
+            .replace(/\b(\w)/g, (char) => char.toUpperCase());
+    }
+}
+//# sourceMappingURL=debug.js.map

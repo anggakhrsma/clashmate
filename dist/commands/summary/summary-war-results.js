@@ -1,0 +1,107 @@
+import { EmbedBuilder } from 'discord.js';
+import { Command } from '../../lib/handlers.js';
+import { padStart } from '../../util/helper.js';
+import { Season } from '../../util/toolkit.js';
+export default class SummaryClansCommand extends Command {
+    constructor() {
+        super('summary-war-results', {
+            category: 'none',
+            channel: 'guild',
+            clientPermissions: ['EmbedLinks'],
+            defer: true
+        });
+    }
+    async exec(interaction, args) {
+        const season = args.season ?? Season.monthId;
+        const { clans } = await this.client.storage.handleSearch(interaction, { args: args.clans });
+        if (!clans)
+            return;
+        const collection = [];
+        for (const clan of clans) {
+            const wars = await this.getWars(clan.tag, season);
+            const won = wars.filter((war) => war.result).length;
+            const lost = wars.filter((war) => !war.result).length;
+            collection.push({
+                won,
+                lost,
+                name: clan.name,
+                tag: clan.tag,
+                wars: wars.length
+            });
+        }
+        collection.sort((a, b) => b.lost - a.lost);
+        collection.sort((a, b) => b.won - a.won);
+        const embed = new EmbedBuilder();
+        embed.setAuthor({ name: 'War Results Summary', iconURL: interaction.guild.iconURL() });
+        embed.setDescription([
+            `\` # WON LOST WARS ${'NAME'.padEnd(15, ' ')}\``,
+            collection
+                .map((en, i) => {
+                const won = en.won.toLocaleString().padStart(2, ' ');
+                const lost = en.lost.toLocaleString().padStart(2, ' ');
+                const wars = en.wars.toLocaleString().padStart(3, ' ');
+                return `\`\u200e${padStart(++i, 2)} ${won}  ${lost}  ${wars}   ${en.name.padEnd(15, ' ')}\u200f\``;
+            })
+                .join('\n')
+        ].join('\n'));
+        embed.setFooter({ text: `Season ${season}` });
+        return interaction.editReply({ embeds: [embed] });
+    }
+    async getWars(tag, season) {
+        return this.client.db
+            .collection("ClanWars" /* Collections.CLAN_WARS */)
+            .aggregate([
+            {
+                $match: {
+                    $or: [{ 'clan.tag': tag }, { 'opponent.tag': tag }],
+                    state: 'warEnded',
+                    season
+                }
+            },
+            {
+                $set: {
+                    clan: {
+                        $cond: [{ $eq: ['$clan.tag', tag] }, '$clan', '$opponent']
+                    },
+                    opponent: {
+                        $cond: [{ $eq: ['$clan.tag', tag] }, '$opponent', '$clan']
+                    }
+                }
+            },
+            {
+                $project: {
+                    result: {
+                        $switch: {
+                            branches: [
+                                {
+                                    case: { $gt: ['$clan.stars', '$opponent.stars'] },
+                                    then: true
+                                },
+                                {
+                                    case: { $lt: ['$clan.stars', '$opponent.stars'] },
+                                    then: false
+                                },
+                                {
+                                    case: {
+                                        $gt: ['$clan.destructionPercentage', '$opponent.destructionPercentage']
+                                    },
+                                    then: true
+                                },
+                                {
+                                    case: {
+                                        $lt: ['$clan.destructionPercentage', '$opponent.destructionPercentage']
+                                    },
+                                    then: false
+                                }
+                            ],
+                            default: false
+                        }
+                    },
+                    stars: '$clan.members.attacks.stars'
+                }
+            }
+        ])
+            .toArray();
+    }
+}
+//# sourceMappingURL=summary-war-results.js.map

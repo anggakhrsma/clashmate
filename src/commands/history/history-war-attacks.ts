@@ -1,0 +1,290 @@
+import { Collections, WarType } from '@app/constants';
+import { APIClanWar, APIClanWarAttack, APIClanWarMember } from 'clashofclans.js';
+import { CommandInteraction, EmbedBuilder, User, AttachmentBuilder } from 'discord.js';
+import moment from 'moment';
+import { Command } from '../../lib/handlers.js';
+import { BLUE_NUMBERS, EMOJIS, ORANGE_NUMBERS, WHITE_NUMBERS } from '../../util/emojis.js';
+import {} from '../../util/helper.js';
+import { handlePagination } from '../../util/pagination.js';
+import { Util } from '../../util/toolkit.js';
+
+const stars: Record<string, string> = {
+  0: '☆☆☆',
+  1: '★☆☆',
+  2: '★★☆',
+  3: '★★★'
+};
+
+const warTypes: Record<string, string> = {
+  1: 'REGULAR',
+  2: 'FRIENDLY',
+  3: 'CWL'
+};
+
+export default class WarHistoryCommand extends Command {
+  public constructor() {
+    super('war-attacks-history', {
+      category: 'none',
+      channel: 'guild',
+      clientPermissions: ['UseExternalEmojis', 'EmbedLinks'],
+      defer: true
+    });
+  }
+
+  public async exec(
+    interaction: CommandInteraction<'cached'>,
+    args: { clans?: string; player?: string; user?: User }
+  ) {
+    if (args.player) {
+      const player = await this.client.resolver.resolvePlayer(interaction, args.player);
+      if (!player) return null;
+      return this.getIndividualWars(interaction, [player]);
+    }
+
+    if (args.clans) {
+      const { clans } = await this.client.storage.handleSearch(interaction, { args: args.clans });
+      if (!clans) return;
+
+      const _clans = (
+        await Promise.all(clans.slice(0, 1).map((clan) => this.client.coc.getClan(clan.tag)))
+      )
+        .filter((r) => r.res.ok)
+        .map((r) => r.body);
+      const players = _clans.flatMap((clan) => clan.memberList);
+      return this.getIndividualWars(interaction, players);
+    }
+
+    const players = await this.client.resolver.getPlayers(args.user?.id ?? interaction.user.id);
+    return this.getIndividualWars(interaction, players);
+  }
+
+  private async getHistory(interaction: CommandInteraction<'cached'>, _playerTags: string[]) {
+    const { attacks: _wars } = await this.getWars('', { name: '', tag: '' });
+
+    const warMap = _wars.reduce<Record<string, IWar[]>>((acc, war) => {
+      const key = `${war.member.name} (${war.member.tag})`;
+      acc[key] ??= [];
+      acc[key].push(war);
+      return acc;
+    }, {});
+
+    const embeds: EmbedBuilder[] = [];
+    Object.entries(warMap)
+      .sort(([, a], [, b]) => b.length - a.length)
+      .map(([key, userGroups]) => {
+        const embed = new EmbedBuilder().setColor(this.client.embed(interaction));
+
+        const _warsMap = userGroups.reduce<Record<string, IWar[]>>((acc, war) => {
+          const seasonId = war.endTime.toISOString().slice(0, 7);
+          acc[seasonId] ??= [];
+          acc[seasonId].push(war);
+          return acc;
+        }, {});
+
+        const __wars = Object.entries(_warsMap);
+        const value = __wars
+          .sort(([a], [b]) => new Date(a).getTime() - new Date(b).getTime())
+          .map(([seasonId, wars], i) => {
+            wars.sort((a, b) => a.endTime.getTime() - b.endTime.getTime());
+            const participated = wars.filter((war) => war.attack).length;
+            const totalStars = wars.reduce((acc, war) => acc + (war.attack?.stars ?? 0), 0);
+            const totalDestruction = wars.reduce(
+              (acc, war) => acc + (war.attack?.destructionPercentage ?? 0),
+              0
+            );
+            const season = moment(seasonId).format('MMM YYYY').toString();
+            const [{ member }] = wars;
+            return [
+              `**${season}** (#${member.mapPosition}, TH${member.townhallLevel})`,
+              wars
+                .filter((war) => war.attack)
+                .map(({ attack, defender }, i) => {
+                  return `${WHITE_NUMBERS[i + 1]} ${stars[attack!.stars]} \`${this.percentage(
+                    attack!.destructionPercentage
+                  )}\` \u200b → ${BLUE_NUMBERS[defender!.mapPosition]}${ORANGE_NUMBERS[defender!.townhallLevel]}`;
+                })
+                .join('\n'),
+              `${EMOJIS.CROSS_SWORD} ${participated}/${wars.length} wars, ${totalStars} stars, ${totalDestruction}%`,
+              i === __wars.length - 1 ? '' : '\u200b'
+            ].join('\n');
+          })
+          .join('\n');
+        embed.setTitle('**War attack history (last 3 months)**');
+        embed.setDescription(`**${key}**\n\n${value}`);
+        embeds.push(embed);
+      });
+
+    if (!embeds.length) {
+      return interaction.editReply('No war attack history found.');
+    }
+
+    if (embeds.length === 1) {
+      return interaction.editReply({ embeds: [...embeds], components: [] });
+    }
+
+    return handlePagination(interaction, embeds);
+  }
+
+  private async getIndividualWars(
+    interaction: CommandInteraction<'cached'>,
+    players: { name: string; tag: string }[]
+  ) {
+    const result = await Promise.all(players.map((player) => this.getWars(player.tag, player)));
+    if (!result.length) {
+      return interaction.editReply('No war history available at this moment.');
+    }
+  }
+
+  private async getWars(tag: string, player: { name: string; tag: string }) {
+    const cursor = this.client.db
+      .collection(Collections.CLAN_WARS)
+      .aggregate<APIClanWar & { warType: number; id: number }>([
+        {
+          $match: {
+            startTime: {
+              $gte: moment().startOf('month').subtract(6, 'month').toDate()
+            },
+            warType: WarType.REGULAR,
+            $or: [{ 'clan.members.tag': tag }, { 'opponent.members.tag': tag }]
+          }
+        },
+        { $sort: { _id: -1 } }
+      ]);
+
+    const attacks = [];
+    const wars: WarHistory[] = [];
+    for await (const data of cursor) {
+      data.clan.members.sort((a, b) => a.mapPosition - b.mapPosition);
+      data.opponent.members.sort((a, b) => a.mapPosition - b.mapPosition);
+
+      const clanMember = data.clan.members
+        .map((mem, i) => ({ ...mem, mapPosition: i + 1 }))
+        .find((m) => m.tag === tag);
+      const member =
+        clanMember ??
+        data.opponent.members
+          .map((mem, i) => ({ ...mem, mapPosition: i + 1 }))
+          .find((m) => m.tag === tag);
+      if (!member) continue;
+
+      const clan = clanMember ? data.clan : data.opponent;
+      const opponent = clan.tag === data.clan.tag ? data.opponent : data.clan;
+      const __attacks = clan.members.flatMap((m) => m.attacks ?? []);
+
+      const war: WarHistory = {
+        id: data.id,
+        warType: data.warType,
+        clan: {
+          name: clan.name,
+          tag: clan.tag
+        },
+        opponent: {
+          name: opponent.name,
+          tag: opponent.tag
+        },
+        startTime: new Date(data.startTime),
+        endTime: new Date(data.endTime),
+        attacker: {
+          name: member.name,
+          mapPosition: member.mapPosition,
+          tag: member.tag,
+          townHallLevel: member.townhallLevel
+        },
+        attacks: []
+      };
+
+      const memberAttacks = __attacks.filter((atk) => atk.attackerTag === tag);
+      if (!memberAttacks.length) {
+        attacks.push({
+          attack: null,
+          previousBestAttack: null,
+          defender: null,
+          clan: {
+            name: clan.name,
+            tag: clan.tag
+          },
+          endTime: new Date(data.endTime),
+          member
+        });
+      }
+
+      for (const atk of memberAttacks) {
+        const defender = opponent.members.find((m) => m.tag === atk.defenderTag)!;
+        const previousBestAttack = this.client.coc.getPreviousBestAttack(__attacks, atk);
+
+        attacks.push({
+          attack: atk,
+          previousBestAttack,
+          defender,
+          clan: {
+            name: clan.name,
+            tag: clan.tag
+          },
+          endTime: new Date(data.endTime),
+          member
+        });
+
+        war.attacks.push({
+          defender: {
+            tag: defender.tag,
+            mapPosition: defender.mapPosition,
+            townHallLevel: defender.townhallLevel
+          },
+          defenderTag: defender.tag,
+          destructionPercentage: atk.destructionPercentage,
+          stars: atk.stars
+        });
+      }
+      wars.push(war);
+    }
+
+    return { wars, attacks, player };
+  }
+
+  private percentage(num: number) {
+    return `${num}%`.toString().padStart(4, ' ');
+  }
+}
+
+interface WarHistory {
+  warType: number;
+  startTime: Date;
+  endTime: Date;
+  id: number;
+  clan: {
+    name: string;
+    tag: string;
+  };
+  opponent: {
+    name: string;
+    tag: string;
+  };
+  attacker: {
+    name: string;
+    tag: string;
+    townHallLevel: number;
+    mapPosition: number;
+  };
+  attacks: {
+    stars: number;
+    defenderTag: string;
+    destructionPercentage: number;
+    defender: {
+      tag: string;
+      townHallLevel: number;
+      mapPosition: number;
+    };
+  }[];
+}
+
+interface IWar {
+  attack: APIClanWarAttack | null;
+  previousBestAttack: APIClanWarAttack | null;
+  defender: APIClanWarMember | null;
+  clan: {
+    name: string;
+    tag: string;
+  };
+  endTime: Date;
+  member: APIClanWarMember;
+}

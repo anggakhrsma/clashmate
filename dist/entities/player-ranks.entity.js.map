@@ -1,0 +1,1 @@
+{"version":3,"file":"player-ranks.entity.js","sourceRoot":"","sources":["../../src/entities/player-ranks.entity.ts"],"names":[],"mappings":"","sourcesContent":["export interface PlayerRanksEntity {\n  countryCode: string;\n  players: {\n    tag: string;\n    name: string;\n    rank: number;\n    trophies: number;\n  }[];\n  country: string;\n  season: string;\n}\n"]}
