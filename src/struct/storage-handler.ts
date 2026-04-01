@@ -416,7 +416,7 @@ export class StorageHandler {
       }
     }
 
-    // return this.pushToDB(tag, body.clans, warTags, rounds, body.season);
+    return this.pushToDB(tag, body.clans, warTags, rounds, body.season);
   }
 
   private md5(id: string) {
@@ -508,19 +508,22 @@ export class StorageHandler {
     if (!group) return null;
 
     const leagues: Record<string, number> = {};
+    const apiBase = process.env.INTERNAL_API_BASE_URL;
     for (const clan of group.clans) {
-      const res = await fetch(
-        `https://clan-war-league-api-production.up.railway.app/clans/${encodeURIComponent(clan.tag)}/cwl/seasons`
-      );
-      const seasons = (await res.json()) as { leagueId: string; seasonId: string }[];
-      const season = seasons.find((season) => season.seasonId === seasonId);
+      if (!apiBase) continue;
+      const res = await fetch(`${apiBase}/v1/cwl/${encodeURIComponent(clan.tag)}/seasons`, {
+        headers: { 'x-api-key': process.env.INTERNAL_API_KEY ?? '' }
+      }).catch(() => null);
+      if (!res?.ok) continue;
+      const seasons = (await res.json().catch(() => [])) as { leagueId: string; seasonId: string }[];
+      const season = seasons.find((s) => s.seasonId === seasonId);
       if (!season?.leagueId) continue;
       leagues[clan.tag] = Number(season.leagueId);
     }
-    Object.assign(
-      Object.fromEntries(group.clans.map((clan) => [clan.tag, group.leagueId])),
-      leagues
-    );
+    // Fill in the default league ID for any clan not found via the API
+    for (const clan of group.clans) {
+      if (!leagues[clan.tag]) leagues[clan.tag] = group.leagueId;
+    }
 
     const rounds: { warTags: string[] }[] = [];
     for (const _rounds of cluster(group.wars, 4)) {

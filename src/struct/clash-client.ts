@@ -259,17 +259,21 @@ export class ClashClient extends RESTManager {
     season: string,
     group?: ClanWarLeagueGroupsEntity
   ) {
+    const baseUrl = process.env.INTERNAL_API_BASE_URL;
+    if (!baseUrl) return null; // service-backend not configured yet
+
     const res = await fetch(
-      `https://clan-war-league-api-production.up.railway.app/clans/${encodeURIComponent(clanTag)}/cwl/seasons/${season}`,
+      `${baseUrl}/v1/cwl/${encodeURIComponent(clanTag)}/seasons/${season}`,
       {
         headers: {
-          'x-api-key': process.env.INTERNAL_API_KEY!
+          'x-api-key': process.env.INTERNAL_API_KEY ?? ''
         }
       }
-    );
-    if (!res.ok) return null;
+    ).catch(() => null);
+    if (!res?.ok) return null;
 
-    const data = (await res.json()) as unknown as ClanWarLeagueGroupExtended;
+    const data = (await res.json().catch(() => null)) as unknown as ClanWarLeagueGroupExtended | null;
+    if (!data) return null;
 
     data.leagues = group?.leagues ?? {};
     data.fromArchive = true;
@@ -299,11 +303,21 @@ export class ClashClient extends RESTManager {
   }
 
   public async autoLogin() {
-    await this._login();
-    setInterval(this._login.bind(this), 60 * 60 * 1000).unref();
+    try {
+      await this._login();
+      setInterval(this._login.bind(this), 60 * 60 * 1000).unref();
+    } catch {
+      this.client.logger.warn(
+        'cocdiscord.link login skipped — no DISCORD_LINK_USERNAME/PASSWORD configured',
+        { label: 'LINK' }
+      );
+    }
   }
 
   private async _login() {
+    if (!process.env.DISCORD_LINK_USERNAME || !process.env.DISCORD_LINK_PASSWORD) {
+      return false;
+    }
     const res = await fetch('https://cocdiscord.link/login', {
       method: 'POST',
       headers: {
