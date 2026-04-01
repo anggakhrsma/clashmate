@@ -11,6 +11,7 @@ import { Autocomplete } from './autocomplete-client.js';
 import { CapitalRaidScheduler } from './capital-raid-scheduler.js';
 import { ClanGamesScheduler } from './clan-games-scheduler.js';
 import { ClanPoller } from './clan-poller.js';
+import { PollerEventsReader } from '../core/poller-events-reader.js';
 import { ClanWarScheduler } from './clan-war-scheduler.js';
 import { ClashClient } from './clash-client.js';
 import { CommandsMap } from './commands-map.js';
@@ -179,6 +180,12 @@ export class Client extends DiscordClient {
             writable: true,
             value: void 0
         });
+        Object.defineProperty(this, "pollerEventsReader", {
+            enumerable: true,
+            configurable: true,
+            writable: true,
+            value: void 0
+        });
         Object.defineProperty(this, "components", {
             enumerable: true,
             configurable: true,
@@ -271,9 +278,9 @@ export class Client extends DiscordClient {
         this.clanWarScheduler.init();
         this.guildEvents.init();
         this.rosterManager.init();
-        // Start the in-process clan poller — replaces the upstream Redis worker.
-        // Waits 30 s before first tick so the bot is fully settled after startup.
-        setTimeout(() => this.poller.start(), 30_000);
+        // Start the PollerEvents reader — consumes events written by clashmate-service.
+        // The in-process ClanPoller is no longer started; data collection runs on Server 2.
+        this.pollerEventsReader.start();
     }
     async init(token) {
         await this.commandHandler.register();
@@ -288,6 +295,7 @@ export class Client extends DiscordClient {
         this.storage = new StorageHandler(this);
         this.enqueuer = new Enqueuer(this);
         this.poller = new ClanPoller(this);
+        this.pollerEventsReader = new PollerEventsReader(this);
         this.stats = new StatsHandler(this);
         this.resolver = new Resolver(this);
         this.clanWarScheduler = new ClanWarScheduler(this);

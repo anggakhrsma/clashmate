@@ -20,6 +20,7 @@ import { Autocomplete } from './autocomplete-client.js';
 import { CapitalRaidScheduler } from './capital-raid-scheduler.js';
 import { ClanGamesScheduler } from './clan-games-scheduler.js';
 import { ClanPoller } from './clan-poller.js';
+import { PollerEventsReader } from '../core/poller-events-reader.js';
 import { ClanWarScheduler } from './clan-war-scheduler.js';
 import { ClashClient } from './clash-client.js';
 import { CommandsMap } from './commands-map.js';
@@ -58,6 +59,7 @@ export class Client extends DiscordClient<true> {
   public inMaintenance = Boolean(false);
   public enqueuer!: Enqueuer;
   public poller!: ClanPoller;
+  public pollerEventsReader!: PollerEventsReader;
   public components = new Map<string, string[]>();
   public _componentPayloads = new Map<string, Record<string, unknown>>();
   public resolver!: Resolver;
@@ -164,9 +166,9 @@ export class Client extends DiscordClient<true> {
     this.guildEvents.init();
     this.rosterManager.init();
 
-    // Start the in-process clan poller — replaces the upstream Redis worker.
-    // Waits 30 s before first tick so the bot is fully settled after startup.
-    setTimeout(() => this.poller.start(), 30_000);
+    // Start the PollerEvents reader — consumes events written by clashmate-service.
+    // The in-process ClanPoller is no longer started; data collection runs on Server 2.
+    this.pollerEventsReader.start();
   }
 
   public async init(token: string) {
@@ -185,6 +187,7 @@ export class Client extends DiscordClient<true> {
     this.storage = new StorageHandler(this);
     this.enqueuer = new Enqueuer(this);
     this.poller = new ClanPoller(this);
+    this.pollerEventsReader = new PollerEventsReader(this);
     this.stats = new StatsHandler(this);
     this.resolver = new Resolver(this);
     this.clanWarScheduler = new ClanWarScheduler(this);
