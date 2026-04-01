@@ -16,6 +16,11 @@ catch (error) {
     logger.error(error, { label: 'STARTUP' });
     process.exit(1);
 }
+// Log outbound IP — add this to the allowed IPs in your CoC API dashboard
+fetch('https://api.ipify.org?format=json')
+    .then((r) => r.json())
+    .then((data) => logger.info(`Outbound IP: ${data.ip}`, { label: 'NETWORK' }))
+    .catch(() => logger.warn('Could not fetch outbound IP', { label: 'NETWORK' }));
 process.on('unhandledRejection', (error) => {
     console.error(error);
 });
