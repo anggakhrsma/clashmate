@@ -11,6 +11,23 @@ export default class FlagDeleteCommand extends Command {
             roleKey: "flagsManagerRole" /* Settings.FLAGS_MANAGER_ROLE */
         });
     }
+    args() {
+        return {
+            player: {
+                match: 'STRING'
+            },
+            flag_type: {
+                match: 'ENUM',
+                enums: ['ban', 'strike']
+            },
+            flag_ref: {
+                match: 'STRING'
+            },
+            clan: {
+                match: 'STRING'
+            }
+        };
+    }
     async autocomplete(interaction, args) {
         const focused = interaction.options.getFocused(true);
         if (focused.name === 'flag_ref') {

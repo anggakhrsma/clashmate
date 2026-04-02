@@ -12,6 +12,29 @@ export default class FlagCreateCommand extends Command {
             roleKey: "flagsManagerRole" /* Settings.FLAGS_MANAGER_ROLE */
         });
     }
+    args() {
+        return {
+            player: {
+                match: 'STRING'
+            },
+            reason: {
+                match: 'STRING'
+            },
+            flag_type: {
+                match: 'ENUM',
+                enums: ['ban', 'strike']
+            },
+            flag_expiry_days: {
+                match: 'INTEGER'
+            },
+            flag_impact: {
+                match: 'INTEGER'
+            },
+            dm_user: {
+                match: 'BOOLEAN'
+            }
+        };
+    }
     autocomplete(interaction, args) {
         return this.client.autocomplete.globalPlayersAutocomplete(interaction, args);
     }

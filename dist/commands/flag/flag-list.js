@@ -13,6 +13,19 @@ export default class FlagListCommand extends Command {
     }
     args() {
         return {
+            player: {
+                match: 'STRING'
+            },
+            flag_type: {
+                match: 'ENUM',
+                enums: ['ban', 'strike']
+            },
+            clans: {
+                match: 'STRING'
+            },
+            group_by_players: {
+                match: 'BOOLEAN'
+            },
             export: {
                 match: 'BOOLEAN'
             }

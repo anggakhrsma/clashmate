@@ -9,7 +9,7 @@ import {
 } from 'discord.js';
 import moment from 'moment';
 import pluralize from 'pluralize';
-import { Command } from '../../lib/handlers.js';
+import { Args, Command } from '../../lib/handlers.js';
 
 export default class FlagCreateCommand extends Command {
   public constructor() {
@@ -20,6 +20,30 @@ export default class FlagCreateCommand extends Command {
       defer: true,
       roleKey: Settings.FLAGS_MANAGER_ROLE
     });
+  }
+
+  public args(): Args {
+    return {
+      player: {
+        match: 'STRING'
+      },
+      reason: {
+        match: 'STRING'
+      },
+      flag_type: {
+        match: 'ENUM',
+        enums: ['ban', 'strike']
+      },
+      flag_expiry_days: {
+        match: 'INTEGER'
+      },
+      flag_impact: {
+        match: 'INTEGER'
+      },
+      dm_user: {
+        match: 'BOOLEAN'
+      }
+    };
   }
 
   public autocomplete(interaction: AutocompleteInteraction<'cached'>, args: { player?: string }) {
