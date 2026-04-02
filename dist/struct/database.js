@@ -7,7 +7,7 @@ class MongoDbClient extends MongoClient {
             enumerable: true,
             configurable: true,
             writable: true,
-            value: 'clashperk'
+            value: 'clashmate'
         });
         this.on('open', () => this.createIndex(this.db(this.dbName)));
     }

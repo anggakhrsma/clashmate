@@ -45,7 +45,7 @@ declare module 'mongodb' {
 }
 
 class MongoDbClient extends MongoClient {
-  public dbName = 'clashperk';
+  public dbName = 'clashmate';
 
   public constructor() {
     super(process.env.MONGODB_URL!);
