@@ -158,10 +158,9 @@ export default class ClanCommand extends Command {
       }
     ]);
 
-    const [action, season, wars] = await Promise.all([
+    const [action, season] = await Promise.all([
       this.getActivity(clan),
-      this.getSeason(clan),
-      this.getWars(clan.tag)
+      this.getSeason(clan)
     ]);
     const fields = [];
     if (action) {
@@ -184,18 +183,7 @@ export default class ClanCommand extends Command {
       );
     }
 
-    if (wars.length) {
-      const won = wars.filter((war) => war.result === 'won').length;
-      const lost = wars.filter((war) => war.result === 'lost').length;
-      const tied = wars.filter((war) => war.result === 'tied').length;
 
-      fields.push(
-        ...[
-          '**Total Wars**',
-          `${EMOJIS.CROSS_SWORD} ${wars.length} Wars ${EMOJIS.OK} ${won} Won ${EMOJIS.WRONG} ${lost} Lost${tied ? ` ${EMOJIS.EMPTY} ${tied} Tied` : ''}`
-        ]
-      );
-    }
 
     if (fields.length)
       embed.addFields([
