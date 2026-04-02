@@ -205,6 +205,12 @@ export class CommandHandler extends BaseHandler {
       parsed = { cmd: interaction.customId, users: [] };
     }
     const command = parsed && this.getCommand(deletedCommands[parsed.cmd] || parsed.cmd);
+    
+    // Ignore component interactions that are definitively handled by an active collector inside a command
+    if (!command && this.client.components.has(interaction.customId)) {
+      return;
+    }
+
     if (!command) {
       //
       const isEmpty = !(
