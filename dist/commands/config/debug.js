@@ -31,7 +31,12 @@ export default class DebugCommand extends Command {
         ];
         const clans = await this.client.storage.find(interaction.guild.id);
         const fetched = await this.client.coc._getClans(clans);
-        const timings = { clanLoop: 0, playerLoop: 0, warLoop: 0 };
+        const stats = await this.client.db.collection('InternalStats').findOne({ id: 'global' });
+        const timings = {
+            clanLoop: stats?.clanLoop ?? 0,
+            playerLoop: stats?.playerLoop ?? 0,
+            warLoop: stats?.warLoop ?? 0
+        };
         const UEE_FOR_SLASH = interaction.appPermissions.has('UseExternalEmojis');
         const emojis = UEE_FOR_SLASH
             ? { cross: EMOJIS.WRONG, tick: EMOJIS.OK, none: EMOJIS.EMPTY }
@@ -51,8 +56,6 @@ export default class DebugCommand extends Command {
             `[Shard 0 / 1]`,
             '**Channel**',
             `<#${interaction.channelId}> (${interaction.channelId})`,
-            '**Patreon Status**',
-            `Active`,
             '',
             '**Channel Permissions**',
             permissions
@@ -93,7 +96,7 @@ export default class DebugCommand extends Command {
         }
     }
     fixTime(num) {
-        return num === 0 ? `...` : `${ms(num)}`;
+        return num === 0 ? `...` : `${Math.round(num / 60000)}m`;
     }
     fixName(perm) {
         if (perm === 'VIEW_CHANNEL')
