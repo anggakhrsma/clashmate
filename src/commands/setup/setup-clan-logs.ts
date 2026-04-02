@@ -291,6 +291,7 @@ export default class SetupLogsCommand extends Command {
       interaction,
       message,
       onSelect: async (action) => {
+        await action.deferUpdate().catch(() => null);
         const selectedLogs = action.values as ClanLogType[];
         if (disabling) {
           const logIds = _logs
@@ -299,7 +300,7 @@ export default class SetupLogsCommand extends Command {
           logIds.forEach((logId) => this.client.enqueuer.deleteLog(logId.toHexString()));
           await collection.deleteMany({ _id: { $in: logIds } });
 
-          return action.update({
+          return action.editReply({
             content: [
               `## ${clan.name} (${clan.tag})`,
               '### The logs have been disabled',
@@ -309,7 +310,6 @@ export default class SetupLogsCommand extends Command {
           });
         }
 
-        await action.deferUpdate();
         return onComplete(action, selectedLogs);
       }
     });
