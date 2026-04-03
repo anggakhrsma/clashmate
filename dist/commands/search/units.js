@@ -177,7 +177,9 @@ export default class UnitsCommand extends Command {
             const unitsArray = category.units
                 .sort((a, b) => {
                 if (a.category === 'hero' && b.category === 'hero') {
-                    return heroOrder.indexOf(a.name) - heroOrder.indexOf(b.name);
+                    const aIndex = heroOrder.indexOf(a.name);
+                    const bIndex = heroOrder.indexOf(b.name);
+                    return (aIndex === -1 ? 99 : aIndex) - (bIndex === -1 ? 99 : bIndex);
                 }
                 return 0;
             })
