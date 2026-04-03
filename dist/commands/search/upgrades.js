@@ -25,7 +25,8 @@ export default class UpgradesCommand extends Command {
         const data = await this.client.resolver.resolvePlayer(interaction, args.tag ?? args.user?.id);
         if (!data)
             return;
-        const embed = this.embed(data, args.equipment).setColor(this.client.embed(interaction));
+        const village = args.village ?? 'home';
+        const embed = this.embed(data, args.equipment, village).setColor(this.client.embed(interaction));
         if (!interaction.isMessageComponent())
             await interaction.editReply({ embeds: [embed] });
         if (!interaction.inCachedGuild())
@@ -39,13 +40,20 @@ export default class UpgradesCommand extends Command {
             refresh: JSON.stringify({ ...payload }),
             units: JSON.stringify({ ...payload, cmd: 'units' }),
             player: JSON.stringify({ ...payload, cmd: 'player' }),
-            rushed: JSON.stringify({ ...payload, cmd: 'rushed' }),
-            equipment: JSON.stringify({ ...payload, equipment: !args.equipment })
+            rushed: JSON.stringify({ ...payload, cmd: 'rushed', village }),
+            equipment: JSON.stringify({ ...payload, equipment: !args.equipment, village }),
+            village: JSON.stringify({ ...payload, village: village === 'home' ? 'builderBase' : 'home', equipment: args.equipment })
         };
         const maxButtonRow = new ActionRowBuilder().addComponents(new ButtonBuilder()
-            .setCustomId(customIds.equipment)
-            .setLabel(args.equipment ? 'Remaining Troops' : 'Remaining Equipments')
+            .setCustomId(customIds.village)
+            .setLabel(village === 'home' ? 'Builder Base' : 'Home Village')
             .setStyle(ButtonStyle.Secondary));
+        if (village === 'home') {
+            maxButtonRow.addComponents(new ButtonBuilder()
+                .setCustomId(customIds.equipment)
+                .setLabel(args.equipment ? 'Remaining Troops' : 'Remaining Equipments')
+                .setStyle(ButtonStyle.Secondary));
+        }
         const refreshButton = new ButtonBuilder()
             .setEmoji(EMOJIS.REFRESH)
             .setStyle(ButtonStyle.Secondary)
@@ -91,14 +99,14 @@ export default class UpgradesCommand extends Command {
             components: options.length > 1 ? [maxButtonRow, mainRow, menuRow] : [maxButtonRow, mainRow]
         });
     }
-    embed(data, equipmentOnly) {
+    embed(data, equipmentOnly, village = 'home') {
         const embed = new EmbedBuilder()
             .setAuthor({ name: `${data.name} (${data.tag})` })
             .setDescription([
-            `Remaining upgrades at TH ${data.townHallLevel} ${data.builderHallLevel ? `& BH ${data.builderHallLevel}` : ''}`,
+            `Remaining upgrades at ${village === 'home' ? `TH ${data.townHallLevel}` : `BH ${data.builderHallLevel ?? 0}`}`,
             'Total time & cost of the remaining units',
-            'for the current TH/BH level.',
-            'R = Rushed (Not maxed for the previous TH/BH)'
+            `for the current ${village === 'home' ? 'TH' : 'BH'} level.`,
+            `R = Rushed (Not maxed for the previous ${village === 'home' ? 'TH' : 'BH'})`
         ].join('\n'));
         const getCharacterBuilding = (unit) => {
             if (unit.allowedCharacters.includes('Barbarian King')) {
@@ -126,8 +134,8 @@ export default class UpgradesCommand extends Command {
             const apiTroop = apiTroops.find((u) => u.name === unit.name && u.village === unit.village && u.type === unit.category);
             const homeTroops = unit.village === 'home' && unit.levels[data.townHallLevel - 1] > (apiTroop?.level ?? 0);
             const builderTroops = unit.village === 'builderBase' &&
-                unit.levels[data.builderHallLevel - 1] > (apiTroop?.level ?? 0);
-            return Boolean(homeTroops || builderTroops);
+                unit.levels[(data.builderHallLevel ?? 0) - 1] > (apiTroop?.level ?? 0);
+            return unit.village === village && Boolean(homeTroops || builderTroops);
         }).reduce((prev, curr) => {
             const unlockBuilding = curr.category === 'hero'
                 ? curr.village === 'home'
@@ -145,13 +153,13 @@ export default class UpgradesCommand extends Command {
         }, {});
         const rem = RAW_TROOPS_WITH_ICONS.reduce((prev, unit) => {
             const apiTroop = apiTroops.find((u) => u.name === unit.name && u.village === unit.village && u.type === unit.category);
-            if (unit.village === 'home') {
+            if (unit.village === village) {
                 prev.levels += apiTroop?.level ?? 0;
-                prev.total += unit.levels[data.townHallLevel - 1];
+                prev.total += unit.levels[(unit.village === 'home' ? data.townHallLevel : (data.builderHallLevel ?? 0)) - 1];
             }
             return prev;
         }, { total: 0, levels: 0 });
-        const remaining = Number((100 - (rem.levels * 100) / rem.total).toFixed(2));
+        const remainingCount = Number((100 - (rem.levels * 100) / rem.total).toFixed(2));
         const _troops = {
             'Barracks': `${EMOJIS.ELIXIR} Elixir Troops`,
             'Dark Barracks': `${EMOJIS.DARK_ELIXIR} Dark Troops`,
@@ -332,22 +340,26 @@ export default class UpgradesCommand extends Command {
             }
         }
         if (!embed.data.fields?.length && !embed.data.description?.length) {
-            embed.setDescription(`No remaining upgrades at TH ${data.townHallLevel} ${data.builderHallLevel ? ` and BH ${data.builderHallLevel}` : ''}`);
+            embed.setDescription(`No remaining upgrades at ${village === 'home' ? `TH ${data.townHallLevel}` : `and BH ${data.builderHallLevel}`}`);
         }
-        if (remaining > 0) {
+        if (remainingCount > 0) {
             const elixir = this.format(summary['Elixir'] || 0);
             const dark = this.format(summary['Dark Elixir'] || 0);
+            const builderElixir = this.format(summary['Builder Elixir'] || 0);
             const time = this.dur(summary['Time'] || 0);
             const shinyOre = this.format(summary['Shiny Ore'] || 0);
             const glowyOre = this.format(summary['Glowy Ore'] || 0);
             const starryOre = this.format(summary['Starry Ore'] || 0);
             const ore = (summary['Shiny Ore'] || 0) + (summary['Glowy Ore'] || 0) + (summary['Starry Ore'] || 0);
+            const remainingText = village === 'home'
+                ? `Total ${elixir} Elixir, ${dark} Dark, ${time}`
+                : `Total ${builderElixir} Builder Elixir, ${time}`;
             embed.setFooter({
                 text: [
-                    `Remaining ${remaining}%`,
-                    `Total ${elixir} Elixir, ${dark} Dark, ${time}`,
+                    `Remaining ${remainingCount}%`,
+                    remainingText,
                     ore ? `${shinyOre} Shiny, ${glowyOre} Glowy, ${starryOre} Starry` : ''
-                ].join('\n')
+                ].filter(Boolean).join('\n')
             });
         }
         function trimEmbedFields() {
