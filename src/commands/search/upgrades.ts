@@ -174,9 +174,7 @@ export default class UpgradesCommand extends Command {
       const unlockBuilding =
         curr.category === 'hero'
           ? curr.village === 'home'
-            ? curr.name === 'Grand Warden'
-              ? 'Elixir Hero'
-              : 'Dark Hero'
+            ? 'Town Hall'
             : 'Builder Hall'
           : curr.category === 'equipment'
             ? getCharacterBuilding(curr)
@@ -210,8 +208,7 @@ export default class UpgradesCommand extends Command {
       'Dark Spell Factory': `${EMOJIS.DARK_ELIXIR} Dark Spells`
     };
     const _heroes: Record<string, string> = {
-      'Dark Hero': `${EMOJIS.DARK_ELIXIR} Heroes`,
-      'Elixir Hero': `${EMOJIS.ELIXIR} Heroes`
+      'Town Hall': `${EMOJIS.DARK_ELIXIR} Heroes`
     };
     const _pets: Record<string, string> = {
       'Pet House': `${EMOJIS.DARK_ELIXIR} Pets`

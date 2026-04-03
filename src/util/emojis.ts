@@ -166,12 +166,12 @@ export const BUILDER_ELIXIR_TROOPS: Record<string, string> = {
   'Drop Ship': '<:DropShip:1484975916408111214>',
   'Power P.E.K.K.A': '<:SuperPEKKA:1484976053205336167>',
   'Hog Glider': '<:HogGlider:1484975991221784717>',
-  'Electrofire Wizard': '<:EW:1484975951602253844>',
-  'Battle Copter': '<:BC:1484978313947644087>'
+  'Electrofire Wizard': '<:EW:1484975951602253844>'
 };
 
 export const BUILDER_HEROES: Record<string, string> = {
-  'Battle Machine': '<:BattleMachine:1484978350408732832>'
+  'Battle Machine': '<:BattleMachine:1484978350408732832>',
+  'Battle Copter': '<:BC:1484978313947644087>'
 };
 
 export const HEROES: Record<string, string> = {
