@@ -196,7 +196,33 @@ export class ClanLog extends RootLog {
                 }
             }
         }
-        return { embed, content };
+        const members = data.members.filter((member) => Object.values(LogActions).includes(member.op));
+        if (members.length) {
+            embed.addFields([
+                {
+                    name: 'Activity',
+                    value: members
+                        .map((m) => {
+                        const townHall = TOWN_HALLS[m.townHallLevel] ?? '';
+                        if (m.op === LogActions.DONATED) {
+                            const amount = m.donations ?? 0;
+                            const emoji = BLUE_NUMBERS[amount.toString()] ?? `**${amount}**`;
+                            return `\u200e${townHall} ${emoji} ${m.name} (Donated)`;
+                        }
+                        if (m.op === LogActions.RECEIVED) {
+                            const amount = m.donationsReceived ?? 0;
+                            const emoji = RED_NUMBERS[amount.toString()] ?? `**${amount}**`;
+                            return `\u200e${townHall} ${emoji} ${m.name} (Received)`;
+                        }
+                        const actionText = m.op === LogActions.JOINED ? 'Joined' : m.op === LogActions.LEFT ? 'Left' : m.op;
+                        return `\u200e${townHall} **${m.name}** ${actionText}`;
+                    })
+                        .join('\n')
+                        .slice(0, 1024)
+                }
+            ]);
+        }
+        return { embed, content: '' };
     }
     async getClanLogEmbed(cache, webhook, data) {
         const embed = new EmbedBuilder()
