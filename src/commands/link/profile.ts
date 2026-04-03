@@ -447,7 +447,7 @@ export default class ProfileCommand extends Command {
   }
 
   private playerShortUrl(tag: string) {
-    return `http://cprk.us/p/${tag.replace('#', '')}`;
+    return this.client.coc.getPlayerURL(tag);
   }
 }
 
