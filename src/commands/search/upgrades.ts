@@ -180,7 +180,9 @@ export default class UpgradesCommand extends Command {
             : 'Builder Hall'
           : curr.category === 'equipment'
             ? getCharacterBuilding(curr)
-            : curr.unlock.building;
+            : curr.village === 'builderBase'
+              ? 'Builder Barracks'
+              : curr.unlock.building;
       if (!(unlockBuilding in prev)) prev[unlockBuilding] = [];
       prev[unlockBuilding].push(curr);
       return prev;
