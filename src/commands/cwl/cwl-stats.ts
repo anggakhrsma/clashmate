@@ -339,7 +339,7 @@ export default class CWLStatsCommand extends Command {
     // Generate image first if league ID exists
     const files: AttachmentBuilder[] = [];
     if (leagueId) {
-      const { file, name, attachmentKey } = await getCWLSummaryImage({
+      const imageData = await getCWLSummaryImage({
         activeRounds,
         leagueId,
         medals,
@@ -349,12 +349,26 @@ export default class CWLStatsCommand extends Command {
         totalRounds: body.clans.length - 1
       });
 
-      const rawFile = new AttachmentBuilder(file, { name });
+      console.log('[CWL] Image data:', {
+        fileName: imageData.name,
+        bufferSize: imageData.file.length,
+        attachmentKey: imageData.attachmentKey
+      });
+
+      const rawFile = new AttachmentBuilder(imageData.file, { name: imageData.name });
       files.push(rawFile);
-      embed.setImage(attachmentKey);
+      embed.setImage(imageData.attachmentKey);
+
+      console.log('[CWL] Files array:', files.length, 'Embed image set to:', imageData.attachmentKey);
     }
 
     // Single editReply with all content
+    console.log('[CWL] Sending reply with:', {
+      embedCount: [...embeds, embed].length,
+      fileCount: files.length,
+      hasImage: embed.data.image ? 'yes' : 'no'
+    });
+
     return interaction.editReply({
       embeds: [...embeds, embed],
       components: menu ? [row, menu] : [row],
