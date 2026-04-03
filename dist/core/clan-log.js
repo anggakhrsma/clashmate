@@ -201,8 +201,9 @@ export class ClanLog extends RootLog {
     async getClanLogEmbed(cache, webhook, data) {
         const embed = new EmbedBuilder()
             .setColor(COLOR_CODES.CYAN)
-            .setTitle(`\u200e${data.clan.name} (${data.clan.tag})`)
-            .setThumbnail(data.clan.badge);
+            .setTitle(`\u200e${data.clan.name} (${data.clan.tag})`);
+        if (data.clan.badge)
+            embed.setThumbnail(data.clan.badge);
         if (data.type === LogActions.CLAN_LEVEL_UP) {
             embed.setDescription(`Clan leveled up to **${data.clan.level}**`);
         }
@@ -227,11 +228,15 @@ export class ClanLog extends RootLog {
     async getDonationLogEmbed(cache, webhook, data) {
         const embed = new EmbedBuilder()
             .setTitle(`${data.clan.name} (${data.clan.tag})`)
-            .setURL(`https://link.clashofclans.com/en?action=OpenClanProfile&tag=${encodeURIComponent(data.clan.tag)}`)
-            .setThumbnail(data.clan.badgeUrl)
-            .setFooter({ text: `${data.clan.members}/50`, iconURL: data.clan.badgeUrl })
-            .setTimestamp()
-            .setColor(COLOR_CODES.PURPLE);
+            .setURL(`https://link.clashofclans.com/en?action=OpenClanProfile&tag=${encodeURIComponent(data.clan.tag)}`);
+        if (data.clan.badgeUrl)
+            embed.setThumbnail(data.clan.badgeUrl);
+        if (data.clan.badgeUrl)
+            embed.setFooter({ text: `${data.clan.members}/50`, iconURL: data.clan.badgeUrl });
+        else
+            embed.setFooter({ text: `${data.clan.members}/50` });
+        embed.setTimestamp();
+        embed.setColor(COLOR_CODES.PURPLE);
         const donatingMembers = data.members.filter((m) => m.op === LogActions.DONATED);
         if (donatingMembers.length) {
             embed.addFields([
