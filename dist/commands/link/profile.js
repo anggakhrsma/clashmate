@@ -339,7 +339,7 @@ export default class ProfileCommand extends Command {
             .deleteOne({ userId: user.id });
     }
     playerShortUrl(tag) {
-        return `http://cprk.us/p/${tag.replace('#', '')}`;
+        return this.client.coc.getPlayerURL(tag);
     }
 }
 //# sourceMappingURL=profile.js.map

@@ -2,7 +2,7 @@ import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, StringSelec
 import ms from 'ms';
 import { Command } from '../../lib/handlers.js';
 import { EMOJIS, HEROES, SIEGE_MACHINES, TOWN_HALLS } from '../../util/emojis.js';
-import { getMenuFromMessage, trimTag } from '../../util/helper.js';
+import { getMenuFromMessage } from '../../util/helper.js';
 const roles = {
     member: 'Member',
     admin: 'Elder',
@@ -117,7 +117,7 @@ export default class PlayerCommand extends Command {
             .findOne({ tag: data.tag }, { projection: { tag: 1, lastSeen: 1 } });
         const lastSeen = aggregated?.lastSeen ? this.getLastSeen(aggregated.lastSeen) : 'Unknown';
         const clan = data.clan
-            ? `**Clan Info**\n${EMOJIS.CLAN} [${data.clan.name}](http://cprk.us/c/${trimTag(data.clan.tag)}) (${roles[data.role]})\n`
+            ? `**Clan Info**\n${EMOJIS.CLAN} [${data.clan.name}](${this.client.coc.getClanURL(data.clan.tag)}) (${roles[data.role]})\n`
             : '';
         const weaponLevel = data.townHallWeaponLevel ? weaponLevels[data.townHallWeaponLevel] : '';
         const embed = new EmbedBuilder()

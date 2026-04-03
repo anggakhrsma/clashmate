@@ -81,11 +81,11 @@ export const lastSeenEmbedMaker = async (
       [
         `**[Last seen and last 24h activity scores](https://clashperk.com/faq)**`,
         '```',
-        `TH  LAST-ON 24H  NAME`,
+        `TH  LAST-ON  24H  NAME`,
         members
           .map((m) => {
             const townHallLevel = padStart(m.townHallLevel, 2);
-            return `${townHallLevel}  ${lastSeenTimestampFormat(m.lastSeen)}  ${padStart(Math.min(m.count, 99), 2)}  ${m.name}`;
+            return `${townHallLevel}  ${lastSeenTimestampFormat(m.lastSeen)}  ${padStart(Math.min(m.count, 999), 3)}  ${m.name}`;
           })
           .join('\n'),
         '```'
