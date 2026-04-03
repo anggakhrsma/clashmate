@@ -325,28 +325,15 @@ export class ClanLog extends RootLog {
       embed.addFields([
         {
           name: `${EMOJIS.USER_BLUE} Donated`,
-          value: [
-            donatingMembers
-              .map((m: any) => {
-                if (m.donations > (false ? 100 : 200)) {
-                  const [div, mod] = this.divMod(m.donations);
-                  const list = [
-                    `\u200e${TOWN_HALLS[m.townHallLevel]} ${BLUE_NUMBERS[(div > 900 ? 900 : div).toString()]} ${m.name}`
-                  ];
-                  if (mod > 0) {
-                    return list
-                      .concat(
-                        `\u200e${TOWN_HALLS[m.townHallLevel]} ${BLUE_NUMBERS[mod.toString()]} ${m.name}`
-                      )
-                      .join('\n');
-                  }
-                  return list.join('\n');
-                }
-                return `\u200e${TOWN_HALLS[m.townHallLevel]} ${BLUE_NUMBERS[m.donations]} ${m.name}`;
-              })
-              .join('\n')
-              .slice(0, 1024)
-          ].join('\n')
+          value: donatingMembers
+            .map((m: any) => {
+              const townHall = TOWN_HALLS[m.townHallLevel] ?? '';
+              const amount = m.donations ?? 0;
+              const emoji = BLUE_NUMBERS[amount.toString()] ?? `**${amount}**`;
+              return `\u200e${townHall} ${emoji} ${m.name}`;
+            })
+            .join('\n')
+            .slice(0, 1024)
         }
       ]);
     }
@@ -356,28 +343,15 @@ export class ClanLog extends RootLog {
       embed.addFields([
         {
           name: `${EMOJIS.USER_RED} Received`,
-          value: [
-            receivingMembers
-              .map((m: any) => {
-                if (m.donationsReceived > (false ? 100 : 200)) {
-                  const [div, mod] = this.divMod(m.donationsReceived);
-                  const list = [
-                    `\u200e${TOWN_HALLS[m.townHallLevel]} ${RED_NUMBERS[(div > 900 ? 900 : div).toString()]} ${m.name}`
-                  ];
-                  if (mod > 0) {
-                    return list
-                      .concat(
-                        `\u200e${TOWN_HALLS[m.townHallLevel]} ${RED_NUMBERS[mod.toString()]!} ${m.name}`
-                      )
-                      .join('\n');
-                  }
-                  return list.join('\n');
-                }
-                return `\u200e${TOWN_HALLS[m.townHallLevel]} ${RED_NUMBERS[m.donationsReceived]!} ${m.name}`;
-              })
-              .join('\n')
-              .slice(0, 1024)
-          ].join('\n')
+          value: receivingMembers
+            .map((m: any) => {
+              const townHall = TOWN_HALLS[m.townHallLevel] ?? '';
+              const amount = m.donationsReceived ?? 0;
+              const emoji = RED_NUMBERS[amount.toString()] ?? `**${amount}**`;
+              return `\u200e${townHall} ${emoji} ${m.name}`;
+            })
+            .join('\n')
+            .slice(0, 1024)
         }
       ]);
     }
