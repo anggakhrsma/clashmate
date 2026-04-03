@@ -155,7 +155,7 @@ export default class PlayerCommand extends Command {
 
     const lastSeen = aggregated?.lastSeen ? this.getLastSeen(aggregated.lastSeen) : 'Unknown';
     const clan = data.clan
-      ? `**Clan Info**\n${EMOJIS.CLAN} [${data.clan.name}](http://cprk.us/c/${trimTag(data.clan.tag)}) (${roles[data.role!]})\n`
+      ? `**Clan Info**\n${EMOJIS.CLAN} [${data.clan.name}](${this.client.coc.getClanURL(data.clan.tag)}) (${roles[data.role!]})\n`
       : '';
 
     const weaponLevel = data.townHallWeaponLevel ? weaponLevels[data.townHallWeaponLevel] : '';
