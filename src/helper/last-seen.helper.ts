@@ -29,13 +29,35 @@ export const lastSeenEmbedMaker = async (
     ])
     .toArray();
 
-  // Query activityScore from MongoDB (written by clan-poller on activity detection)
-  const activityResult = await db
-    .find({ tag: { $in: playerTags } }, { projection: { tag: 1, activityScore: 1 } })
+  // Query activity counts from PlayerActivities (written by clashmate-service poller)
+  const since = new Date(Date.now() - (scoreView ? 30 : 1) * 24 * 60 * 60 * 1000);
+  const activityResult = await client.db
+    .collection(Collections.PLAYER_ACTIVITIES)
+    .aggregate<{ tag: string; count: number }>([
+      {
+        $match: {
+          tag: { $in: playerTags },
+          createdAt: { $gte: since }
+        }
+      },
+      {
+        $group: {
+          _id: '$tag',
+          count: { $sum: 1 }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          tag: '$_id',
+          count: '$count'
+        }
+      }
+    ])
     .toArray();
 
   const activityMap = activityResult.reduce<Record<string, number>>((record, item) => {
-    record[item.tag] = item.activityScore ?? 0;
+    record[item.tag] = item.count;
     return record;
   }, {});
 
