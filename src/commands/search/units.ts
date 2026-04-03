@@ -144,6 +144,7 @@ export default class UnitsCommand extends Command {
     if (unit.allowedCharacters.includes('Grand Warden')) return 'Blacksmith_gw';
     if (unit.allowedCharacters.includes('Royal Champion')) return 'Blacksmith_rc';
     if (unit.allowedCharacters.includes('Dragon Duke')) return 'Blacksmith_dd';
+    if (unit.allowedCharacters.includes('Minion Prince')) return 'Blacksmith_mp';
     return 'Blacksmith';
   }
 
@@ -184,12 +185,13 @@ export default class UnitsCommand extends Command {
       'Spell Factory': 'Elixir Spells',
       'Dark Spell Factory': 'Dark Spells',
       'Town Hall': 'Heroes',
-      'Blacksmith': 'Equipment',
-      'Blacksmith_bk': 'Equipment (BK)',
-      'Blacksmith_aq': 'Equipment (AQ)',
-      'Blacksmith_gw': 'Equipment (GW)',
-      'Blacksmith_rc': 'Equipment (RC)',
-      'Blacksmith_dd': 'Equipment (DD)',
+      'Blacksmith': 'Equipments',
+      'Blacksmith_bk': 'Equipments (BK)',
+      'Blacksmith_aq': 'Equipments (AQ)',
+      'Blacksmith_gw': 'Equipments (GW)',
+      'Blacksmith_rc': 'Equipments (RC)',
+      'Blacksmith_dd': 'Equipments (DD)',
+      'Blacksmith_mp': 'Equipments (MP)',
       'Pet House': 'Pets',
       'Workshop': 'Siege Machines',
       'Builder Hall': 'Builder Base Hero',
@@ -209,7 +211,7 @@ export default class UnitsCommand extends Command {
     }
 
     const filteredUnits = units.filter((category: any) =>
-      equipmentOnly ? category.title === 'Equipment' : category.title !== 'Equipment'
+      equipmentOnly ? category.title.startsWith('Equipments') : !category.title.startsWith('Equipments')
     );
 
     for (const category of filteredUnits.sort((a: any, b: any) => a.index - b.index)) {

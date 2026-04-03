@@ -153,6 +153,9 @@ export default class UpgradesCommand extends Command {
       if (unit.allowedCharacters.includes('Dragon Duke')) {
         return 'Blacksmith_dd';
       }
+      if (unit.allowedCharacters.includes('Minion Prince')) {
+        return 'Blacksmith_mp';
+      }
       return 'Blacksmith';
     };
 
@@ -216,12 +219,13 @@ export default class UpgradesCommand extends Command {
       Workshop: `${EMOJIS.ELIXIR} Siege Machines`
     };
     const _equipment: Record<string, string> = {
-      Blacksmith: `${EMOJIS.EQUIPMENT} Equipment`,
-      Blacksmith_bk: `${EMOJIS.EQUIPMENT} Equipment (BK)`,
-      Blacksmith_aq: `${EMOJIS.EQUIPMENT} Equipment (AQ)`,
-      Blacksmith_gw: `${EMOJIS.EQUIPMENT} Equipment (GW)`,
-      Blacksmith_rc: `${EMOJIS.EQUIPMENT} Equipment (RC)`,
-      Blacksmith_dd: `${EMOJIS.EQUIPMENT} Equipment (DD)`
+      Blacksmith: `${EMOJIS.EQUIPMENT} Hero Equipments`,
+      Blacksmith_bk: `${EMOJIS.EQUIPMENT} Hero Equipments (BK)`,
+      Blacksmith_aq: `${EMOJIS.EQUIPMENT} Hero Equipments (AQ)`,
+      Blacksmith_gw: `${EMOJIS.EQUIPMENT} Hero Equipments (GW)`,
+      Blacksmith_rc: `${EMOJIS.EQUIPMENT} Hero Equipments (RC)`,
+      Blacksmith_dd: `${EMOJIS.EQUIPMENT} Hero Equipments (DD)`,
+      Blacksmith_mp: `${EMOJIS.EQUIPMENT} Hero Equipments (MP)`
     };
     const _builderBase: Record<string, string> = {
       'Builder Barracks': `${EMOJIS.BUILDER_ELIXIR} Builder Troops`,

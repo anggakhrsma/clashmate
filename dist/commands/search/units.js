@@ -105,6 +105,8 @@ export default class UnitsCommand extends Command {
             return 'Blacksmith_rc';
         if (unit.allowedCharacters.includes('Dragon Duke'))
             return 'Blacksmith_dd';
+        if (unit.allowedCharacters.includes('Minion Prince'))
+            return 'Blacksmith_mp';
         return 'Blacksmith';
     }
     embed(data, showMaxLevel = false, equipmentOnly = false) {
@@ -140,12 +142,13 @@ export default class UnitsCommand extends Command {
             'Spell Factory': 'Elixir Spells',
             'Dark Spell Factory': 'Dark Spells',
             'Town Hall': 'Heroes',
-            'Blacksmith': 'Equipment',
-            'Blacksmith_bk': 'Equipment (BK)',
-            'Blacksmith_aq': 'Equipment (AQ)',
-            'Blacksmith_gw': 'Equipment (GW)',
-            'Blacksmith_rc': 'Equipment (RC)',
-            'Blacksmith_dd': 'Equipment (DD)',
+            'Blacksmith': 'Equipments',
+            'Blacksmith_bk': 'Equipments (BK)',
+            'Blacksmith_aq': 'Equipments (AQ)',
+            'Blacksmith_gw': 'Equipments (GW)',
+            'Blacksmith_rc': 'Equipments (RC)',
+            'Blacksmith_dd': 'Equipments (DD)',
+            'Blacksmith_mp': 'Equipments (MP)',
             'Pet House': 'Pets',
             'Workshop': 'Siege Machines',
             'Builder Hall': 'Builder Base Hero',
@@ -162,7 +165,7 @@ export default class UnitsCommand extends Command {
                 units: value
             });
         }
-        const filteredUnits = units.filter((category) => equipmentOnly ? category.title === 'Equipment' : category.title !== 'Equipment');
+        const filteredUnits = units.filter((category) => equipmentOnly ? category.title.startsWith('Equipments') : !category.title.startsWith('Equipments'));
         for (const category of filteredUnits.sort((a, b) => a.index - b.index)) {
             const unitsArray = category.units.map((unit) => {
                 const { maxLevel, level: _level } = apiTroops.find((u) => u.name === unit.name && u.village === unit.village && u.type === unit.category) ?? { maxLevel: unit.levels[unit.levels.length - 1], level: 0 };
