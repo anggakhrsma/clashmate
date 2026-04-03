@@ -335,30 +335,30 @@ export default class CWLStatsCommand extends Command {
     );
 
     const menu = await getClanSwitchingMenu(interaction, customIds.clans, clanTag);
-    await interaction.editReply({
+
+    // Generate image first if league ID exists
+    const files: AttachmentBuilder[] = [];
+    if (leagueId) {
+      const { file, name, attachmentKey } = await getCWLSummaryImage({
+        activeRounds,
+        leagueId,
+        medals,
+        rankIndex,
+        ranks,
+        season: body.season,
+        totalRounds: body.clans.length - 1
+      });
+
+      const rawFile = new AttachmentBuilder(file, { name });
+      files.push(rawFile);
+      embed.setImage(attachmentKey);
+    }
+
+    // Single editReply with all content
+    return interaction.editReply({
       embeds: [...embeds, embed],
       components: menu ? [row, menu] : [row],
-      files: []
-    });
-    if (!leagueId) return null;
-
-    const { file, name, attachmentKey } = await getCWLSummaryImage({
-      activeRounds,
-      leagueId,
-      medals,
-      rankIndex,
-      ranks,
-      season: body.season,
-      totalRounds: body.clans.length - 1
-    });
-
-    const rawFile = new AttachmentBuilder(file, { name });
-    embed.setImage(attachmentKey);
-
-    return interaction.editReply({
-      files: [rawFile],
-      embeds: [...embeds, embed],
-      components: menu ? [row, menu] : [row]
+      files
     });
   }
 
