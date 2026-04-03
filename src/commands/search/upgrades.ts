@@ -144,6 +144,9 @@ export default class UpgradesCommand extends Command {
       if (unit.allowedCharacters.includes('Archer Queen')) {
         return 'Blacksmith_aq';
       }
+      if (unit.allowedCharacters.includes('Minion Prince')) {
+        return 'Blacksmith_mp';
+      }
       if (unit.allowedCharacters.includes('Grand Warden')) {
         return 'Blacksmith_gw';
       }
@@ -152,9 +155,6 @@ export default class UpgradesCommand extends Command {
       }
       if (unit.allowedCharacters.includes('Dragon Duke')) {
         return 'Blacksmith_dd';
-      }
-      if (unit.allowedCharacters.includes('Minion Prince')) {
-        return 'Blacksmith_mp';
       }
       return 'Blacksmith';
     };

@@ -185,7 +185,6 @@ export default class UnitsCommand extends Command {
       'Spell Factory': 'Elixir Spells',
       'Dark Spell Factory': 'Dark Spells',
       'Town Hall': 'Heroes',
-      'Blacksmith': 'Equipments',
       'Blacksmith_bk': 'Equipments (BK)',
       'Blacksmith_aq': 'Equipments (AQ)',
       'Blacksmith_mp': 'Equipments (MP)',
