@@ -219,32 +219,31 @@ export default class UpgradesCommand extends Command {
       Workshop: `${EMOJIS.ELIXIR} Siege Machines`
     };
     const _equipment: Record<string, string> = {
-      Blacksmith: `${EMOJIS.EQUIPMENT} Hero Equipments`,
-      Blacksmith_bk: `${EMOJIS.EQUIPMENT} Hero Equipments (BK)`,
-      Blacksmith_aq: `${EMOJIS.EQUIPMENT} Hero Equipments (AQ)`,
-      Blacksmith_gw: `${EMOJIS.EQUIPMENT} Hero Equipments (GW)`,
-      Blacksmith_rc: `${EMOJIS.EQUIPMENT} Hero Equipments (RC)`,
-      Blacksmith_dd: `${EMOJIS.EQUIPMENT} Hero Equipments (DD)`,
-      Blacksmith_mp: `${EMOJIS.EQUIPMENT} Hero Equipments (MP)`
+      Blacksmith_bk: `${EMOJIS.EQUIPMENT} Equipments (BK)`,
+      Blacksmith_aq: `${EMOJIS.EQUIPMENT} Equipments (AQ)`,
+      Blacksmith_mp: `${EMOJIS.EQUIPMENT} Equipments (MP)`,
+      Blacksmith_gw: `${EMOJIS.EQUIPMENT} Equipments (GW)`,
+      Blacksmith_rc: `${EMOJIS.EQUIPMENT} Equipments (RC)`,
+      Blacksmith_dd: `${EMOJIS.EQUIPMENT} Equipments (DD)`
     };
     const _builderBase: Record<string, string> = {
       'Builder Barracks': `${EMOJIS.BUILDER_ELIXIR} Builder Troops`,
-      'Builder Hall': `${EMOJIS.BUILDER_ELIXIR} Builder Base Hero`
+      'Builder Hall': `${EMOJIS.BUILDER_ELIXIR} Builder Base Heroes`
     };
 
     const titles: Record<string, string> = equipmentOnly
       ? {
-          ..._heroes,
-          ..._pets,
-          ..._equipment
-        }
+        ..._heroes,
+        ..._pets,
+        ..._equipment
+      }
       : {
-          ..._troops,
-          ..._heroes,
-          ..._pets,
-          ..._workshops,
-          ..._builderBase
-        };
+        ..._troops,
+        ..._heroes,
+        ..._pets,
+        ..._workshops,
+        ..._builderBase
+      };
 
     const units = [];
     const indexes = Object.values(titles);
@@ -285,14 +284,14 @@ export default class UpgradesCommand extends Command {
           unit.village === 'home' ? hallMaxLevel - 1 : hallMaxLevel - (unit.minLevel || 1);
         const remainingCost = level
           ? unit.upgrade.cost
-              .slice(level - (unit.minLevel ?? 1), hallIndex)
-              .reduce((prev: any, curr: any) => prev + curr, 0)
+            .slice(level - (unit.minLevel ?? 1), hallIndex)
+            .reduce((prev: any, curr: any) => prev + curr, 0)
           : unit.upgrade.cost.slice(0, hallIndex).reduce((prev: any, curr: any) => prev + curr, 0); // + unit.unlock.cost;
 
         const remainingTime = level
           ? unit.upgrade.time
-              .slice(level - (unit.minLevel ?? 1), hallIndex)
-              .reduce((prev: any, curr: any) => prev + curr, 0)
+            .slice(level - (unit.minLevel ?? 1), hallIndex)
+            .reduce((prev: any, curr: any) => prev + curr, 0)
           : unit.upgrade.time.slice(0, hallIndex).reduce((prev: any, curr: any) => prev + curr, 0); // + unit.unlock.time;
 
         const resources = (unit.upgrade.resources as any[])
@@ -455,10 +454,10 @@ export default class UpgradesCommand extends Command {
     return Math.abs(num) >= 1.0e9
       ? `${(Math.abs(num) / 1.0e9).toFixed(Math.abs(num) / 1.0e9 >= 100 ? 1 : 2)}B`
       : // Six Zeroes for Millions
-        Math.abs(num) >= 1.0e6
+      Math.abs(num) >= 1.0e6
         ? `${(Math.abs(num) / 1.0e6).toFixed(Math.abs(num) / 1.0e6 >= 100 ? 1 : 2)}M`
         : // Three Zeroes for Thousands
-          Math.abs(num) >= 1.0e3
+        Math.abs(num) >= 1.0e3
           ? `${(Math.abs(num) / 1.0e3).toFixed(Math.abs(num) / 1.0e3 >= 100 ? 1 : 2)}K`
           : Math.abs(num).toFixed(0);
   }
