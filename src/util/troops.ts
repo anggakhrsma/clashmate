@@ -8,6 +8,13 @@ const COMMON_UPGRADE = RawData.RawUnits.find((u: any) => u.name === 'Barbarian P
   resources: []
 };
 
+const PET_UPGRADE = RawData.RawUnits.find((u: any) => u.name === 'L.A.S.S.I')?.upgrade ?? {
+  cost: [],
+  time: [],
+  resource: 'Dark Elixir',
+  resources: []
+};
+
 const LOCAL_UNITS = [
   {
     name: 'Fire Heart',
@@ -19,7 +26,7 @@ const LOCAL_UNITS = [
     allowedCharacters: ['Dragon Duke'],
     minLevel: 1,
     seasonal: false,
-    levels: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 12, 15, 18, 18]
+    levels: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 18, 18, 18, 18]
   },
   {
     name: 'Flame Blower',
@@ -31,7 +38,7 @@ const LOCAL_UNITS = [
     allowedCharacters: ['Dragon Duke'],
     minLevel: 1,
     seasonal: false,
-    levels: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 12, 15, 18, 18]
+    levels: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 18, 18, 18, 18]
   },
   {
     name: 'Stun Blaster',
@@ -43,17 +50,33 @@ const LOCAL_UNITS = [
     allowedCharacters: ['Dragon Duke'],
     minLevel: 1,
     seasonal: false,
-    levels: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 12, 15, 18, 18]
+    levels: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 18, 18, 18, 18]
+  },
+  {
+    name: 'Greedy Raven',
+    village: 'home',
+    category: 'troop',
+    subCategory: 'pet',
+    unlock: { hall: 15, cost: 0, time: 0, resource: 'Dark Elixir', building: 'Pet House', buildingLevel: 12 },
+    upgrade: PET_UPGRADE,
+    allowedCharacters: [],
+    minLevel: 1,
+    seasonal: false,
+    levels: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 10, 10, 10]
   }
 ];
 
 // Only add LOCAL_UNITS if they are NOT already present in RawData.RawUnits
-// This allows for a safe library upgrade in the future.
-const FILTERED_LOCAL_UNITS = LOCAL_UNITS.filter(
-  (local) => !RawData.RawUnits.some((raw: any) => raw.name === local.name)
-);
+// OR if they are present but have incorrect levels (like Greedy Raven in old raw.json)
+const FILTERED_LOCAL_UNITS = LOCAL_UNITS.filter((local) => {
+  const raw = RawData.RawUnits.find((ru: any) => ru.name === local.name);
+  if (!raw) return true;
+  // If it's a pet and its level at index 14 (TH15) is 0, we override it
+  if (local.subCategory === 'pet' && raw.levels[14] === 0) return true;
+  return false;
+});
 
-export const RAW_TROOPS = [...RawData.RawUnits, ...FILTERED_LOCAL_UNITS].map((u) =>
+export const RAW_TROOPS = [...RawData.RawUnits.filter(ru => !FILTERED_LOCAL_UNITS.some(flu => flu.name === ru.name)), ...FILTERED_LOCAL_UNITS].map((u) =>
   u.name === 'Dragon Duke' ? { ...u, seasonal: false } : u
 );
 

@@ -81,6 +81,7 @@ export const HERO_EQUIPMENT: Record<string, string> = {
   'Frost Flake': '<:FrostFlake:1484913739420663868>',
   'Stick Horse': '<:StickHorse:1484915607076868106>',
   'Fire Heart': '<:FireHeart:1484913559488958544>',
+  'Flame Blower': '<:FlameBlower:1484913605987008714>',
   'Stun Blaster': '<:StunBlaster:1484915643642810500>'
 };
 
