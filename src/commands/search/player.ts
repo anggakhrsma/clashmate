@@ -233,7 +233,11 @@ export default class PlayerCommand extends Command {
     ];
     const heroesList = data.heroes
       .filter((hero) => hero.village === 'home')
-      .sort((a, b) => heroOrder.indexOf(a.name) - heroOrder.indexOf(b.name))
+      .sort((a, b) => {
+        const aIndex = heroOrder.indexOf(a.name);
+        const bIndex = heroOrder.indexOf(b.name);
+        return (aIndex === -1 ? 99 : aIndex) - (bIndex === -1 ? 99 : bIndex);
+      })
       .map((hero) => `${HEROES[hero.name]} ${hero.level}`);
     embed.addFields([
       {
