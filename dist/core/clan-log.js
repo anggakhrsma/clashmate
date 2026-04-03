@@ -47,7 +47,7 @@ export class ClanLog extends RootLog {
     async handleMessage(cache, webhook, data) {
         const actions = logActionsMap[cache.logType] ?? [];
         if (data.logType === 'DONATION_LOG') {
-            if (cache.logType !== ClanLogType.CONTINUOUS_DONATION_LOG)
+            if (cache.logType !== ClanLogType.CONTINUOUS_DONATION_LOG && cache.logType !== 'donation_log')
                 return null;
             return this.getDonationLogEmbed(cache, webhook, data);
         }

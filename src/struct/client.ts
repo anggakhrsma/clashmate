@@ -199,10 +199,7 @@ export class Client extends DiscordClient<true> {
 
     this.once('clientReady', async () => {
       await this.settings.init({ globalOnly: false });
-
-      if (process.env.NODE_ENV === 'production') {
-        await this.enqueue();
-      }
+      await this.enqueue();
     });
 
     this.logger.info('Connecting to Discord Gateway', { label: 'DISCORD' });
