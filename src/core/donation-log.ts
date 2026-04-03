@@ -89,12 +89,35 @@ export class DonationLog extends RootLog {
     const { body: clan } = await this.client.coc.getClan(tag);
     if (!clan?.members) return null;
 
-    const rows = { data: [] as any[] }; // ClickHouse removed
-    const data = rows.data.map((row) => ({
-      ...row,
-      donated: Number(row.donated),
-      received: Number(row.received)
-    }));
+    const data = await this.client.db
+      .collection('PlayerActivities')
+      .aggregate<AggregatedResult>([
+        {
+          $match: {
+            clanTag: tag,
+            createdAt: { $gte: moment(gte).toDate(), $lte: moment(lte).toDate() },
+            op: 'DONATED'
+          }
+        },
+        {
+          $group: {
+            _id: '$tag',
+            donated: { $sum: '$donations' },
+            received: { $sum: '$donationsReceived' },
+            name: { $first: '$name' }
+          }
+        },
+        {
+          $project: {
+            tag: '$_id',
+            donated: 1,
+            received: 1,
+            name: 1,
+            _id: 0
+          }
+        }
+      ])
+      .toArray();
 
     const playersMap = data.reduce<Record<string, AggregatedResult>>((record, item) => {
       record[item.tag] = item;
