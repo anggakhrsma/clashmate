@@ -85,93 +85,69 @@ export const getCWLSummaryImage = async ({
   activeRounds: number;
   totalRounds: number;
 }) => {
-  const width = 900;
-  const height = 400 + ranks.length * 35;
+  const width = 800;
+  const height = 300 + (ranks.length * 40);
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext('2d');
 
-  // Background
-  ctx.fillStyle = '#1a1a2e';
+  // Fill background
+  ctx.fillStyle = '#2c3e50';
   ctx.fillRect(0, 0, width, height);
 
-  // Header section
-  ctx.fillStyle = '#16c784';
-  ctx.fillRect(0, 0, width, 120);
+  // Header
+  ctx.fillStyle = '#27ae60';
+  ctx.fillRect(0, 0, width, 80);
 
-  // League name
-  ctx.font = 'bold 48px Arial';
+  ctx.font = 'bold 40px sans-serif';
   ctx.fillStyle = '#ffffff';
-  ctx.textAlign = 'left';
-  ctx.fillText(WAR_LEAGUE_MAP[leagueId] || 'War League', 40, 55);
+  ctx.fillText('CWL Ranking', 20, 55);
 
-  // Season and rounds
-  ctx.font = '18px Arial';
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText(`Season: ${moment(season).format('MMM YYYY')} | Rounds: ${activeRounds}/${totalRounds}`, 40, 90);
+  // League info
+  ctx.font = '16px sans-serif';
+  ctx.fillText(`${WAR_LEAGUE_MAP[leagueId] || 'War League'} | ${moment(season).format('MMM YYYY')}`, 20, 75);
 
-  // Stats section
-  ctx.font = 'bold 20px Arial';
-  ctx.fillStyle = '#16c784';
-  ctx.textAlign = 'right';
-  ctx.fillText(`🏅 ${medals} Medals`, width - 40, 60);
+  // Column headers
+  ctx.font = 'bold 14px sans-serif';
+  ctx.fillStyle = '#ecf0f1';
+  let y = 120;
+  ctx.fillText('Rank', 20, y);
+  ctx.fillText('Clan Name', 80, y);
+  ctx.fillText('Stars', 500, y);
+  ctx.fillText('Destruction', 600, y);
 
-  // Ranking table
-  const tableY = 150;
-  const rowHeight = 35;
-  const padding = 15;
-
-  // Column widths
-  const rankWidth = 50;
-  const nameWidth = 400;
-
-  // Headers
-  ctx.font = 'bold 16px Arial';
-  ctx.fillStyle = '#ffffff';
-  ctx.textAlign = 'left';
-  ctx.fillText('Rank', 40, tableY + 25);
-  ctx.fillText('Clan Name', 40 + rankWidth + padding, tableY + 25);
-  ctx.textAlign = 'right';
-  ctx.fillText('Stars', 40 + rankWidth + nameWidth + padding, tableY + 25);
-  ctx.fillText('Destruction %', width - 40, tableY + 25);
-
-  // Table rows
+  // Rows
+  ctx.font = '14px sans-serif';
+  y = 160;
   for (let i = 0; i < ranks.length; i++) {
     const rank = ranks[i];
-    const rowY = tableY + 50 + i * rowHeight;
 
-    // Highlight user's clan
+    // Highlight current clan
     if (i === rankIndex) {
-      ctx.fillStyle = '#16c78433';
-      ctx.fillRect(20, rowY - 25, width - 40, rowHeight);
-      ctx.strokeStyle = '#16c784';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(20, rowY - 25, width - 40, rowHeight);
+      ctx.fillStyle = '#27ae6044';
+      ctx.fillRect(0, y - 20, width, 35);
     }
 
-    // Rank number
-    ctx.font = '16px Arial';
-    ctx.fillStyle = '#ffffff';
-    ctx.textAlign = 'left';
-    ctx.fillText(`#${i + 1}`, 40, rowY);
+    ctx.fillStyle = '#ecf0f1';
+    ctx.fillText(`${rank.rank}`, 20, y);
+    ctx.fillText(rank.name.substring(0, 30), 80, y);
+    ctx.fillText(rank.stars.toString(), 520, y);
+    ctx.fillText(`${rank.destruction.toFixed(1)}%`, 600, y);
 
-    // Clan name (truncate if too long)
-    let name = rank.name;
-    if (name.length > 25) name = name.substring(0, 22) + '...';
-    ctx.fillText(name, 40 + rankWidth + padding, rowY);
-
-    // Stars
-    ctx.textAlign = 'right';
-    ctx.fillText(`${rank.stars}⭐`, 40 + rankWidth + nameWidth + padding, rowY);
-
-    // Destruction
-    ctx.fillText(`${rank.destruction.toFixed(1)}%`, width - 40, rowY);
+    y += 35;
   }
+
+  // Footer with medals
+  ctx.fillStyle = '#27ae60';
+  ctx.fillRect(0, height - 40, width, 40);
+  ctx.font = 'bold 16px sans-serif';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(`🏅 Medals: ${medals}  |  Rounds: ${activeRounds}/${totalRounds}`, 20, height - 15);
 
   const buffer = canvas.toBuffer('image/png');
   return {
     file: buffer,
-    name: 'clan-war-league-ranking.png' as const,
-    attachmentKey: 'attachment://clan-war-league-ranking.png' as const
+    name: 'cwl-stats.png' as const,
+    attachmentKey: 'attachment://cwl-stats.png' as const
   };
 };
 
