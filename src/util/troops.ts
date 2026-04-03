@@ -47,7 +47,13 @@ const LOCAL_UNITS = [
   }
 ];
 
-export const RAW_TROOPS = [...RawData.RawUnits, ...LOCAL_UNITS].map((u) =>
+// Only add LOCAL_UNITS if they are NOT already present in RawData.RawUnits
+// This allows for a safe library upgrade in the future.
+const FILTERED_LOCAL_UNITS = LOCAL_UNITS.filter(
+  (local) => !RawData.RawUnits.some((raw: any) => raw.name === local.name)
+);
+
+export const RAW_TROOPS = [...RawData.RawUnits, ...FILTERED_LOCAL_UNITS].map((u) =>
   u.name === 'Dragon Duke' ? { ...u, seasonal: false } : u
 );
 
