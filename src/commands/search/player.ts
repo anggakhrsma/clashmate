@@ -98,7 +98,7 @@ export default class PlayerCommand extends Command {
     optionsRow
       .addComponents(
         new ButtonBuilder()
-          .setLabel('Equipments')
+          .setLabel('Units')
           .setStyle(ButtonStyle.Primary)
           .setCustomId(customIds.units)
       )
@@ -164,8 +164,7 @@ export default class PlayerCommand extends Command {
       .setURL(this.client.coc.getPlayerURL(data.tag))
       .setDescription(
         [
-          `${TOWN_HALLS[data.townHallLevel]} **${data.townHallLevel}${weaponLevel}** ${EMOJIS.EXP} **${data.expLevel}** ${
-            EMOJIS.TROPHY
+          `${TOWN_HALLS[data.townHallLevel]} **${data.townHallLevel}${weaponLevel}** ${EMOJIS.EXP} **${data.expLevel}** ${EMOJIS.TROPHY
           } **${data.trophies}** ${EMOJIS.WAR_STAR} **${data.warStars}**`
         ].join('\n')
       );
@@ -261,10 +260,10 @@ export default class PlayerCommand extends Command {
     return Math.abs(num) >= 1.0e9
       ? `${(Math.abs(num) / 1.0e9).toFixed(2)}B`
       : // Six Zeroes for Millions
-        Math.abs(num) >= 1.0e6
+      Math.abs(num) >= 1.0e6
         ? `${(Math.abs(num) / 1.0e6).toFixed(2)}M`
         : // Three Zeroes for Thousands
-          Math.abs(num) >= 1.0e3
+        Math.abs(num) >= 1.0e3
           ? `${(Math.abs(num) / 1.0e3).toFixed(2)}K`
           : Math.abs(num).toFixed(2);
   }

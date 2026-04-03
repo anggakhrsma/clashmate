@@ -166,7 +166,22 @@ export default class UnitsCommand extends Command {
         }
         const filteredUnits = units.filter((category) => equipmentOnly ? category.title.startsWith('Equipments') : !category.title.startsWith('Equipments'));
         for (const category of filteredUnits.sort((a, b) => a.index - b.index)) {
-            const unitsArray = category.units.map((unit) => {
+            const heroOrder = [
+                'Barbarian King',
+                'Archer Queen',
+                'Minion Prince',
+                'Grand Warden',
+                'Royal Champion',
+                'Dragon Duke'
+            ];
+            const unitsArray = category.units
+                .sort((a, b) => {
+                if (a.category === 'hero' && b.category === 'hero') {
+                    return heroOrder.indexOf(a.name) - heroOrder.indexOf(b.name);
+                }
+                return 0;
+            })
+                .map((unit) => {
                 const { maxLevel, level: _level } = apiTroops.find((u) => u.name === unit.name && u.village === unit.village && u.type === unit.category) ?? { maxLevel: unit.levels[unit.levels.length - 1], level: 0 };
                 const hallLevel = unit.village === 'home' ? data.townHallLevel : data.builderHallLevel;
                 const level = _level === 0 ? 0 : Math.max(_level, unit.minLevel ?? _level);

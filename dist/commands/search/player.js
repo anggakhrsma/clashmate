@@ -73,7 +73,7 @@ export default class PlayerCommand extends Command {
             .setCustomId(customIds.history));
         optionsRow
             .addComponents(new ButtonBuilder()
-            .setLabel('Equipments')
+            .setLabel('Units')
             .setStyle(ButtonStyle.Primary)
             .setCustomId(customIds.units))
             .addComponents(new ButtonBuilder()

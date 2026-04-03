@@ -159,7 +159,6 @@ export default class UpgradesCommand extends Command {
             'Dark Spell Factory': `${EMOJIS.DARK_ELIXIR} Dark Spells`
         };
         const _heroes = {
-            'Town Hall': `${EMOJIS.DARK_ELIXIR} Heroes`,
             'Dark Hero': `${EMOJIS.DARK_ELIXIR} Heroes`,
             'Elixir Hero': `${EMOJIS.ELIXIR} Heroes`
         };
@@ -178,8 +177,8 @@ export default class UpgradesCommand extends Command {
             Blacksmith_dd: `${EMOJIS.EQUIPMENT} Equipments (DD)`
         };
         const _builderBase = {
-            'Builder Barracks': `${EMOJIS.BUILDER_ELIXIR} Builder Troops`,
-            'Builder Hall': `${EMOJIS.BUILDER_ELIXIR} Builder Base Heroes`
+            'Builder Hall': `${EMOJIS.BUILDER_ELIXIR} Builder Heroes`,
+            'Builder Barracks': `${EMOJIS.BUILDER_ELIXIR} Builder Troops`
         };
         const titles = equipmentOnly
             ? {
@@ -216,7 +215,22 @@ export default class UpgradesCommand extends Command {
             'Time': 0
         };
         for (const category of units.sort((a, b) => a.index - b.index)) {
-            const unitsArray = category.units.map((unit) => {
+            const heroOrder = [
+                'Barbarian King',
+                'Archer Queen',
+                'Minion Prince',
+                'Grand Warden',
+                'Royal Champion',
+                'Dragon Duke'
+            ];
+            const unitsArray = category.units
+                .sort((a, b) => {
+                if (a.category === 'hero' && b.category === 'hero') {
+                    return heroOrder.indexOf(a.name) - heroOrder.indexOf(b.name);
+                }
+                return 0;
+            })
+                .map((unit) => {
                 const apiTroop = apiTroops.find((u) => u.name === unit.name && u.village === unit.village && u.type === unit.category);
                 const maxLevel = apiTroop?.maxLevel ?? unit.levels[unit.levels.length - 1];
                 const _level = apiTroop?.level ?? 0;

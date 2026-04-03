@@ -208,7 +208,6 @@ export default class UpgradesCommand extends Command {
       'Dark Spell Factory': `${EMOJIS.DARK_ELIXIR} Dark Spells`
     };
     const _heroes: Record<string, string> = {
-      'Town Hall': `${EMOJIS.DARK_ELIXIR} Heroes`,
       'Dark Hero': `${EMOJIS.DARK_ELIXIR} Heroes`,
       'Elixir Hero': `${EMOJIS.ELIXIR} Heroes`
     };
@@ -227,8 +226,8 @@ export default class UpgradesCommand extends Command {
       Blacksmith_dd: `${EMOJIS.EQUIPMENT} Equipments (DD)`
     };
     const _builderBase: Record<string, string> = {
-      'Builder Barracks': `${EMOJIS.BUILDER_ELIXIR} Builder Troops`,
-      'Builder Hall': `${EMOJIS.BUILDER_ELIXIR} Builder Base Heroes`
+      'Builder Hall': `${EMOJIS.BUILDER_ELIXIR} Builder Heroes`,
+      'Builder Barracks': `${EMOJIS.BUILDER_ELIXIR} Builder Troops`
     };
 
     const titles: Record<string, string> = equipmentOnly
@@ -268,55 +267,70 @@ export default class UpgradesCommand extends Command {
     };
 
     for (const category of units.sort((a: any, b: any) => a.index - b.index)) {
-      const unitsArray = (category as any).units.map((unit: any) => {
-        const apiTroop = apiTroops.find(
-          (u: any) => u.name === unit.name && u.village === unit.village && u.type === unit.category
-        );
-        const maxLevel = apiTroop?.maxLevel ?? unit.levels[unit.levels.length - 1];
-        const _level = apiTroop?.level ?? 0;
-        const hallLevel =
-          unit.village === 'home' ? data.townHallLevel : (data.builderHallLevel ?? 0);
-        const level = _level === 0 ? 0 : Math.max(_level, unit.minLevel ?? _level);
-        const isRushed = unit.levels[hallLevel - 2] > level;
-        const hallMaxLevel = unit.levels[hallLevel - 1];
+      const heroOrder = [
+        'Barbarian King',
+        'Archer Queen',
+        'Minion Prince',
+        'Grand Warden',
+        'Royal Champion',
+        'Dragon Duke'
+      ];
+      const unitsArray = (category as any).units
+        .sort((a: any, b: any) => {
+          if (a.category === 'hero' && b.category === 'hero') {
+            return heroOrder.indexOf(a.name) - heroOrder.indexOf(b.name);
+          }
+          return 0;
+        })
+        .map((unit: any) => {
+          const apiTroop = apiTroops.find(
+            (u: any) => u.name === unit.name && u.village === unit.village && u.type === unit.category
+          );
+          const maxLevel = apiTroop?.maxLevel ?? unit.levels[unit.levels.length - 1];
+          const _level = apiTroop?.level ?? 0;
+          const hallLevel =
+            unit.village === 'home' ? data.townHallLevel : (data.builderHallLevel ?? 0);
+          const level = _level === 0 ? 0 : Math.max(_level, unit.minLevel ?? _level);
+          const isRushed = unit.levels[hallLevel - 2] > level;
+          const hallMaxLevel = unit.levels[hallLevel - 1];
 
-        const hallIndex =
-          unit.village === 'home' ? hallMaxLevel - 1 : hallMaxLevel - (unit.minLevel || 1);
-        const remainingCost = level
-          ? unit.upgrade.cost
-            .slice(level - (unit.minLevel ?? 1), hallIndex)
-            .reduce((prev: any, curr: any) => prev + curr, 0)
-          : unit.upgrade.cost.slice(0, hallIndex).reduce((prev: any, curr: any) => prev + curr, 0); // + unit.unlock.cost;
+          const hallIndex =
+            unit.village === 'home' ? hallMaxLevel - 1 : hallMaxLevel - (unit.minLevel || 1);
+          const remainingCost = level
+            ? unit.upgrade.cost
+              .slice(level - (unit.minLevel ?? 1), hallIndex)
+              .reduce((prev: any, curr: any) => prev + curr, 0)
+            : unit.upgrade.cost.slice(0, hallIndex).reduce((prev: any, curr: any) => prev + curr, 0); // + unit.unlock.cost;
 
-        const remainingTime = level
-          ? unit.upgrade.time
-            .slice(level - (unit.minLevel ?? 1), hallIndex)
-            .reduce((prev: any, curr: any) => prev + curr, 0)
-          : unit.upgrade.time.slice(0, hallIndex).reduce((prev: any, curr: any) => prev + curr, 0); // + unit.unlock.time;
+          const remainingTime = level
+            ? unit.upgrade.time
+              .slice(level - (unit.minLevel ?? 1), hallIndex)
+              .reduce((prev: any, curr: any) => prev + curr, 0)
+            : unit.upgrade.time.slice(0, hallIndex).reduce((prev: any, curr: any) => prev + curr, 0); // + unit.unlock.time;
 
-        const resources = (unit.upgrade.resources as any[])
-          .slice(level ? level - (unit.minLevel ?? 1) : 0, hallMaxLevel - 1)
-          .flat()
-          .reduce<Record<string, number>>((prev: any, curr: any) => {
-            prev[curr.resource] ??= 0;
-            prev[curr.resource] += curr.cost;
-            return prev;
-          }, {});
+          const resources = (unit.upgrade.resources as any[])
+            .slice(level ? level - (unit.minLevel ?? 1) : 0, hallMaxLevel - 1)
+            .flat()
+            .reduce<Record<string, number>>((prev: any, curr: any) => {
+              prev[curr.resource] ??= 0;
+              prev[curr.resource] += curr.cost;
+              return prev;
+            }, {});
 
-        return {
-          name: unit.name,
-          level,
-          type: unit.category,
-          village: unit.village,
-          isRushed,
-          hallMaxLevel,
-          maxLevel: Math.max(unit.levels[unit.levels.length - 1], maxLevel),
-          resource: unit.upgrade.resource,
-          resources,
-          remainingCost,
-          remainingTime
-        };
-      });
+          return {
+            name: unit.name,
+            level,
+            type: unit.category,
+            village: unit.village,
+            isRushed,
+            hallMaxLevel,
+            maxLevel: Math.max(unit.levels[unit.levels.length - 1], maxLevel),
+            resource: unit.upgrade.resource,
+            resources,
+            remainingCost,
+            remainingTime
+          };
+        });
 
       const _totalTime = unitsArray.reduce((prev: any, curr: any) => prev + curr.remainingTime, 0);
       const _totalCost = unitsArray.reduce((prev: any, curr: any) => prev + curr.remainingCost, 0);
