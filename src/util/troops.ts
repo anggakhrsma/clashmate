@@ -1,14 +1,14 @@
-import { RawData } from 'clashofclans.js';
+import { RAW_DATA } from 'clashofclans.js';
 import { ALL_TROOPS, SUPER_TROOPS } from './emojis.js';
 
-const COMMON_UPGRADE = RawData.RawUnits.find((u: any) => u.name === 'Barbarian Puppet')?.upgrade ?? {
+const COMMON_UPGRADE = RAW_DATA.RAW_UNITS.find((u: any) => u.name === 'Barbarian Puppet')?.upgrade ?? {
   cost: [],
   time: [],
   resource: 'Shiny Ore',
   resources: []
 };
 
-const PET_UPGRADE = RawData.RawUnits.find((u: any) => u.name === 'L.A.S.S.I')?.upgrade ?? {
+const PET_UPGRADE = RAW_DATA.RAW_UNITS.find((u: any) => u.name === 'L.A.S.S.I')?.upgrade ?? {
   cost: [],
   time: [],
   resource: 'Dark Elixir',
@@ -26,7 +26,8 @@ const LOCAL_UNITS = [
     allowedCharacters: ['Dragon Duke'],
     minLevel: 1,
     seasonal: false,
-    levels: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 18, 18, 18, 18]
+    levels: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 18, 18, 18, 18],
+    housingSpace: 0
   },
   {
     name: 'Flame Blower',
@@ -38,7 +39,8 @@ const LOCAL_UNITS = [
     allowedCharacters: ['Dragon Duke'],
     minLevel: 1,
     seasonal: false,
-    levels: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 18, 18, 18, 18]
+    levels: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 18, 18, 18, 18],
+    housingSpace: 0
   },
   {
     name: 'Stun Blaster',
@@ -50,7 +52,8 @@ const LOCAL_UNITS = [
     allowedCharacters: ['Dragon Duke'],
     minLevel: 1,
     seasonal: false,
-    levels: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 18, 18, 18, 18]
+    levels: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 18, 18, 18, 18],
+    housingSpace: 0
   },
   {
     name: 'Greedy Raven',
@@ -62,25 +65,26 @@ const LOCAL_UNITS = [
     allowedCharacters: [],
     minLevel: 1,
     seasonal: false,
-    levels: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 10, 10, 10]
+    levels: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 10, 10, 10],
+    housingSpace: 0
   }
 ];
 
-// Only add LOCAL_UNITS if they are NOT already present in RawData.RawUnits
+// Only add LOCAL_UNITS if they are NOT already present in RAW_DATA.RAW_UNITS
 // OR if they are present but have incorrect levels (like Greedy Raven in old raw.json)
 const FILTERED_LOCAL_UNITS = LOCAL_UNITS.filter((local) => {
-  const raw = RawData.RawUnits.find((ru: any) => ru.name === local.name);
+  const raw = RAW_DATA.RAW_UNITS.find((ru: any) => ru.name === local.name);
   if (!raw) return true;
   // If it's a pet and its level at index 14 (TH15) is 0, we override it
   if (local.subCategory === 'pet' && raw.levels[14] === 0) return true;
   return false;
 });
 
-export const RAW_TROOPS = [...RawData.RawUnits.filter(ru => !FILTERED_LOCAL_UNITS.some(flu => flu.name === ru.name)), ...FILTERED_LOCAL_UNITS].map((u) =>
+export const RAW_TROOPS = [...RAW_DATA.RAW_UNITS.filter((ru: any) => !FILTERED_LOCAL_UNITS.some(flu => flu.name === ru.name)), ...FILTERED_LOCAL_UNITS].map((u) =>
   u.name === 'Dragon Duke' ? { ...u, seasonal: false } : u
 );
 
-export const RAW_SUPER_TROOPS = RawData.RawSuperUnits;
+export const RAW_SUPER_TROOPS = RAW_DATA.RAW_SUPER_UNITS;
 
 // For calculating rushed and remaining upgrades
 export const RAW_TROOPS_FILTERED = RAW_TROOPS.filter((unit: any) => !unit.seasonal)

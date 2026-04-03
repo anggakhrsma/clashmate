@@ -1,7 +1,7 @@
 {
   "name": "clashmate",
   "version": "1.0.0",
-  "description": "Clash of Clans Discord Bot \u2014 free for all, no Patreon gating",
+  "description": "Clash of Clans Discord Bot — free for all, no Patreon gating",
   "type": "module",
   "main": "./dist/index.js",
   "exports": {
@@ -20,9 +20,11 @@
   "dependencies": {
     "axios": "^1.12.2",
     "chalk": "^5.6.2",
-    "clashofclans.js": "^3.4.0",
+    "clashofclans.js": "^4.0.1",
     "discord.js": "^14.25.0",
+    "dotenv": "^16.0.0",
     "google-auth-library": "^9.15.0",
+    "jsonwebtoken": "^9.0.0",
     "moment": "^2.29.1",
     "moment-duration-format": "^2.3.2",
     "moment-timezone": "^0.6.0",
@@ -33,14 +35,14 @@
     "radash": "^12.1.0",
     "readdirp": "^4.1.2",
     "reflect-metadata": "^0.2.2",
-    "tsyringe": "^4.10.0",
-    "jsonwebtoken": "^9.0.0",
-    "dotenv": "^16.0.0"
+    "tsyringe": "^4.10.0"
   },
   "devDependencies": {
     "@eslint/compat": "^2.0.2",
     "@eslint/eslintrc": "^3.3.3",
     "@eslint/js": "^10.0.1",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/moment-duration-format": "^2.2.3",
     "@types/ms": "^0.7.31",
     "@types/node": "^24.9.1",
     "@types/pluralize": "^0.0.33",
@@ -55,9 +57,7 @@
     "rimraf": "^6.0.1",
     "tsc-alias": "^1.8.11",
     "tsx": "^4.20.6",
-    "typescript": "^5.8.3",
-    "@types/jsonwebtoken": "^9.0.10",
-    "@types/moment-duration-format": "^2.2.3"
+    "typescript": "^5.8.3"
   },
   "optionalDependencies": {
     "bufferutil": "^4.0.9",

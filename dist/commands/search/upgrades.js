@@ -113,6 +113,9 @@ export default class UpgradesCommand extends Command {
             if (unit.allowedCharacters.includes('Royal Champion')) {
                 return 'Blacksmith_rc';
             }
+            if (unit.allowedCharacters.includes('Dragon Duke')) {
+                return 'Blacksmith_dd';
+            }
             return 'Blacksmith';
         };
         const apiTroops = unitsFlatten(data, { withEquipment: true });
@@ -167,7 +170,8 @@ export default class UpgradesCommand extends Command {
             Blacksmith_bk: `${EMOJIS.EQUIPMENT} Equipment (BK)`,
             Blacksmith_aq: `${EMOJIS.EQUIPMENT} Equipment (AQ)`,
             Blacksmith_gw: `${EMOJIS.EQUIPMENT} Equipment (GW)`,
-            Blacksmith_rc: `${EMOJIS.EQUIPMENT} Equipment (RC)`
+            Blacksmith_rc: `${EMOJIS.EQUIPMENT} Equipment (RC)`,
+            Blacksmith_dd: `${EMOJIS.EQUIPMENT} Equipment (DD)`
         };
         const _builderBase = {
             'Builder Barracks': `${EMOJIS.BUILDER_ELIXIR} Builder Troops`,

@@ -174,6 +174,7 @@ export const unitsFlatten = (data, { withEquipment = true }) => {
             level: u.level,
             maxLevel: u.maxLevel,
             type: 'troop',
+            subCategory: u.subCategory,
             village: u.village
         })),
         ...data.heroes.map((u) => ({
@@ -181,6 +182,7 @@ export const unitsFlatten = (data, { withEquipment = true }) => {
             level: u.level,
             maxLevel: u.maxLevel,
             type: 'hero',
+            subCategory: u.subCategory,
             village: u.village
         })),
         ...data.spells.map((u) => ({
@@ -188,6 +190,7 @@ export const unitsFlatten = (data, { withEquipment = true }) => {
             level: u.level,
             maxLevel: u.maxLevel,
             type: 'spell',
+            subCategory: u.subCategory,
             village: u.village
         })),
         ...heroEquipment.map((u) => ({
@@ -195,6 +198,7 @@ export const unitsFlatten = (data, { withEquipment = true }) => {
             level: u.level,
             maxLevel: u.maxLevel,
             type: 'equipment',
+            subCategory: u.subCategory,
             village: u.village
         }))
     ];

@@ -6,8 +6,11 @@ import {
   APIClanWarAttack,
   APIClanWarLeagueGroup,
   APIWarClan,
-  RESTManager,
-  RequestHandler
+  RestManager,
+  RequestHandler,
+  REST_EVENTS,
+  FRIENDLY_WAR_PREPARATION_TIMES,
+  CWL_ROUNDS
 } from 'clashofclans.js';
 import moment from 'moment';
 import { isWinner } from '../helper/cwl.helper.js';
@@ -30,7 +33,7 @@ export function timeoutSignal(timeout: number, path: string) {
   return controller.signal;
 }
 
-export class ClashClient extends RESTManager {
+export class ClashClient extends RestManager {
   private bearerToken!: string;
 
   public constructor(private readonly client: Client) {
@@ -48,20 +51,21 @@ export class ClashClient extends RESTManager {
       cache: false,
       retryLimit: 2,
       keys: [...keys],
-      baseURL: process.env.CLASH_OF_CLANS_API_BASE_URL,
-      onError: ({ path, status, body }) => {
-        if (
-          (status !== 200 || !body) &&
-          !(!(body as Record<string, string>)?.message && status === 403) &&
-          !(path.includes('war') && status === 404)
-        ) {
-          if (status === 500) {
-            this.client.logger.debug(`${status} ${path} ${JSON.stringify(body)}`, {
-              label: 'HTTP'
-            });
-          } else {
-            this.client.logger.debug(`${status} ${path}`, { label: 'HTTP' });
-          }
+      baseURL: process.env.CLASH_OF_CLANS_API_BASE_URL
+    });
+
+    this.on(REST_EVENTS.DEBUG, (path, status, message) => {
+      if (
+        (status !== 200) &&
+        !(status === 403) &&
+        !(path.includes('war') && status === 404)
+      ) {
+        if (status === 500) {
+          this.client.logger.debug(`${status} ${path} ${message}`, {
+            label: 'HTTP'
+          });
+        } else {
+          this.client.logger.debug(`${status} ${path} ${message}`, { label: 'HTTP' });
         }
       }
     });
@@ -86,12 +90,12 @@ export class ClashClient extends RESTManager {
 
   public async _getPlayers(players: { tag: string }[] = []) {
     const result = await Promise.all(players.map((mem) => this.getPlayer(mem.tag)));
-    return result.filter(({ res }) => res.ok).map(({ body }) => body);
+    return result.filter(({ res }) => res.ok).map(({ body }) => body!);
   }
 
   public async _getClans(clans: { tag: string }[] = []) {
     const result = await Promise.all(clans.map((clan) => this.getClan(clan.tag)));
-    return result.filter(({ res }) => res.ok).map(({ body }) => body);
+    return result.filter(({ res }) => res.ok).map(({ body }) => body!);
   }
 
   public calcRaidMedals(raidSeason: APICapitalRaidSeason) {
@@ -145,21 +149,7 @@ export class ClashClient extends RESTManager {
   }
 
   private isFriendly(data: APIClanWar) {
-    const friendlyWarTimes = [
-      1000 * 60 * 60 * 24,
-      1000 * 60 * 60 * 20,
-      1000 * 60 * 60 * 16,
-      1000 * 60 * 60 * 12,
-      1000 * 60 * 60 * 8,
-      1000 * 60 * 60 * 6,
-      1000 * 60 * 60 * 4,
-      1000 * 60 * 60 * 2,
-      1000 * 60 * 60,
-      1000 * 60 * 30,
-      1000 * 60 * 15,
-      1000 * 60 * 5
-    ];
-    return friendlyWarTimes.includes(
+    return FRIENDLY_WAR_PREPARATION_TIMES.includes(
       this.toDate(data.startTime).getTime() - this.toDate(data.preparationStartTime).getTime()
     );
   }
@@ -189,27 +179,27 @@ export class ClashClient extends RESTManager {
 
   private async _getCurrentWar(clanTag: string) {
     const { body: data, res } = await this.getCurrentWar(clanTag);
-    return res.ok ? [Object.assign(data, { isFriendly: this.isFriendly(data) })] : [];
+    return res.ok && data ? [Object.assign(data, { isFriendly: this.isFriendly(data) })] : [];
   }
 
   private async _getClanWarLeague(clanTag: string) {
     const { body: data, res } = await this.getClanWarLeagueGroup(clanTag);
-    if (res.status === 504 || data.state === 'notInWar') return [];
-    if (!res.ok) return this._getCurrentWar(clanTag);
+    if (res.status === 504 || (data && data.state === 'notInWar')) return [];
+    if (!res.ok || !data) return this._getCurrentWar(clanTag);
     return this._clanWarLeagueRounds(clanTag, data);
   }
 
   public async _clanWarLeagueRounds(clanTag: string, body: APIClanWarLeagueGroup) {
-    const chunks = [];
+    const chunks: (APIClanWar & { warTag: string; round: number })[] = [];
     for (const { warTags } of body.rounds.filter((en) => !en.warTags.includes('#0')).slice(-2)) {
       for (const warTag of warTags) {
         const { body: data, res } = await this.getClanWarLeagueRound(warTag);
-        if (!res.ok || data.state === 'notInWar') continue;
+        if (!res.ok || !data || data.state === 'notInWar') continue;
         const round = body.rounds.findIndex((en) => en.warTags.includes(warTag));
         if (data.clan.tag === clanTag || data.opponent.tag === clanTag) {
           const clan = data.clan.tag === clanTag ? data.clan : data.opponent;
           const opponent = data.clan.tag === clanTag ? data.opponent : data.clan;
-          chunks.push(Object.assign(data, { warTag, round: round + 1 }, { clan, opponent }));
+          chunks.push(Object.assign(data, { warTag, round: round + 1, clan, opponent }));
           break;
         }
       }
@@ -219,14 +209,9 @@ export class ClashClient extends RESTManager {
   }
 
   public async getCWLRoundWithWarTag(warTag: string) {
-    const body = await this._getCWLRoundWithWarTag(warTag);
-    if (!body.ok || body.state === 'notInWar') return null;
-    return body;
-  }
-
-  private async _getCWLRoundWithWarTag(warTag: string) {
     const { body, res } = await this.getClanWarLeagueRound(warTag);
-    return { warTag, ...body, ...res };
+    if (!res.ok || !body || body.state === 'notInWar') return null;
+    return { ...body, warTag };
   }
 
   public async aggregateClanWarLeague(
@@ -241,9 +226,9 @@ export class ClashClient extends RESTManager {
       return this.getDataFromArchive(clanTag, group.season, group);
     }
 
-    const wars: (APIClanWar & { warTag: string; ok: boolean })[] = (
-      await Promise.all(warTags.map((warTag) => this._getCWLRoundWithWarTag(warTag)))
-    ).filter((res) => res.ok && res.state !== 'notInWar');
+    const wars = (
+      await Promise.all(warTags.map((warTag) => this.getCWLRoundWithWarTag(warTag)))
+    ).filter((res): res is APIClanWar & { warTag: string } => res !== null);
 
     return {
       season: group.season,

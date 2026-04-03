@@ -1,5 +1,5 @@
 import { BUILDER_BASE_LEAGUES_MAP, PLAYER_LEAGUE_MAP } from '../util/constants.js';
-import { RawData } from 'clashofclans.js';
+import { RAW_DATA } from 'clashofclans.js';
 export function mapToPlayerInterface(player) {
     const url = 'https://cdn.discordapp.com/emojis/696317142307700747.png';
     return {
@@ -291,7 +291,12 @@ export const UNITS_MAP_BY_NAME = {
     'Meteor Golem': 135,
     'Totem Spell': 136,
     'Frost Flake': 137,
-    'Stick Horse': 138
+    'Stick Horse': 138,
+    'Dragon Duke': 139,
+    'Greedy Raven': 140,
+    'Fire Heart': 141,
+    'Stun Blaster': 142,
+    'Flame Blower': 143
 };
 const ACHIEVEMENT_LIST = Object.entries(ACHIEVEMENTS_MAP_BY_NAME).reduce((record, [name, id]) => {
     record.push({ name, id: `${id}` });
@@ -301,14 +306,15 @@ const UNITS_LIST = Object.entries(UNITS_MAP_BY_NAME).reduce((record, [name, id])
     record.push({ name, id: `${id}` });
     return record;
 }, []);
-const RAW_UNITS_MAP = RawData.RawUnits.reduce((record, unit) => {
+const RAW_UNITS_MAP = RAW_DATA.RAW_UNITS.reduce((record, unit) => {
     record[unit.name] = {
         id: unit.id,
         name: unit.name,
         village: unit.village,
         category: unit.category,
         subCategory: unit.subCategory,
-        maxLevel: unit.levels[unit.levels.length - 1]
+        maxLevel: unit.levels[unit.levels.length - 1],
+        housingSpace: unit.housingSpace
     };
     return record;
 }, {});
