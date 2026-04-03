@@ -1,7 +1,7 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, StringSelectMenuBuilder } from 'discord.js';
 import { cluster, unique } from 'radash';
 import { Command } from '../../lib/handlers.js';
-import { BUILDER_TROOPS, EMOJIS, HOME_TROOPS, SUPER_TROOPS, TOWN_HALLS } from '../../util/emojis.js';
+import { BUILDER_TROOPS, EMOJIS, HOME_HEROES, HOME_TROOPS, SUPER_TROOPS, HERO_PETS, HERO_EQUIPMENT, TOWN_HALLS } from '../../util/emojis.js';
 import { getMenuFromMessage, padEnd, padStart, unitsFlatten } from '../../util/helper.js';
 import { RAW_SUPER_TROOPS, RAW_TROOPS_WITH_ICONS } from '../../util/troops.js';
 export default class UnitsCommand extends Command {
@@ -94,6 +94,19 @@ export default class UnitsCommand extends Command {
             components: options.length > 1 ? [maxButtonRow, mainRow, menuRow] : [mainRow]
         });
     }
+    getCharacterBuilding(unit) {
+        if (unit.allowedCharacters.includes('Barbarian King'))
+            return 'Blacksmith_bk';
+        if (unit.allowedCharacters.includes('Archer Queen'))
+            return 'Blacksmith_aq';
+        if (unit.allowedCharacters.includes('Grand Warden'))
+            return 'Blacksmith_gw';
+        if (unit.allowedCharacters.includes('Royal Champion'))
+            return 'Blacksmith_rc';
+        if (unit.allowedCharacters.includes('Dragon Duke'))
+            return 'Blacksmith_dd';
+        return 'Blacksmith';
+    }
     embed(data, showMaxLevel = false, equipmentOnly = false) {
         const embed = new EmbedBuilder().setAuthor({ name: `${data.name} (${data.tag})` });
         const unlockedEquipment = unique([
@@ -113,7 +126,9 @@ export default class UnitsCommand extends Command {
                 ? curr.village === 'home'
                     ? 'Town Hall'
                     : 'Builder Hall'
-                : curr.unlock.building;
+                : curr.category === 'equipment'
+                    ? this.getCharacterBuilding(curr)
+                    : curr.unlock.building;
             if (!(unlockBuilding in prev))
                 prev[unlockBuilding] = [];
             prev[unlockBuilding].push(curr);
@@ -126,6 +141,11 @@ export default class UnitsCommand extends Command {
             'Dark Spell Factory': 'Dark Spells',
             'Town Hall': 'Heroes',
             'Blacksmith': 'Equipment',
+            'Blacksmith_bk': 'Equipment (BK)',
+            'Blacksmith_aq': 'Equipment (AQ)',
+            'Blacksmith_gw': 'Equipment (GW)',
+            'Blacksmith_rc': 'Equipment (RC)',
+            'Blacksmith_dd': 'Equipment (DD)',
             'Pet House': 'Pets',
             'Workshop': 'Siege Machines',
             'Builder Hall': 'Builder Base Hero',
@@ -166,8 +186,9 @@ export default class UnitsCommand extends Command {
                             value: cluster(chunk, 4)
                                 .map((units) => units
                                 .map((unit) => {
-                                const unitIcon = (unit.village === 'home' ? HOME_TROOPS : BUILDER_TROOPS)[unit.name] ||
-                                    unit.name;
+                                const unitIcon = (unit.village === 'home'
+                                    ? { ...HOME_TROOPS, ...HOME_HEROES, ...HERO_PETS, ...HERO_EQUIPMENT }
+                                    : BUILDER_TROOPS)[unit.name] || unit.name;
                                 const level = padStart(unit.level, 2);
                                 const maxLevel = showMaxLevel
                                     ? padEnd(unit.maxLevel, 2)

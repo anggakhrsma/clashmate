@@ -157,7 +157,8 @@ export default class UpgradesCommand extends Command {
         };
         const _heroes = {
             'Dark Hero': `${EMOJIS.DARK_ELIXIR} Heroes`,
-            'Elixir Hero': `${EMOJIS.ELIXIR} Heroes`
+            'Elixir Hero': `${EMOJIS.ELIXIR} Heroes`,
+            'Town Hall': `${EMOJIS.ELIXIR} Heroes`
         };
         const _pets = {
             'Pet House': `${EMOJIS.DARK_ELIXIR} Pets`
