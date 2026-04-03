@@ -73,7 +73,7 @@ export default class PlayerCommand extends Command {
             .setCustomId(customIds.history));
         optionsRow
             .addComponents(new ButtonBuilder()
-            .setLabel('Units')
+            .setLabel('Equipments')
             .setStyle(ButtonStyle.Primary)
             .setCustomId(customIds.units))
             .addComponents(new ButtonBuilder()
@@ -178,14 +178,23 @@ export default class PlayerCommand extends Command {
                 ].join('\n')
             }
         ]);
-        const heroes = data.heroes
+        const heroOrder = [
+            'Barbarian King',
+            'Archer Queen',
+            'Minion Prince',
+            'Grand Warden',
+            'Royal Champion',
+            'Dragon Duke'
+        ];
+        const heroesList = data.heroes
             .filter((hero) => hero.village === 'home')
+            .sort((a, b) => heroOrder.indexOf(a.name) - heroOrder.indexOf(b.name))
             .map((hero) => `${HEROES[hero.name]} ${hero.level}`);
         embed.addFields([
             {
                 name: '**Heroes**',
                 value: [
-                    `${heroes.length ? heroes.join(' ') : `${EMOJIS.WRONG} None`}`,
+                    `${heroesList.length ? heroesList.join(' ') : `${EMOJIS.WRONG} None`}`,
                     '\u200b\u2002'
                 ].join('\n')
             }

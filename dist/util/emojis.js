@@ -1,9 +1,9 @@
 export const HOME_HEROES = {
     'Barbarian King': '<:BarbarianKing:1484789025356120126>',
     'Archer Queen': '<:ArcherQueen:1484789102808268840>',
+    'Minion Prince': '<:MinionPrince:1484789185608028320>',
     'Grand Warden': '<:GrandWarden:1484789127122653234>',
     'Royal Champion': '<:RoyalChampion:1484789160232353922>',
-    'Minion Prince': '<:MinionPrince:1484789185608028320>',
     'Dragon Duke': '<:DragonDuke:1484789209532465193>'
 };
 export const ELIXIR_TROOPS = {

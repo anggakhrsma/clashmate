@@ -44,7 +44,7 @@ export default class UpgradesCommand extends Command {
         };
         const maxButtonRow = new ActionRowBuilder().addComponents(new ButtonBuilder()
             .setCustomId(customIds.equipment)
-            .setLabel(args.equipment ? 'Remaining Troops' : 'Remaining Equipment')
+            .setLabel(args.equipment ? 'Remaining Troops' : 'Remaining Equipments')
             .setStyle(ButtonStyle.Secondary));
         const refreshButton = new ButtonBuilder()
             .setEmoji(EMOJIS.REFRESH)
@@ -107,6 +107,9 @@ export default class UpgradesCommand extends Command {
             if (unit.allowedCharacters.includes('Archer Queen')) {
                 return 'Blacksmith_aq';
             }
+            if (unit.allowedCharacters.includes('Minion Prince')) {
+                return 'Blacksmith_mp';
+            }
             if (unit.allowedCharacters.includes('Grand Warden')) {
                 return 'Blacksmith_gw';
             }
@@ -115,9 +118,6 @@ export default class UpgradesCommand extends Command {
             }
             if (unit.allowedCharacters.includes('Dragon Duke')) {
                 return 'Blacksmith_dd';
-            }
-            if (unit.allowedCharacters.includes('Minion Prince')) {
-                return 'Blacksmith_mp';
             }
             return 'Blacksmith';
         };
@@ -159,9 +159,9 @@ export default class UpgradesCommand extends Command {
             'Dark Spell Factory': `${EMOJIS.DARK_ELIXIR} Dark Spells`
         };
         const _heroes = {
+            'Town Hall': `${EMOJIS.DARK_ELIXIR} Heroes`,
             'Dark Hero': `${EMOJIS.DARK_ELIXIR} Heroes`,
-            'Elixir Hero': `${EMOJIS.ELIXIR} Heroes`,
-            'Town Hall': `${EMOJIS.ELIXIR} Heroes`
+            'Elixir Hero': `${EMOJIS.ELIXIR} Heroes`
         };
         const _pets = {
             'Pet House': `${EMOJIS.DARK_ELIXIR} Pets`
@@ -170,17 +170,16 @@ export default class UpgradesCommand extends Command {
             Workshop: `${EMOJIS.ELIXIR} Siege Machines`
         };
         const _equipment = {
-            Blacksmith: `${EMOJIS.EQUIPMENT} Hero Equipments`,
-            Blacksmith_bk: `${EMOJIS.EQUIPMENT} Hero Equipments (BK)`,
-            Blacksmith_aq: `${EMOJIS.EQUIPMENT} Hero Equipments (AQ)`,
-            Blacksmith_gw: `${EMOJIS.EQUIPMENT} Hero Equipments (GW)`,
-            Blacksmith_rc: `${EMOJIS.EQUIPMENT} Hero Equipments (RC)`,
-            Blacksmith_dd: `${EMOJIS.EQUIPMENT} Hero Equipments (DD)`,
-            Blacksmith_mp: `${EMOJIS.EQUIPMENT} Hero Equipments (MP)`
+            Blacksmith_bk: `${EMOJIS.EQUIPMENT} Equipments (BK)`,
+            Blacksmith_aq: `${EMOJIS.EQUIPMENT} Equipments (AQ)`,
+            Blacksmith_mp: `${EMOJIS.EQUIPMENT} Equipments (MP)`,
+            Blacksmith_gw: `${EMOJIS.EQUIPMENT} Equipments (GW)`,
+            Blacksmith_rc: `${EMOJIS.EQUIPMENT} Equipments (RC)`,
+            Blacksmith_dd: `${EMOJIS.EQUIPMENT} Equipments (DD)`
         };
         const _builderBase = {
             'Builder Barracks': `${EMOJIS.BUILDER_ELIXIR} Builder Troops`,
-            'Builder Hall': `${EMOJIS.BUILDER_ELIXIR} Builder Base Hero`
+            'Builder Hall': `${EMOJIS.BUILDER_ELIXIR} Builder Base Heroes`
         };
         const titles = equipmentOnly
             ? {

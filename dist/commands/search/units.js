@@ -47,7 +47,7 @@ export default class UnitsCommand extends Command {
             .setLabel(args.max_level ? 'Town Hall Max Level' : 'Max Level')
             .setStyle(ButtonStyle.Secondary), new ButtonBuilder()
             .setCustomId(customIds.equipmentOnly)
-            .setLabel(args.equipment_only ? 'Troops' : 'Equipment')
+            .setLabel(args.equipment_only ? 'Troops' : 'Equipments')
             .setStyle(ButtonStyle.Secondary));
         const refreshButton = new ButtonBuilder()
             .setEmoji(EMOJIS.REFRESH)
@@ -99,14 +99,14 @@ export default class UnitsCommand extends Command {
             return 'Blacksmith_bk';
         if (unit.allowedCharacters.includes('Archer Queen'))
             return 'Blacksmith_aq';
+        if (unit.allowedCharacters.includes('Minion Prince'))
+            return 'Blacksmith_mp';
         if (unit.allowedCharacters.includes('Grand Warden'))
             return 'Blacksmith_gw';
         if (unit.allowedCharacters.includes('Royal Champion'))
             return 'Blacksmith_rc';
         if (unit.allowedCharacters.includes('Dragon Duke'))
             return 'Blacksmith_dd';
-        if (unit.allowedCharacters.includes('Minion Prince'))
-            return 'Blacksmith_mp';
         return 'Blacksmith';
     }
     embed(data, showMaxLevel = false, equipmentOnly = false) {
@@ -142,16 +142,15 @@ export default class UnitsCommand extends Command {
             'Spell Factory': 'Elixir Spells',
             'Dark Spell Factory': 'Dark Spells',
             'Town Hall': 'Heroes',
-            'Blacksmith': 'Equipments',
             'Blacksmith_bk': 'Equipments (BK)',
             'Blacksmith_aq': 'Equipments (AQ)',
+            'Blacksmith_mp': 'Equipments (MP)',
             'Blacksmith_gw': 'Equipments (GW)',
             'Blacksmith_rc': 'Equipments (RC)',
             'Blacksmith_dd': 'Equipments (DD)',
-            'Blacksmith_mp': 'Equipments (MP)',
             'Pet House': 'Pets',
             'Workshop': 'Siege Machines',
-            'Builder Hall': 'Builder Base Hero',
+            'Builder Hall': 'Builder Base Heroes',
             'Builder Barracks': 'Builder Troops'
         };
         const apiTroops = unitsFlatten(data, { withEquipment: true });

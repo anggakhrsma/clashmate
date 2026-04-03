@@ -63,7 +63,7 @@ export default class UpgradesCommand extends Command {
     const maxButtonRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId(customIds.equipment)
-        .setLabel(args.equipment ? 'Remaining Troops' : 'Remaining Equipment')
+        .setLabel(args.equipment ? 'Remaining Troops' : 'Remaining Equipments')
         .setStyle(ButtonStyle.Secondary)
     );
 
@@ -208,9 +208,9 @@ export default class UpgradesCommand extends Command {
       'Dark Spell Factory': `${EMOJIS.DARK_ELIXIR} Dark Spells`
     };
     const _heroes: Record<string, string> = {
+      'Town Hall': `${EMOJIS.DARK_ELIXIR} Heroes`,
       'Dark Hero': `${EMOJIS.DARK_ELIXIR} Heroes`,
-      'Elixir Hero': `${EMOJIS.ELIXIR} Heroes`,
-      'Town Hall': `${EMOJIS.ELIXIR} Heroes`
+      'Elixir Hero': `${EMOJIS.ELIXIR} Heroes`
     };
     const _pets: Record<string, string> = {
       'Pet House': `${EMOJIS.DARK_ELIXIR} Pets`
