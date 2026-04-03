@@ -19,7 +19,6 @@ import { Logger } from '../util/logger.js';
 import { Autocomplete } from './autocomplete-client.js';
 import { CapitalRaidScheduler } from './capital-raid-scheduler.js';
 import { ClanGamesScheduler } from './clan-games-scheduler.js';
-import { ClanPoller } from './clan-poller.js';
 import { PollerEventsReader } from '../core/poller-events-reader.js';
 import { ClanWarScheduler } from './clan-war-scheduler.js';
 import { ClashClient } from './clash-client.js';
@@ -58,7 +57,6 @@ export class Client extends DiscordClient<true> {
   public guildEvents!: GuildEventsHandler;
   public inMaintenance = Boolean(false);
   public enqueuer!: Enqueuer;
-  public poller!: ClanPoller;
   public pollerEventsReader!: PollerEventsReader;
   public components = new Map<string, string[]>();
   public _componentPayloads = new Map<string, Record<string, unknown>>();
@@ -186,7 +184,6 @@ export class Client extends DiscordClient<true> {
 
     this.storage = new StorageHandler(this);
     this.enqueuer = new Enqueuer(this);
-    this.poller = new ClanPoller(this);
     this.pollerEventsReader = new PollerEventsReader(this);
     this.stats = new StatsHandler(this);
     this.resolver = new Resolver(this);

@@ -10,7 +10,6 @@ import { Logger } from '../util/logger.js';
 import { Autocomplete } from './autocomplete-client.js';
 import { CapitalRaidScheduler } from './capital-raid-scheduler.js';
 import { ClanGamesScheduler } from './clan-games-scheduler.js';
-import { ClanPoller } from './clan-poller.js';
 import { PollerEventsReader } from '../core/poller-events-reader.js';
 import { ClanWarScheduler } from './clan-war-scheduler.js';
 import { ClashClient } from './clash-client.js';
@@ -174,12 +173,6 @@ export class Client extends DiscordClient {
             writable: true,
             value: void 0
         });
-        Object.defineProperty(this, "poller", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: void 0
-        });
         Object.defineProperty(this, "pollerEventsReader", {
             enumerable: true,
             configurable: true,
@@ -294,7 +287,6 @@ export class Client extends DiscordClient {
         await this.settings.init({ globalOnly: true });
         this.storage = new StorageHandler(this);
         this.enqueuer = new Enqueuer(this);
-        this.poller = new ClanPoller(this);
         this.pollerEventsReader = new PollerEventsReader(this);
         this.stats = new StatsHandler(this);
         this.resolver = new Resolver(this);

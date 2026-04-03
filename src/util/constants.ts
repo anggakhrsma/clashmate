@@ -138,7 +138,8 @@ export const enum Collections {
   BOT_USERS = 'BotUsers',
   BOT_STATS = 'BotStats',
   BOT_COMMANDS = 'BotCommands',
-  BOT_INTERACTIONS = 'BotInteractions'
+  BOT_INTERACTIONS = 'BotInteractions',
+  POLLER_EVENTS = 'PollerEvents'
 }
 
 export const enum Settings {

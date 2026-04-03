@@ -453,6 +453,12 @@ class MongoDbClient extends MongoClient {
           key: { timestamp: 1 },
           expireAfterSeconds: 60 * 60 * 24 * 3 // 3 days
         }
+      ]),
+      db.collection(Collections.POLLER_EVENTS).createIndexes([
+        {
+          key: { createdAt: 1 },
+          expireAfterSeconds: 60 * 60 * 24 // 24 hours
+        }
       ])
     ]);
   }
