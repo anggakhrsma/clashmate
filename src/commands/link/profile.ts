@@ -407,8 +407,21 @@ export default class ProfileCommand extends Command {
 
   private heroes(data: APIPlayer) {
     if (!data.heroes.length) return '';
+    const heroOrder = [
+      'Barbarian King',
+      'Archer Queen',
+      'Minion Prince',
+      'Grand Warden',
+      'Royal Champion',
+      'Dragon Duke'
+    ];
     const heroes = data.heroes
       .filter((hero) => hero.village === 'home')
+      .sort((a, b) => {
+        const aIndex = heroOrder.indexOf(a.name);
+        const bIndex = heroOrder.indexOf(b.name);
+        return (aIndex === -1 ? 99 : aIndex) - (bIndex === -1 ? 99 : bIndex);
+      })
       .map((hero) => `${HEROES[hero.name]} ${hero.level}`)
       .join(' ');
     return `${heroes}`;
