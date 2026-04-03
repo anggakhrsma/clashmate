@@ -1,28 +1,12 @@
 import { RawData } from 'clashofclans.js';
 import { ALL_TROOPS, SUPER_TROOPS } from './emojis.js';
 
-const COMMON_UPGRADE_COST = [
-  120, 240, 400, 600, 840, 1120, 1440, 1800, 1900, 2000, 2100, 2200, 2300, 2400, 2500, 2600, 2700
-];
-const COMMON_UPGRADE_RESOURCES = [
-  [{ resource: 'Shiny Ore', cost: 120 }],
-  [{ resource: 'Shiny Ore', cost: 240 }, { resource: 'Glowy Ore', cost: 20 }],
-  [{ resource: 'Shiny Ore', cost: 400 }],
-  [{ resource: 'Shiny Ore', cost: 600 }],
-  [{ resource: 'Shiny Ore', cost: 840 }, { resource: 'Glowy Ore', cost: 100 }],
-  [{ resource: 'Shiny Ore', cost: 1120 }],
-  [{ resource: 'Shiny Ore', cost: 1440 }],
-  [{ resource: 'Shiny Ore', cost: 1800 }, { resource: 'Glowy Ore', cost: 200 }],
-  [{ resource: 'Shiny Ore', cost: 1900 }],
-  [{ resource: 'Shiny Ore', cost: 2000 }],
-  [{ resource: 'Shiny Ore', cost: 2100 }, { resource: 'Glowy Ore', cost: 400 }],
-  [{ resource: 'Shiny Ore', cost: 2200 }],
-  [{ resource: 'Shiny Ore', cost: 2300 }],
-  [{ resource: 'Shiny Ore', cost: 2400 }, { resource: 'Glowy Ore', cost: 600 }],
-  [{ resource: 'Shiny Ore', cost: 2500 }],
-  [{ resource: 'Shiny Ore', cost: 2600 }],
-  [{ resource: 'Shiny Ore', cost: 2700 }, { resource: 'Glowy Ore', cost: 600 }]
-];
+const COMMON_UPGRADE = RawData.RawUnits.find((u: any) => u.name === 'Barbarian Puppet')?.upgrade ?? {
+  cost: [],
+  time: [],
+  resource: 'Shiny Ore',
+  resources: []
+};
 
 const LOCAL_UNITS = [
   {
@@ -31,7 +15,7 @@ const LOCAL_UNITS = [
     category: 'equipment',
     subCategory: 'equipment',
     unlock: { hall: 15, cost: 0, time: 0, resource: 'Elixir', building: 'Blacksmith', buildingLevel: 1 },
-    upgrade: { cost: COMMON_UPGRADE_COST, time: [], resource: 'Shiny Ore', resources: COMMON_UPGRADE_RESOURCES },
+    upgrade: COMMON_UPGRADE,
     allowedCharacters: ['Dragon Duke'],
     minLevel: 1,
     seasonal: false,
@@ -43,7 +27,7 @@ const LOCAL_UNITS = [
     category: 'equipment',
     subCategory: 'equipment',
     unlock: { hall: 15, cost: 0, time: 0, resource: 'Elixir', building: 'Blacksmith', buildingLevel: 1 },
-    upgrade: { cost: COMMON_UPGRADE_COST, time: [], resource: 'Shiny Ore', resources: COMMON_UPGRADE_RESOURCES },
+    upgrade: COMMON_UPGRADE,
     allowedCharacters: ['Dragon Duke'],
     minLevel: 1,
     seasonal: false,
@@ -55,7 +39,7 @@ const LOCAL_UNITS = [
     category: 'equipment',
     subCategory: 'equipment',
     unlock: { hall: 15, cost: 0, time: 0, resource: 'Elixir', building: 'Blacksmith', buildingLevel: 1 },
-    upgrade: { cost: COMMON_UPGRADE_COST, time: [], resource: 'Shiny Ore', resources: COMMON_UPGRADE_RESOURCES },
+    upgrade: COMMON_UPGRADE,
     allowedCharacters: ['Dragon Duke'],
     minLevel: 1,
     seasonal: false,
