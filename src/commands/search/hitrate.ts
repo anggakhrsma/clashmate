@@ -9,7 +9,7 @@ import {
   User
 } from 'discord.js';
 import { Args, Command } from '../../lib/handlers.js';
-import { BLUE_NUMBERS, EMOJIS, ORANGE_NUMBERS, WAR_STARS, WHITE_NUMBERS } from '../../util/emojis.js';
+import { BLUE_NUMBERS, EMOJIS, ORANGE_NUMBERS, WHITE_NUMBERS } from '../../util/emojis.js';
 
 export default class HitrateCommand extends Command {
   public constructor() {
@@ -63,39 +63,36 @@ export default class HitrateCommand extends Command {
       const member = mySide.members.find((m) => m.tag === player.tag);
       if (!member) continue;
 
+      const attacks = (member.attacks ?? []).sort((a, b) => a.order - b.order);
+      const isWarEnded = war.state === 'warEnded';
+
+      // Skip ongoing wars with no attacks
+      if (!isWarEnded && !attacks.length) continue;
+
       // Header (no date, just clan names and player position)
       const header = `${mySide.name} (#${mySide.tag}) vs ${enemySide.name} (#${enemySide.tag}) - (#${member.mapPosition}, TH${member.townhallLevel})`;
       lines.push(header);
 
-      // Collect all attacks from player's side for fresh/cleanup detection
-      const allSideAttacks = mySide.members
-        .flatMap((m) => m.attacks ?? []);
-
-      // Get up to 2 attacks (sorted ascending by order), pad to 2 with nulls
-      const attacks = (member.attacks ?? []).sort((a, b) => a.order - b.order);
+      // Get up to 2 attack slots, pad with nulls
       const rows = [attacks[0] ?? null, attacks[1] ?? null];
 
       // Render each row
       for (let rowNum = 1; rowNum <= 2; rowNum++) {
         const attack = rows[rowNum - 1];
 
+        // Show "Missed" only for ended wars
         if (!attack) {
-          lines.push(`${WHITE_NUMBERS[rowNum]} Missed`);
+          if (isWarEnded) {
+            lines.push(`${WHITE_NUMBERS[rowNum]} Missed`);
+          }
         } else {
           const defender = enemySide.members.find((m) => m.tag === attack.defenderTag)!;
-          const prevBestStars = this.prevBestStars(allSideAttacks, attack.defenderTag, attack.order);
-          const newStars = Math.max(0, attack.stars - prevBestStars);
-          const oldStars = prevBestStars;
 
-          // Build star emojis: new stars first, then old stars, then empty
-          const starEmojis = [
-            ...Array(newStars).fill(WAR_STARS.YELLOW_NEW),
-            ...Array(oldStars).fill(WAR_STARS.YELLOW_EMPTY),
-            ...Array(3 - attack.stars).fill(WAR_STARS.EMPTY)
-          ].join('');
+          // Build star emojis: ★ for earned stars, ☆ for missed stars
+          const stars = '★'.repeat(attack.stars) + '☆'.repeat(3 - attack.stars);
 
           const destruction = attack.destructionPercentage.toFixed(0).padStart(3, ' ');
-          const row = `${WHITE_NUMBERS[rowNum]} ${starEmojis} ${destruction}% ➞ ${BLUE_NUMBERS[defender.mapPosition]} ${ORANGE_NUMBERS[defender.townhallLevel.toString()]}`;
+          const row = `${WHITE_NUMBERS[rowNum]} ${stars} ${destruction}% → ${BLUE_NUMBERS[defender.mapPosition]} ${ORANGE_NUMBERS[defender.townhallLevel.toString()]}`;
           lines.push(row);
         }
       }
@@ -128,8 +125,4 @@ export default class HitrateCommand extends Command {
     });
   }
 
-  private prevBestStars(allAttacks: APIClanWarAttack[], defenderTag: string, order: number): number {
-    const prior = allAttacks.filter((a) => a.defenderTag === defenderTag && a.order < order);
-    return prior.length ? Math.max(...prior.map((a) => a.stars)) : 0;
-  }
 }
