@@ -91,7 +91,7 @@ export class ClanLog extends RootLog {
     const actions = logActionsMap[cache.logType] ?? [];
 
     if (data.logType === 'DONATION_LOG') {
-      if (!isDonationLogType) return null;
+      if (cache.logType !== ClanLogType.CONTINUOUS_DONATION_LOG) return null;
       return this.getDonationLogEmbed(cache, webhook, data);
     }
 
@@ -274,34 +274,37 @@ export class ClanLog extends RootLog {
       }
     }
 
-    const members = data.members.filter((member: any) =>
-      (Object.values(LogActions) as string[]).includes(member.op)
-    );
+    // Only show Activity field in CONTINUOUS_DONATION_LOG
+    if (cache.logType === ClanLogType.CONTINUOUS_DONATION_LOG) {
+      const members = data.members.filter((member: any) =>
+        (Object.values(LogActions) as string[]).includes(member.op)
+      );
 
-    if (members.length) {
-      embed.addFields([
-        {
-          name: 'Activity',
-          value: members
-            .map((m: any) => {
-              const townHall = TOWN_HALLS[m.townHallLevel] ?? '';
-              if (m.op === LogActions.DONATED) {
-                const amount = m.donations ?? 0;
-                const emoji = BLUE_NUMBERS[amount.toString()] ?? `**${amount}**`;
-                return `\u200e${townHall} ${emoji} ${m.name} (Donated)`;
-              }
-              if (m.op === LogActions.RECEIVED) {
-                const amount = m.donationsReceived ?? 0;
-                const emoji = RED_NUMBERS[amount.toString()] ?? `**${amount}**`;
-                return `\u200e${townHall} ${emoji} ${m.name} (Received)`;
-              }
-              const actionText = m.op === LogActions.JOINED ? 'Joined' : m.op === LogActions.LEFT ? 'Left' : m.op;
-              return `\u200e${townHall} **${m.name}** ${actionText}`;
-            })
-            .join('\n')
-            .slice(0, 1024)
-        }
-      ]);
+      if (members.length) {
+        embed.addFields([
+          {
+            name: 'Activity',
+            value: members
+              .map((m: any) => {
+                const townHall = TOWN_HALLS[m.townHallLevel] ?? '';
+                if (m.op === LogActions.DONATED) {
+                  const amount = m.donations ?? 0;
+                  const emoji = BLUE_NUMBERS[amount.toString()] ?? `**${amount}**`;
+                  return `\u200e${townHall} ${emoji} ${m.name} (Donated)`;
+                }
+                if (m.op === LogActions.RECEIVED) {
+                  const amount = m.donationsReceived ?? 0;
+                  const emoji = RED_NUMBERS[amount.toString()] ?? `**${amount}**`;
+                  return `\u200e${townHall} ${emoji} ${m.name} (Received)`;
+                }
+                const actionText = m.op === LogActions.JOINED ? 'Joined' : m.op === LogActions.LEFT ? 'Left' : m.op;
+                return `\u200e${townHall} **${m.name}** ${actionText}`;
+              })
+              .join('\n')
+              .slice(0, 1024)
+          }
+        ]);
+      }
     }
 
     return { embed, content: '' };
