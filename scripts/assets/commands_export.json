@@ -905,12 +905,12 @@
         "description": "The week to show contributions for.",
         "type": "String",
         "choices": [
+          "03 Apr, 2026",
           "27 Mar, 2026",
           "20 Mar, 2026",
           "13 Mar, 2026",
           "06 Mar, 2026",
-          "27 Feb, 2026",
-          "20 Feb, 2026"
+          "27 Feb, 2026"
         ]
       }
     ]
@@ -937,12 +937,12 @@
         "description": "Retrieve data for the specified raid weekend.",
         "type": "String",
         "choices": [
+          "03 Apr, 2026",
           "27 Mar, 2026",
           "20 Mar, 2026",
           "13 Mar, 2026",
           "06 Mar, 2026",
-          "27 Feb, 2026",
-          "20 Feb, 2026"
+          "27 Feb, 2026"
         ]
       }
     ]
@@ -1646,6 +1646,25 @@
         "name": "roster",
         "description": "Select a roster for the history.",
         "type": "String",
+        "choices": []
+      }
+    ]
+  },
+  {
+    "name": "hitrate",
+    "description": "View war attack history for a player (last 10 regular wars)",
+    "description_long": "command.hitrate.description_long",
+    "options": [
+      {
+        "name": "tag",
+        "description": "Player tag",
+        "type": "String",
+        "choices": []
+      },
+      {
+        "name": "user",
+        "description": "Discord user",
+        "type": "User",
         "choices": []
       }
     ]
@@ -3590,12 +3609,12 @@
         "description": "The week to show capital contributions for.",
         "type": "String",
         "choices": [
+          "03 Apr, 2026",
           "27 Mar, 2026",
           "20 Mar, 2026",
           "13 Mar, 2026",
           "06 Mar, 2026",
-          "27 Feb, 2026",
-          "20 Feb, 2026"
+          "27 Feb, 2026"
         ]
       }
     ]
@@ -3616,12 +3635,12 @@
         "description": "Retrieve data for the specified raid weekend.",
         "type": "String",
         "choices": [
+          "03 Apr, 2026",
           "27 Mar, 2026",
           "20 Mar, 2026",
           "13 Mar, 2026",
           "06 Mar, 2026",
-          "27 Feb, 2026",
-          "20 Feb, 2026"
+          "27 Feb, 2026"
         ]
       }
     ]
