@@ -238,6 +238,7 @@ export default class StatsCommand extends Command {
 
         for (const m of clan.members) {
           if (m.tag !== playerTag) continue;
+          if (!m.townhallLevel) continue;
 
           if (typeof compare === 'object' && !isValidTh(m.townhallLevel, compare.attackerTownHall))
             continue;
