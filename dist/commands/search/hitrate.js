@@ -71,7 +71,7 @@ export default class HitrateCommand extends Command {
                         ...Array(3 - attack.stars).fill(WAR_STARS.EMPTY)
                     ].join('');
                     const destruction = attack.destructionPercentage.toFixed(0).padStart(3, ' ');
-                    const row = `${WHITE_NUMBERS[rowNum]} ${starEmojis} ${destruction}% ➞ ${BLUE_NUMBERS[defender.mapPosition]} ${ORANGE_NUMBERS[defender.townhallLevel]}`;
+                    const row = `${WHITE_NUMBERS[rowNum]} ${starEmojis} ${destruction}% ➞ ${BLUE_NUMBERS[defender.mapPosition]} ${ORANGE_NUMBERS[defender.townhallLevel.toString()]}`;
                     lines.push(row);
                 }
             }

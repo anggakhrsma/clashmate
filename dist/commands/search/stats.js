@@ -314,7 +314,8 @@ export default class StatsCommand extends Command {
             stats
                 .map((m, i) => {
                 const percentage = padStart(m.rate.toFixed(1), 5);
-                return `\u200e${BLUE_NUMBERS[++i]}${ORANGE_NUMBERS[m.hall]} \`${percentage} ${padStart(m.success, 3)}/${padEnd(m.total, 3)} ${padEnd(escapeBackTick(m.name), 14)} \u200f\``;
+                const thEmoji = ORANGE_NUMBERS[m.hall.toString()] ?? '';
+                return `\u200e${BLUE_NUMBERS[++i]}${thEmoji} \`${percentage} ${padStart(m.success, 3)}/${padEnd(m.total, 3)} ${padEnd(escapeBackTick(m.name), 14)} \u200f\``;
             })
                 .join('\n')
         ].join('\n'), { maxLength: 4096 }).at(0));
