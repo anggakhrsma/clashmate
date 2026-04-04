@@ -50,9 +50,12 @@ export default class HitrateCommand extends Command {
             // Skip ongoing wars with no attacks
             if (!isWarEnded && !attacks.length)
                 continue;
-            // Header: ClanName (ClanTag) - Position emoji THLevel emoji
-            const header = `**${mySide.name} (${mySide.tag}) - ${EMOJIS.HASH}${BLUE_NUMBERS[member.mapPosition]}, TH${ORANGE_NUMBERS[member.townhallLevel.toString()]}**`;
-            lines.push(header);
+            // Header: 2 lines with clan badge, player position/TH, and opponent name
+            const clanBadgeUrl = mySide.badgeUrls.small;
+            const header1 = `![](${clanBadgeUrl}) **${mySide.name}** (#${member.mapPosition}, TH${member.townhallLevel})`;
+            const header2 = `vs ${enemySide.name}`;
+            lines.push(header1);
+            lines.push(header2);
             warsDisplayed++;
             // Get up to 2 attack slots, pad with nulls
             const rows = [attacks[0] ?? null, attacks[1] ?? null];
