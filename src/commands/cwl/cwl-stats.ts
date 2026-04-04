@@ -259,9 +259,6 @@ export default class CWLStatsCommand extends Command {
       .join('\n\n');
 
     const leagueId = body.leagues?.[clan.tag];
-    console.log('[CWL] League lookup:', { clanTag: clan.tag, leagueId, allLeagues: body.leagues });
-    console.log('[CWL] Raw body keys:', Object.keys(body));
-    console.log('[CWL] body.clans[0]:', JSON.stringify((body as any).clans?.[0]));
     const ranks = calculateLeagueRanking(aggregateRoundsForRanking(body.wars), leagueId);
 
     const rankIndex = ranks.findIndex((a) => a.tag === clanTag);
@@ -341,38 +338,21 @@ export default class CWLStatsCommand extends Command {
 
     const menu = await getClanSwitchingMenu(interaction, customIds.clans, clanTag);
 
-    // Generate image first if league ID exists
+    // Generate image — works even when leagueId is unknown (API preparation phase)
     const files: AttachmentBuilder[] = [];
-    if (leagueId) {
-      const imageData = await getCWLSummaryImage({
-        activeRounds,
-        leagueId,
-        medals,
-        rankIndex,
-        ranks,
-        season: body.season,
-        totalRounds: body.clans.length - 1
-      });
-
-      console.log('[CWL] Image data:', {
-        fileName: imageData.name,
-        bufferSize: imageData.file.length,
-        attachmentKey: imageData.attachmentKey
-      });
-
-      const rawFile = new AttachmentBuilder(imageData.file, { name: imageData.name });
-      files.push(rawFile);
-      embed.setImage(imageData.attachmentKey);
-
-      console.log('[CWL] Files array:', files.length, 'Embed image set to:', imageData.attachmentKey);
-    }
-
-    // Single editReply with all content
-    console.log('[CWL] Sending reply with:', {
-      embedCount: [...embeds, embed].length,
-      fileCount: files.length,
-      hasImage: embed.data.image ? 'yes' : 'no'
+    const imageData = await getCWLSummaryImage({
+      activeRounds,
+      leagueId: leagueId ?? 0,
+      medals,
+      rankIndex,
+      ranks,
+      season: body.season,
+      totalRounds: body.clans.length - 1
     });
+
+    const rawFile = new AttachmentBuilder(imageData.file, { name: imageData.name });
+    files.push(rawFile);
+    embed.setImage(imageData.attachmentKey);
 
     return interaction.editReply({
       embeds: [...embeds, embed],

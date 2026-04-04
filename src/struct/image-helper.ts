@@ -104,7 +104,7 @@ export const getCWLSummaryImage = async ({
 
   // League info
   ctx.font = '16px sans-serif';
-  ctx.fillText(`${WAR_LEAGUE_MAP[leagueId] || 'War League'} | ${moment(season).format('MMM YYYY')}`, 20, 75);
+  ctx.fillText(`${(leagueId && WAR_LEAGUE_MAP[leagueId]) || 'CWL Ranking'} | ${moment(season).format('MMM YYYY')}`, 20, 75);
 
   // Column headers
   ctx.font = 'bold 14px sans-serif';
