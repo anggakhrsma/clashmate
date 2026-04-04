@@ -36,7 +36,7 @@ export default class HitrateCommand extends Command {
                 content: 'No war history found.'
             });
         }
-        const lines = [];
+        const embeds = [];
         let warsDisplayed = 0;
         for (const war of wars) {
             const isClanMember = war.clan.members.some((m) => m.tag === player.tag);
@@ -50,12 +50,12 @@ export default class HitrateCommand extends Command {
             // Skip ongoing wars with no attacks
             if (!isWarEnded && !attacks.length)
                 continue;
-            // Header: 2 lines with clan emoji, player position/TH, and opponent name
-            const header1 = `${EMOJIS.CLAN} **${mySide.name}** (#${member.mapPosition}, TH${member.townhallLevel})`;
+            // Build description: header + attack rows
+            const lines = [];
+            const header1 = `**${mySide.name}** (#${member.mapPosition}, TH${member.townhallLevel})`;
             const header2 = `vs ${enemySide.name}`;
             lines.push(header1);
             lines.push(header2);
-            warsDisplayed++;
             // Get up to 2 attack slots, pad with nulls
             const rows = [attacks[0] ?? null, attacks[1] ?? null];
             // Render each row
@@ -76,24 +76,30 @@ export default class HitrateCommand extends Command {
                     lines.push(row);
                 }
             }
-            lines.push('');
+            // Create embed for this war with clan badge as thumbnail
+            const embed = new EmbedBuilder()
+                .setColor(this.client.embed(interaction))
+                .setDescription(lines.join('\n'))
+                .setThumbnail(mySide.badgeUrls.medium);
+            embeds.push(embed);
+            warsDisplayed++;
         }
-        // Remove trailing empty line
-        if (lines[lines.length - 1] === '') {
-            lines.pop();
+        if (!warsDisplayed) {
+            return interaction.editReply({
+                content: 'No attack history found.'
+            });
         }
-        const embed = new EmbedBuilder()
-            .setColor(this.client.embed(interaction))
-            .setAuthor({ name: `${player.name} (${player.tag})` })
-            .setDescription(lines.join('\n'))
-            .setFooter({ text: `Last ${warsDisplayed} regular wars` })
-            .setTimestamp();
+        // Set author and footer only on first embed
+        if (embeds.length > 0) {
+            embeds[0].setAuthor({ name: `${player.name} (${player.tag})` });
+            embeds[embeds.length - 1].setFooter({ text: `Last ${warsDisplayed} regular wars` }).setTimestamp();
+        }
         const row = new ActionRowBuilder().addComponents(new ButtonBuilder()
             .setCustomId(this.createId({ cmd: this.id, tag: player.tag }))
             .setEmoji(EMOJIS.REFRESH)
             .setStyle(ButtonStyle.Secondary));
         return interaction.editReply({
-            embeds: [embed],
+            embeds: embeds,
             components: [row]
         });
     }
