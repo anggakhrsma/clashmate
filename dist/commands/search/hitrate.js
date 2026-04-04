@@ -37,6 +37,7 @@ export default class HitrateCommand extends Command {
             });
         }
         const lines = [];
+        let warsDisplayed = 0;
         for (const war of wars) {
             const isClanMember = war.clan.members.some((m) => m.tag === player.tag);
             const mySide = isClanMember ? war.clan : war.opponent;
@@ -49,9 +50,10 @@ export default class HitrateCommand extends Command {
             // Skip ongoing wars with no attacks
             if (!isWarEnded && !attacks.length)
                 continue;
-            // Header (no date, just clan names and player position)
-            const header = `${mySide.name} (#${mySide.tag}) vs ${enemySide.name} (#${enemySide.tag}) - (#${member.mapPosition}, TH${member.townhallLevel})`;
+            // Header: ClanName (ClanTag) - Position emoji THLevel emoji
+            const header = `**${mySide.name} (${mySide.tag}) - ${EMOJIS.HASH}${BLUE_NUMBERS[member.mapPosition]}, TH${ORANGE_NUMBERS[member.townhallLevel.toString()]}**`;
             lines.push(header);
+            warsDisplayed++;
             // Get up to 2 attack slots, pad with nulls
             const rows = [attacks[0] ?? null, attacks[1] ?? null];
             // Render each row
@@ -82,7 +84,7 @@ export default class HitrateCommand extends Command {
             .setColor(this.client.embed(interaction))
             .setAuthor({ name: `${player.name} (${player.tag})` })
             .setDescription(lines.join('\n'))
-            .setFooter({ text: `Last ${wars.length} regular wars` })
+            .setFooter({ text: `Last ${warsDisplayed} regular wars` })
             .setTimestamp();
         const row = new ActionRowBuilder().addComponents(new ButtonBuilder()
             .setCustomId(this.createId({ cmd: this.id, tag: player.tag }))
