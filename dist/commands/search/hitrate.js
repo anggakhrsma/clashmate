@@ -26,7 +26,7 @@ export default class HitrateCommand extends Command {
             .collection("ClanWars" /* Collections.CLAN_WARS */)
             .find({
             $or: [{ 'clan.members.tag': player.tag }, { 'opponent.members.tag': player.tag }],
-            warType: { $ne: 3 /* WarType.CWL */ }
+            warType: { $in: [1 /* WarType.REGULAR */, 2 /* WarType.FRIENDLY */] }
         })
             .sort({ _id: -1 })
             .limit(10)
