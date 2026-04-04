@@ -41,7 +41,7 @@ export default class HitrateCommand extends Command {
       .collection<APIClanWar>(Collections.CLAN_WARS)
       .find({
         $or: [{ 'clan.members.tag': player.tag }, { 'opponent.members.tag': player.tag }],
-        warType: WarType.REGULAR
+        warType: { $ne: WarType.CWL }
       })
       .sort({ _id: -1 })
       .limit(10)
