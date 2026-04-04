@@ -76,9 +76,11 @@ export default class CWLStatsCommand extends Command {
       });
     }
 
+    // clashofclans.js v4 doesn't type the `leagues` field but the CoC API does return it
+    const liveLeagues = res.ok ? ((body as any).leagues ?? {}) : {};
     const aggregated = await this.client.coc.aggregateClanWarLeague(
       clan.tag,
-      { ...entityLike, leagues: group?.leagues ?? {} },
+      { ...entityLike, leagues: Object.keys(liveLeagues).length ? liveLeagues : (group?.leagues ?? {}) },
       isApiData
     );
     if (!aggregated) {
