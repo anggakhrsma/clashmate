@@ -216,11 +216,17 @@ export class ClanLog extends RootLog {
                             if (m.op === LogActions.DONATED) {
                                 const amount = m.donations ?? 0;
                                 const emoji = BLUE_NUMBERS[amount.toString()] ?? `**${amount}**`;
+                                if (amount < 10 && !emoji.includes('_')) {
+                                    this.client.logger.warn(`Emoji underscore missing for amount ${amount}: ${emoji}`, { label: 'CLAN_LOG_BUG' });
+                                }
                                 return `\u200e${townHall} ${emoji} ${m.name} (Donated)`;
                             }
                             if (m.op === LogActions.RECEIVED) {
                                 const amount = m.donationsReceived ?? 0;
                                 const emoji = RED_NUMBERS[amount.toString()] ?? `**${amount}**`;
+                                if (amount < 10 && !emoji.includes('_')) {
+                                    this.client.logger.warn(`Emoji underscore missing for amount ${amount}: ${emoji}`, { label: 'CLAN_LOG_BUG' });
+                                }
                                 return `\u200e${townHall} ${emoji} ${m.name} (Received)`;
                             }
                             const actionText = m.op === LogActions.JOINED ? 'Joined' : m.op === LogActions.LEFT ? 'Left' : m.op;
