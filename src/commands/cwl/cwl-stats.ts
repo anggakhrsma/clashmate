@@ -260,6 +260,8 @@ export default class CWLStatsCommand extends Command {
 
     const leagueId = body.leagues?.[clan.tag];
     console.log('[CWL] League lookup:', { clanTag: clan.tag, leagueId, allLeagues: body.leagues });
+    console.log('[CWL] Raw body keys:', Object.keys(body));
+    console.log('[CWL] body.clans[0]:', JSON.stringify((body as any).clans?.[0]));
     const ranks = calculateLeagueRanking(aggregateRoundsForRanking(body.wars), leagueId);
 
     const rankIndex = ranks.findIndex((a) => a.tag === clanTag);
