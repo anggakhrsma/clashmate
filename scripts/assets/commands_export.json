@@ -1651,25 +1651,6 @@
     ]
   },
   {
-    "name": "hitrate",
-    "description": "View war attack history for a player (last 10 regular wars)",
-    "description_long": "command.hitrate.description_long",
-    "options": [
-      {
-        "name": "tag",
-        "description": "Player tag",
-        "type": "String",
-        "choices": []
-      },
-      {
-        "name": "user",
-        "description": "Discord user",
-        "type": "User",
-        "choices": []
-      }
-    ]
-  },
-  {
     "name": "invite",
     "description": "Get the bot invite and support server link.",
     "description_long": "command.invite.description_long",
