@@ -45,9 +45,16 @@ export class ClanLog extends RootLog {
         return this.client.db.collection("ClanLogs" /* Collections.CLAN_LOGS */);
     }
     async handleMessage(cache, webhook, data) {
+        const isDonationLogType = cache.logType === ClanLogType.CONTINUOUS_DONATION_LOG ||
+            cache.logType === ClanLogType.DAILY_DONATION_LOG ||
+            cache.logType === ClanLogType.WEEKLY_DONATION_LOG ||
+            cache.logType === ClanLogType.MONTHLY_DONATION_LOG;
+        // Donation log caches only handle DONATION_LOG events
+        if (isDonationLogType && data.logType !== 'DONATION_LOG')
+            return null;
         const actions = logActionsMap[cache.logType] ?? [];
         if (data.logType === 'DONATION_LOG') {
-            if (cache.logType !== ClanLogType.CONTINUOUS_DONATION_LOG && cache.logType !== 'donation_log')
+            if (!isDonationLogType)
                 return null;
             return this.getDonationLogEmbed(cache, webhook, data);
         }

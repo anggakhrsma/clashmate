@@ -80,10 +80,18 @@ export class ClanLog extends RootLog {
   }
 
   public override async handleMessage(cache: Cache, webhook: WebhookClient, data: Feed) {
+    const isDonationLogType = cache.logType === ClanLogType.CONTINUOUS_DONATION_LOG ||
+                             cache.logType === ClanLogType.DAILY_DONATION_LOG ||
+                             cache.logType === ClanLogType.WEEKLY_DONATION_LOG ||
+                             cache.logType === ClanLogType.MONTHLY_DONATION_LOG;
+
+    // Donation log caches only handle DONATION_LOG events
+    if (isDonationLogType && data.logType !== 'DONATION_LOG') return null;
+
     const actions = logActionsMap[cache.logType] ?? [];
 
     if (data.logType === 'DONATION_LOG') {
-      if (cache.logType !== ClanLogType.CONTINUOUS_DONATION_LOG && (cache.logType as string) !== 'donation_log') return null;
+      if (!isDonationLogType) return null;
       return this.getDonationLogEmbed(cache, webhook, data);
     }
 
