@@ -27,7 +27,6 @@ import { EVENTS_COMMAND } from './commands/events_command.js';
 import { FLAG_COMMAND } from './commands/flag_command.js';
 import { HELP_COMMAND } from './commands/help_command.js';
 import { HISTORY_COMMAND } from './commands/history_command.js';
-import { HITRATE_COMMAND } from './commands/hitrate_command.js';
 import { INVITE_COMMAND } from './commands/invite_command.js';
 import { LASTSEEN_COMMAND } from './commands/lastseen_command.js';
 import { LAYOUT_COMMAND } from './commands/layout_command.js';
@@ -78,7 +77,6 @@ export const COMMANDS: RESTPostAPIApplicationCommandsJSONBody[] = [
   ATTACKS_COMMAND,
   MEMBERS_COMMAND,
   STATS_COMMAND,
-  HITRATE_COMMAND,
   DONATIONS_COMMAND,
   WAR_COMMAND,
   CALLER_COMMAND,
