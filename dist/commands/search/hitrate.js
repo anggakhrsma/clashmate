@@ -50,9 +50,8 @@ export default class HitrateCommand extends Command {
             // Skip ongoing wars with no attacks
             if (!isWarEnded && !attacks.length)
                 continue;
-            // Header: 2 lines with clan badge, player position/TH, and opponent name
-            const clanBadgeUrl = mySide.badgeUrls.small;
-            const header1 = `![](${clanBadgeUrl}) **${mySide.name}** (#${member.mapPosition}, TH${member.townhallLevel})`;
+            // Header: 2 lines with clan emoji, player position/TH, and opponent name
+            const header1 = `${EMOJIS.CLAN} **${mySide.name}** (#${member.mapPosition}, TH${member.townhallLevel})`;
             const header2 = `vs ${enemySide.name}`;
             lines.push(header1);
             lines.push(header2);
