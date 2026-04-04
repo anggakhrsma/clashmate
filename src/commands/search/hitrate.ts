@@ -8,7 +8,6 @@ import {
   EmbedBuilder,
   User
 } from 'discord.js';
-import moment from 'moment';
 import { Args, Command } from '../../lib/handlers.js';
 import { BLUE_NUMBERS, EMOJIS, ORANGE_NUMBERS, WAR_STARS, WHITE_NUMBERS } from '../../util/emojis.js';
 
@@ -64,9 +63,8 @@ export default class HitrateCommand extends Command {
       const member = mySide.members.find((m) => m.tag === player.tag);
       if (!member) continue;
 
-      // Header
-      const warDate = moment(war.startTime).format('DD/MM/YYYY');
-      const header = `${warDate} - ${mySide.name} (#${mySide.tag}) vs ${enemySide.name} (#${enemySide.tag}) - (#${member.mapPosition}, TH${member.townhallLevel})`;
+      // Header (no date, just clan names and player position)
+      const header = `${mySide.name} (#${mySide.tag}) vs ${enemySide.name} (#${enemySide.tag}) - (#${member.mapPosition}, TH${member.townhallLevel})`;
       lines.push(header);
 
       // Collect all attacks from player's side for fresh/cleanup detection
@@ -87,15 +85,17 @@ export default class HitrateCommand extends Command {
           const defender = enemySide.members.find((m) => m.tag === attack.defenderTag)!;
           const prevBestStars = this.prevBestStars(allSideAttacks, attack.defenderTag, attack.order);
           const newStars = Math.max(0, attack.stars - prevBestStars);
+          const oldStars = prevBestStars;
 
-          // Build star emojis: new stars = YELLOW_NEW, old stars = YELLOW_EMPTY, remaining = EMPTY
+          // Build star emojis: new stars first, then old stars, then empty
           const starEmojis = [
             ...Array(newStars).fill(WAR_STARS.YELLOW_NEW),
-            ...Array(prevBestStars).fill(WAR_STARS.YELLOW_EMPTY),
+            ...Array(oldStars).fill(WAR_STARS.YELLOW_EMPTY),
             ...Array(3 - attack.stars).fill(WAR_STARS.EMPTY)
           ].join('');
 
-          const row = `${WHITE_NUMBERS[rowNum]} ${starEmojis} ${attack.destructionPercentage.toFixed(0)}% ➞ ${BLUE_NUMBERS[defender.mapPosition]} ${ORANGE_NUMBERS[defender.townhallLevel]}`;
+          const destruction = attack.destructionPercentage.toFixed(0).padStart(3, ' ');
+          const row = `${WHITE_NUMBERS[rowNum]} ${starEmojis} ${destruction}% ➞ ${BLUE_NUMBERS[defender.mapPosition]} ${ORANGE_NUMBERS[defender.townhallLevel]}`;
           lines.push(row);
         }
       }
