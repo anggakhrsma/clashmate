@@ -1,7 +1,7 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
 import moment from 'moment';
 import { Command } from '../../lib/handlers.js';
-import { EMOJIS } from '../../util/emojis.js';
+import { BLUE_NUMBERS, EMOJIS, ORANGE_NUMBERS, WAR_STARS, WHITE_NUMBERS } from '../../util/emojis.js';
 export default class HitrateCommand extends Command {
     constructor() {
         super('hitrate', {
@@ -59,13 +59,19 @@ export default class HitrateCommand extends Command {
             for (let rowNum = 1; rowNum <= 2; rowNum++) {
                 const attack = rows[rowNum - 1];
                 if (!attack) {
-                    lines.push(`${rowNum}. Missed`);
+                    lines.push(`${WHITE_NUMBERS[rowNum]} Missed`);
                 }
                 else {
                     const defender = enemySide.members.find((m) => m.tag === attack.defenderTag);
                     const prevBestStars = this.prevBestStars(allSideAttacks, attack.defenderTag, attack.order);
                     const newStars = Math.max(0, attack.stars - prevBestStars);
-                    const row = `${rowNum}. ${attack.stars} star - ${newStars} new star - ${attack.destructionPercentage.toFixed(0)}% ➞ #${defender.mapPosition}, TH${defender.townhallLevel}`;
+                    // Build star emojis: new stars = YELLOW_NEW, old stars = YELLOW_EMPTY, remaining = EMPTY
+                    const starEmojis = [
+                        ...Array(newStars).fill(WAR_STARS.YELLOW_NEW),
+                        ...Array(prevBestStars).fill(WAR_STARS.YELLOW_EMPTY),
+                        ...Array(3 - attack.stars).fill(WAR_STARS.EMPTY)
+                    ].join('');
+                    const row = `${WHITE_NUMBERS[rowNum]} ${starEmojis} ${attack.destructionPercentage.toFixed(0)}% ➞ ${BLUE_NUMBERS[defender.mapPosition]} ${ORANGE_NUMBERS[defender.townhallLevel]}`;
                     lines.push(row);
                 }
             }
@@ -78,7 +84,7 @@ export default class HitrateCommand extends Command {
         const embed = new EmbedBuilder()
             .setColor(this.client.embed(interaction))
             .setAuthor({ name: `${player.name} (${player.tag})` })
-            .setDescription(`\`\`\`\n${lines.join('\n')}\`\`\``)
+            .setDescription(lines.join('\n'))
             .setFooter({ text: `Last ${wars.length} regular wars` })
             .setTimestamp();
         const row = new ActionRowBuilder().addComponents(new ButtonBuilder()
