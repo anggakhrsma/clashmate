@@ -186,6 +186,7 @@ export default class CWLStatsCommand extends Command {
         })
             .join('\n\n');
         const leagueId = body.leagues?.[clan.tag];
+        console.log('[CWL] League lookup:', { clanTag: clan.tag, leagueId, allLeagues: body.leagues });
         const ranks = calculateLeagueRanking(aggregateRoundsForRanking(body.wars), leagueId);
         const rankIndex = ranks.findIndex((a) => a.tag === clanTag);
         const padding = Math.max(...ranks.map((r) => r.destruction)) > 9999 ? 6 : 5;
