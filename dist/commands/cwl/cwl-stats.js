@@ -262,7 +262,8 @@ export default class CWLStatsCommand extends Command {
                         position: r.rank,
                         clanName: r.name,
                         stars: r.stars,
-                        destruction: Math.round(r.destruction * 10) / 10
+                        destruction: Math.round(r.destruction * 10) / 10,
+                        badgeUrl: r.badgeUrl
                     }))
                 })
             }).then(async (res) => {
