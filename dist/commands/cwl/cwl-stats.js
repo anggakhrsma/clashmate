@@ -1,11 +1,10 @@
-import { calculateCWLMedals, WAR_LEAGUE_PROMOTION_MAP } from '../../util/constants.js';
+import { calculateCWLMedals, WAR_LEAGUE_PROMOTION_MAP, WAR_LEAGUE_MAP } from '../../util/constants.js';
 import { ActionRowBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags } from 'discord.js';
 import moment from 'moment';
 import 'moment-duration-format';
 import { getClanSwitchingMenu } from '../../helper/clans.helper.js';
 import { aggregateRoundsForRanking, calculateLeagueRanking } from '../../helper/cwl.helper.js';
 import { Command } from '../../lib/handlers.js';
-import { getCWLSummaryImage } from '../../struct/image-helper.js';
 import { BLUE_NUMBERS, EMOJIS } from '../../util/emojis.js';
 import { padEnd } from '../../util/helper.js';
 import { Util } from '../../util/toolkit.js';
@@ -247,20 +246,38 @@ export default class CWLStatsCommand extends Command {
             .setEmoji(EMOJIS.REFRESH)
             .setStyle(ButtonStyle.Secondary));
         const menu = await getClanSwitchingMenu(interaction, customIds.clans, clanTag);
-        // Generate image — works even when leagueId is unknown (API preparation phase)
+        // Generate image via service
         const files = [];
-        const imageData = await getCWLSummaryImage({
-            activeRounds,
-            leagueId: leagueId ?? 0,
-            medals,
-            rankIndex,
-            ranks,
-            season: body.season,
-            totalRounds: body.clans.length - 1
-        });
-        const rawFile = new AttachmentBuilder(imageData.file, { name: imageData.name });
-        files.push(rawFile);
-        embed.setImage(imageData.attachmentKey);
+        try {
+            const leagueName = (leagueId && WAR_LEAGUE_MAP[leagueId]) || 'CWL Ranking';
+            const imageBuffer = await fetch(`${process.env.IMAGE_GEN_API_BASE_URL}/v1/cwl/generate-ranking-image`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': process.env.SERVICE_API_KEY || ''
+                },
+                body: JSON.stringify({
+                    leagueName,
+                    clans: ranks.map((r) => ({
+                        position: r.rank,
+                        clanName: r.name,
+                        stars: r.stars,
+                        destruction: Math.round(r.destruction * 10) / 10
+                    }))
+                })
+            }).then(async (res) => {
+                if (!res.ok)
+                    throw new Error(`Service returned ${res.status}`);
+                const arrayBuffer = await res.arrayBuffer();
+                return Buffer.from(arrayBuffer);
+            });
+            const rawFile = new AttachmentBuilder(imageBuffer, { name: 'cwl-stats.png' });
+            files.push(rawFile);
+            embed.setImage('attachment://cwl-stats.png');
+        }
+        catch (error) {
+            this.client.logger.error('Failed to generate CWL image', error);
+        }
         return interaction.editReply({
             embeds: [...embeds, embed],
             components: menu ? [row, menu] : [row],
