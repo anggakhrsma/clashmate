@@ -276,7 +276,8 @@ export default class CWLStatsCommand extends Command {
             embed.setImage('attachment://cwl-stats.png');
         }
         catch (error) {
-            this.client.logger.error('Failed to generate CWL image', error);
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            this.client.logger.error(`Failed to generate CWL image: ${errorMsg}`, { label: 'CWLStats' });
         }
         return interaction.editReply({
             embeds: [...embeds, embed],
