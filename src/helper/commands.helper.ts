@@ -1,4 +1,3 @@
-import { i18n } from '../util/i18n.js';
 import {
   ApplicationCommand,
   ApplicationCommandChoicesOption,
@@ -7,6 +6,7 @@ import {
   ApplicationCommandSubCommand,
   ApplicationCommandType
 } from 'discord.js';
+import locales from '../util/locales.js';
 
 function flatOptions(options?: readonly ApplicationCommandOption[]) {
   return (
@@ -24,15 +24,23 @@ function flatOptions(options?: readonly ApplicationCommandOption[]) {
 function translateDescription(key: string) {
   const longKey = `command.${key}.description_long`;
 
-  try {
-    return i18n(longKey as any, { lng: 'en-US' });
-  } catch {}
+  const value = getLocaleValue(longKey);
+  if (typeof value === 'string') return value;
 
   return null;
 }
 
 function getTranslationKey(str: string) {
   return str.replace(/\s+/g, '.').replace(/-/g, '_');
+}
+
+function getLocaleValue(path: string) {
+  return path.split('.').reduce<unknown>((acc, part) => {
+    if (acc && typeof acc === 'object') {
+      return (acc as Record<string, unknown>)[part];
+    }
+    return undefined;
+  }, locales as unknown as Record<string, unknown>);
 }
 
 export async function flattenApplicationCommands(items: ApplicationCommand[]) {

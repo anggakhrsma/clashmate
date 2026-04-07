@@ -1,9 +1,9 @@
-import { i18n } from '../../util/i18n.js';
 import { CommandCategories } from '../../util/constants.js';
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, StringSelectMenuBuilder } from 'discord.js';
 import { flattenApplicationCommands } from '../../helper/commands.helper.js';
 import { Command } from '../../lib/handlers.js';
 import { EMOJIS } from '../../util/emojis.js';
+import locales from '../../util/locales.js';
 const categoryMap = {
     [CommandCategories.SEARCH]: 'Player and Clan',
     [CommandCategories.ACTIVITY]: 'Player and Clan',
@@ -136,22 +136,24 @@ export default class HelpCommand extends Command {
     translate(key, lng) {
         const longKey = `command.${key}.description_long`;
         const shortKey = `command.${key}.description`;
-        try {
-            const r = i18n(longKey, { lng });
-            if (r)
-                return r;
-        }
-        catch { }
-        try {
-            const r = i18n(shortKey, { lng });
-            if (r)
-                return r;
-        }
-        catch { }
+        const longValue = this.getLocaleValue(longKey);
+        if (typeof longValue === 'string')
+            return longValue;
+        const shortValue = this.getLocaleValue(shortKey);
+        if (typeof shortValue === 'string')
+            return shortValue;
         return null;
     }
     formatKey(str) {
         return str.replace(/\s+/g, '.').replace(/-/g, '_');
+    }
+    getLocaleValue(path) {
+        return path.split('.').reduce((acc, part) => {
+            if (acc && typeof acc === 'object') {
+                return acc[part];
+            }
+            return undefined;
+        }, locales);
     }
 }
 //# sourceMappingURL=help.js.map
