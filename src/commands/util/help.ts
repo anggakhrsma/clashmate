@@ -1,4 +1,3 @@
-import { i18n } from '../../util/i18n.js';
 import { CommandCategories } from '@app/constants';
 import {
   ActionRowBuilder,
@@ -11,6 +10,7 @@ import {
 import { flattenApplicationCommands } from '../../helper/commands.helper.js';
 import { Command } from '../../lib/handlers.js';
 import { EMOJIS } from '../../util/emojis.js';
+import locales from '../../util/locales.js';
 
 const categoryMap: Record<string, string> = {
   [CommandCategories.SEARCH]: 'Player and Clan',
@@ -206,19 +206,25 @@ export default class HelpCommand extends Command {
     const longKey = `command.${key}.description_long`;
     const shortKey = `command.${key}.description`;
 
-    try {
-      const r = (i18n as any)(longKey, { lng });
-      if (r) return r;
-    } catch {}
-    try {
-      const r = (i18n as any)(shortKey, { lng });
-      if (r) return r;
-    } catch {}
+    const longValue = this.getLocaleValue(longKey);
+    if (typeof longValue === 'string') return longValue;
+
+    const shortValue = this.getLocaleValue(shortKey);
+    if (typeof shortValue === 'string') return shortValue;
 
     return null;
   }
 
   private formatKey(str: string) {
     return str.replace(/\s+/g, '.').replace(/-/g, '_');
+  }
+
+  private getLocaleValue(path: string) {
+    return path.split('.').reduce<unknown>((acc, part) => {
+      if (acc && typeof acc === 'object') {
+        return (acc as Record<string, unknown>)[part];
+      }
+      return undefined;
+    }, locales as unknown as Record<string, unknown>);
   }
 }
