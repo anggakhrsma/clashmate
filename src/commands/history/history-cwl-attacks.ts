@@ -119,7 +119,7 @@ export default class CWLHistoryCommand extends Command {
             const participated = wars.filter((war) => war.attack).length;
             const totalStars = wars.reduce((acc, war) => acc + (war.attack?.stars ?? 0), 0);
             const totalDestruction = wars.reduce(
-              (acc, war) => acc + (war.attack?.destructionPercentage ?? 0),
+              (acc, war) => acc + this.getAttackDestruction(war.attack),
               0
             );
             const season = moment(seasonId).format('MMM YYYY').toString();
@@ -133,7 +133,7 @@ export default class CWLHistoryCommand extends Command {
                 .filter((war) => war.attack)
                 .map(({ attack, defender }, i) => {
                   return `${WHITE_NUMBERS[i + 1]} ${stars[attack!.stars]} \`${this.percentage(
-                    attack!.destructionPercentage
+                    this.getAttackDestruction(attack)
                   )}\` \u200b → ${BLUE_NUMBERS[defender!.mapPosition]}${ORANGE_NUMBERS[defender!.townhallLevel]}`;
                 })
                 .join('\n'),
@@ -238,6 +238,15 @@ export default class CWLHistoryCommand extends Command {
 
   private percentage(num: number) {
     return `${num}%`.toString().padStart(4, ' ');
+  }
+
+  private getAttackDestruction(attack: APIClanWarAttack | null) {
+    if (!attack) return 0;
+    const value =
+      (attack as APIClanWarAttack & { destruction?: number }).destructionPercentage ??
+      (attack as APIClanWarAttack & { destruction?: number }).destruction ??
+      0;
+    return Number.isFinite(value) ? value : 0;
   }
 }
 

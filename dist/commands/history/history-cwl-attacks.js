@@ -85,7 +85,7 @@ export default class CWLHistoryCommand extends Command {
                 wars.sort((a, b) => a.endTime.getTime() - b.endTime.getTime());
                 const participated = wars.filter((war) => war.attack).length;
                 const totalStars = wars.reduce((acc, war) => acc + (war.attack?.stars ?? 0), 0);
-                const totalDestruction = wars.reduce((acc, war) => acc + (war.attack?.destructionPercentage ?? 0), 0);
+                const totalDestruction = wars.reduce((acc, war) => acc + this.getAttackDestruction(war.attack), 0);
                 const season = moment(seasonId).format('MMM YYYY').toString();
                 const [{ member, clan }] = wars;
                 const leagueId = groupMap[`${seasonId}-${clan.tag}`];
@@ -96,7 +96,7 @@ export default class CWLHistoryCommand extends Command {
                     wars
                         .filter((war) => war.attack)
                         .map(({ attack, defender }, i) => {
-                        return `${WHITE_NUMBERS[i + 1]} ${stars[attack.stars]} \`${this.percentage(attack.destructionPercentage)}\` \u200b → ${BLUE_NUMBERS[defender.mapPosition]}${ORANGE_NUMBERS[defender.townhallLevel]}`;
+                        return `${WHITE_NUMBERS[i + 1]} ${stars[attack.stars]} \`${this.percentage(this.getAttackDestruction(attack))}\` \u200b → ${BLUE_NUMBERS[defender.mapPosition]}${ORANGE_NUMBERS[defender.townhallLevel]}`;
                     })
                         .join('\n'),
                     `${EMOJIS.CROSS_SWORD} ${participated}/${wars.length} wars, ${totalStars} stars, ${totalDestruction}%`,
@@ -188,6 +188,14 @@ export default class CWLHistoryCommand extends Command {
     }
     percentage(num) {
         return `${num}%`.toString().padStart(4, ' ');
+    }
+    getAttackDestruction(attack) {
+        if (!attack)
+            return 0;
+        const value = attack.destructionPercentage ??
+            attack.destruction ??
+            0;
+        return Number.isFinite(value) ? value : 0;
     }
 }
 //# sourceMappingURL=history-cwl-attacks.js.map
