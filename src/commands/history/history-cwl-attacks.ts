@@ -78,21 +78,31 @@ export default class CWLHistoryCommand extends Command {
 
     const leagueGroupIds = [...new Set(_wars.map((a) => a.leagueGroupId).filter(Boolean))];
     const groups = await this.client.db
-      .collection<{ id?: number; leagueGroupId?: number; leagues?: Record<string, number>; season: string }>(
-        Collections.CWL_GROUPS
-      )
+      .collection<{
+        id?: number;
+        leagueGroupId?: number;
+        leagueId?: number;
+        leagues?: Record<string, number>;
+        season: string;
+        clans?: { tag: string }[];
+      }>(Collections.CWL_GROUPS)
       .find(
         {
           $or: [{ id: { $in: leagueGroupIds } }, { leagueGroupId: { $in: leagueGroupIds } }]
         },
-        { projection: { season: 1, leagues: 1, id: 1, leagueGroupId: 1 } }
+        { projection: { season: 1, leagues: 1, leagueId: 1, clans: 1, id: 1, leagueGroupId: 1 } }
       )
       .toArray();
 
     const groupMap = groups.reduce<Record<string, number>>((acc, group) => {
-      Object.entries(group.leagues ?? {}).map(([tag, leagueId]) => {
+      Object.entries(group.leagues ?? {}).forEach(([tag, leagueId]) => {
         acc[`${group.season}-${tag}`] = leagueId;
       });
+      if (group.leagueId) {
+        for (const clan of group.clans ?? []) {
+          acc[`${group.season}-${clan.tag}`] ??= group.leagueId;
+        }
+      }
       return acc;
     }, {});
 
