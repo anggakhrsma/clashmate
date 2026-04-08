@@ -69,6 +69,20 @@ export default class CWLHistoryCommand extends Command {
             }
             return acc;
         }, {});
+        const missingLeaguePairs = [...new Set(_wars.map((war) => `${war.endTime.toISOString().slice(0, 7)}|${war.clan.tag}`))]
+            .map((entry) => entry.split('|'))
+            .filter(([seasonId, clanTag]) => !groupMap[`${seasonId}-${clanTag}`]);
+        for (const [seasonId, clanTag] of missingLeaguePairs) {
+            let group = await this.client.storage.getWarTags(clanTag, seasonId);
+            if (!group) {
+                await this.client.storage.restoreLeagueGroup(clanTag, seasonId).catch(() => null);
+                group = await this.client.storage.getWarTags(clanTag, seasonId);
+            }
+            const leagueId = this.getLeagueId(group, clanTag);
+            if (leagueId) {
+                groupMap[`${seasonId}-${clanTag}`] = leagueId;
+            }
+        }
         const warMap = _wars.reduce((acc, war) => {
             const key = `${war.member.name} (${war.member.tag})`;
             acc[key] ??= [];
@@ -217,6 +231,14 @@ export default class CWLHistoryCommand extends Command {
             member.townHallLevel ??
             0;
         return Number.isFinite(value) ? value : 0;
+    }
+    getLeagueId(group, clanTag) {
+        if (!group)
+            return null;
+        return (group.leagues?.[clanTag] ??
+            group.clans?.find((clan) => clan.tag === clanTag)?.leagueId ??
+            group.leagueId ??
+            null);
     }
 }
 //# sourceMappingURL=history-cwl-attacks.js.map
