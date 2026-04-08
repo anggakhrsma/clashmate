@@ -76,11 +76,16 @@ export default class CWLHistoryCommand extends Command {
   public async getHistory(interaction: CommandInteraction<'cached'>, playerTags: string[]) {
     const _wars = await this.getWars(playerTags);
 
+    const leagueGroupIds = [...new Set(_wars.map((a) => a.leagueGroupId).filter(Boolean))];
     const groups = await this.client.db
-      .collection<{ leagues?: Record<string, number>; season: string }>(Collections.CWL_GROUPS)
+      .collection<{ id?: number; leagueGroupId?: number; leagues?: Record<string, number>; season: string }>(
+        Collections.CWL_GROUPS
+      )
       .find(
-        { id: { $in: [...new Set(_wars.map((a) => a.leagueGroupId))] } },
-        { projection: { season: 1, leagues: 1 } }
+        {
+          $or: [{ id: { $in: leagueGroupIds } }, { leagueGroupId: { $in: leagueGroupIds } }]
+        },
+        { projection: { season: 1, leagues: 1, id: 1, leagueGroupId: 1 } }
       )
       .toArray();
 
@@ -127,14 +132,17 @@ export default class CWLHistoryCommand extends Command {
             const leagueId = groupMap[`${seasonId}-${clan.tag}`];
             const leagueName = WAR_LEAGUE_MAP[leagueId];
             const leagueIcon = CWL_LEAGUES[leagueName];
+            const header = [`**${season}** (#${member.mapPosition}, TH${this.getTownHallLevel(member)})`];
+            if (clan.name) header.push(clan.name);
+            if (leagueName) header.push(`${leagueIcon} ${leagueName}`);
             return [
-              `**${season}** (#${member.mapPosition}, TH${member.townhallLevel})${leagueName ? `\n${leagueIcon} ${clan.name}` : ''}`,
+              header.join('\n'),
               wars
                 .filter((war) => war.attack)
                 .map(({ attack, defender }, i) => {
                   return `${WHITE_NUMBERS[i + 1]} ${stars[attack!.stars]} \`${this.percentage(
                     this.getAttackDestruction(attack)
-                  )}\` \u200b → ${BLUE_NUMBERS[defender!.mapPosition]}${ORANGE_NUMBERS[defender!.townhallLevel]}`;
+                  )}\` \u200b → ${BLUE_NUMBERS[defender!.mapPosition]}${ORANGE_NUMBERS[this.getTownHallLevel(defender!)]}`;
                 })
                 .join('\n'),
               `${EMOJIS.CROSS_SWORD} ${participated}/${wars.length} wars, ${totalStars} stars, ${totalDestruction}%`,
@@ -245,6 +253,15 @@ export default class CWLHistoryCommand extends Command {
     const value =
       (attack as APIClanWarAttack & { destruction?: number }).destructionPercentage ??
       (attack as APIClanWarAttack & { destruction?: number }).destruction ??
+      0;
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  private getTownHallLevel(member: APIClanWarMember | null) {
+    if (!member) return 0;
+    const value =
+      (member as APIClanWarMember & { townHallLevel?: number }).townhallLevel ??
+      (member as APIClanWarMember & { townHallLevel?: number }).townHallLevel ??
       0;
     return Number.isFinite(value) ? value : 0;
   }
