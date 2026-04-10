@@ -1,5 +1,9 @@
 import { LEGEND_LEAGUE_ID } from '../util/constants.js';
 import { MongoClient } from 'mongodb';
+function getDbNameFromMongoUrl(url) {
+    const match = url.match(/^[a-z]+(?:\+srv)?:\/\/[^/]+\/([^?]+)/i);
+    return match?.[1] || 'clashmate-old';
+}
 class MongoDbClient extends MongoClient {
     constructor() {
         super(process.env.MONGODB_URL);
@@ -7,7 +11,7 @@ class MongoDbClient extends MongoClient {
             enumerable: true,
             configurable: true,
             writable: true,
-            value: 'clashmate'
+            value: getDbNameFromMongoUrl(process.env.MONGODB_URL)
         });
         this.on('open', () => this.createIndex(this.db(this.dbName)));
     }

@@ -19,6 +19,11 @@ import {
 } from '@app/entities';
 import { Db, MongoClient } from 'mongodb';
 
+function getDbNameFromMongoUrl(url: string) {
+  const match = url.match(/^[a-z]+(?:\+srv)?:\/\/[^/]+\/([^?]+)/i);
+  return match?.[1] || 'clashmate-old';
+}
+
 interface CollectionsMap {
   [Collections.CLAN_STORES]: ClanStoresEntity;
   [Collections.PLAYER_SEASONS]: PlayerSeasonsEntity;
@@ -45,7 +50,7 @@ declare module 'mongodb' {
 }
 
 class MongoDbClient extends MongoClient {
-  public dbName = 'clashmate';
+  public dbName = getDbNameFromMongoUrl(process.env.MONGODB_URL!);
 
   public constructor() {
     super(process.env.MONGODB_URL!);
