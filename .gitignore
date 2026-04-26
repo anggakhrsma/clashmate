@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+coverage/
+.turbo/
+.cache/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+
+# TypeScript
+*.tsbuildinfo
+
+# Database generated/local artifacts
+drizzle/
+migrations/
+seeds/
+*.sqlite
+*.sqlite3
+
+# Railway / platform local state
+.railway/
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+
+# Agent/local planning files
+.pi/
+.agents/
+AGENTS.md
+CLAUDE.md
+.codex/
+.cursor/
+.windsurf/
+
+# User-requested local-only Markdown/docs
+*.md
+/docs/

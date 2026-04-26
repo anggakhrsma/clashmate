@@ -1,0 +1,36 @@
+{
+  "name": "clashmate",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "packageManager": "pnpm@10.0.0",
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=10.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "check": "biome check .",
+    "check:write": "biome check --write .",
+    "dev:api": "pnpm --filter @clashmate/api dev",
+    "dev:bot": "pnpm --filter @clashmate/bot dev",
+    "dev:worker": "pnpm --filter @clashmate/worker dev",
+    "format": "biome format --write .",
+    "lint": "biome lint .",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "latest",
+    "@types/node": "^22.0.0",
+    "drizzle-kit": "latest",
+    "tsx": "latest",
+    "turbo": "latest",
+    "typescript": "^5.9.3",
+    "vitest": "latest"
+  }
+}

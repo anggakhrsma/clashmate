@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "baseUrl": ".",
+    "paths": {
+      "@clashmate/api": ["apps/api/src/index.ts"],
+      "@clashmate/bot": ["apps/bot/src/index.ts"],
+      "@clashmate/worker": ["apps/worker/src/index.ts"],
+      "@clashmate/coc": ["packages/coc/src/index.ts"],
+      "@clashmate/config": ["packages/config/src/index.ts"],
+      "@clashmate/database": ["packages/database/src/index.ts"],
+      "@clashmate/database/schema": ["packages/database/src/schema/index.ts"],
+      "@clashmate/discord": ["packages/discord/src/index.ts"],
+      "@clashmate/logger": ["packages/logger/src/index.ts"],
+      "@clashmate/shared": ["packages/shared/src/index.ts"]
+    },
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "useUnknownInCatchVariables": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "composite": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  }
+}

@@ -1,0 +1,28 @@
+name: Command port
+description: Track a command/subcommand implementation
+title: "command: /"
+labels: [command-port]
+body:
+  - type: input
+    id: command
+    attributes:
+      label: Command or subcommand
+      placeholder: /player
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Keep this small enough for one fresh agent session.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: Reference registration inspected
+        - label: Reference behavior documented
+        - label: Exclusions documented
+        - label: Tests planned

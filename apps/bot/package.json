@@ -1,0 +1,25 @@
+{
+  "name": "@clashmate/bot",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@clashmate/coc": "workspace:*",
+    "@clashmate/config": "workspace:*",
+    "@clashmate/database": "workspace:*",
+    "@clashmate/discord": "workspace:*",
+    "@clashmate/logger": "workspace:*",
+    "discord.js": "latest"
+  },
+  "devDependencies": {
+    "tsx": "latest",
+    "vitest": "latest"
+  }
+}
