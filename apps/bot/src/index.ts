@@ -2,6 +2,7 @@ import { ClashMateCocClient } from '@clashmate/coc';
 import { loadConfig } from '@clashmate/config';
 import {
   createDatabase,
+  createDatabaseCommandUsageRecorder,
   createDatabaseDebugReader,
   createDatabaseStatusMetrics,
   createDatabaseTrackedClanStore,
@@ -18,6 +19,7 @@ import { loadBotPackageVersion, type StatusMetricReader } from './commands/statu
 const config = loadConfig();
 const logger = createLogger('bot', config.LOG_LEVEL);
 const database = createDatabase(config.DATABASE_URL);
+const commandUsageRecorder = createDatabaseCommandUsageRecorder(database);
 const databaseDebugReader = createDatabaseDebugReader(database);
 const databaseStatusMetrics = createDatabaseStatusMetrics(database);
 const databaseUsageMetrics = createDatabaseUsageMetrics(database);
@@ -111,6 +113,15 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     await command.execute(interaction, { client, ownerIds: config.DISCORD_OWNER_IDS });
+
+    try {
+      await commandUsageRecorder.recordCommandUsage({
+        commandName: interaction.commandName,
+        guildId: interaction.guildId,
+      });
+    } catch (error) {
+      logger.warn({ error, command: interaction.commandName }, 'Failed to record command usage');
+    }
   } catch (error) {
     logger.error({ error, command: interaction.commandName }, 'Slash command failed');
     await sendCommandFailure(interaction);

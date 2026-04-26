@@ -34,6 +34,25 @@ export interface DatabaseUsageMetrics {
   listRecentGrowth: (limit: number) => Promise<DatabaseBotGrowthDailyRecord[]>;
 }
 
+export interface RecordCommandUsageInput {
+  commandName: string;
+  guildId: string | null;
+  usedAt?: Date;
+}
+
+export interface DatabaseCommandUsageRecorder {
+  recordCommandUsage: (input: RecordCommandUsageInput) => Promise<void>;
+}
+
+export interface NormalizedCommandUsageIncrement {
+  commandName: string;
+  guildId: string;
+  usageDate: string;
+  usedAt: Date;
+}
+
+export const DIRECT_MESSAGE_COMMAND_USAGE_GUILD_ID = 'direct-message';
+
 export interface DebugTrackedClanRecord {
   clanTag: string;
   name: string | null;
@@ -189,6 +208,77 @@ export function createDatabaseUsageMetrics(database: Database): DatabaseUsageMet
         .orderBy(desc(schema.botGrowthDaily.usageDate))
         .limit(limit);
     },
+  };
+}
+
+export function createDatabaseCommandUsageRecorder(
+  database: Database,
+): DatabaseCommandUsageRecorder {
+  return {
+    recordCommandUsage: async (input) => {
+      const increment = normalizeCommandUsageIncrement(input);
+
+      await database.transaction(async (tx) => {
+        await tx
+          .insert(schema.commandUsageDaily)
+          .values({
+            usageDate: increment.usageDate,
+            commandName: increment.commandName,
+            guildId: increment.guildId,
+            usageCount: 1,
+            createdAt: increment.usedAt,
+            updatedAt: increment.usedAt,
+          })
+          .onConflictDoUpdate({
+            target: [
+              schema.commandUsageDaily.usageDate,
+              schema.commandUsageDaily.commandName,
+              schema.commandUsageDaily.guildId,
+            ],
+            set: {
+              usageCount: sql`${schema.commandUsageDaily.usageCount} + 1`,
+              updatedAt: increment.usedAt,
+            },
+          });
+
+        await tx
+          .insert(schema.commandUsageTotals)
+          .values({
+            commandName: increment.commandName,
+            usageCount: 1,
+            firstUsedAt: increment.usedAt,
+            lastUsedAt: increment.usedAt,
+            updatedAt: increment.usedAt,
+          })
+          .onConflictDoUpdate({
+            target: schema.commandUsageTotals.commandName,
+            set: {
+              usageCount: sql`${schema.commandUsageTotals.usageCount} + 1`,
+              lastUsedAt: increment.usedAt,
+              updatedAt: increment.usedAt,
+            },
+          });
+      });
+    },
+  };
+}
+
+export function normalizeCommandUsageIncrement(
+  input: RecordCommandUsageInput,
+): NormalizedCommandUsageIncrement {
+  const commandName = input.commandName.trim().toLowerCase();
+
+  if (!commandName) {
+    throw new Error('Command usage requires a command name.');
+  }
+
+  const usedAt = input.usedAt ?? new Date();
+
+  return {
+    commandName,
+    guildId: input.guildId ?? DIRECT_MESSAGE_COMMAND_USAGE_GUILD_ID,
+    usageDate: usedAt.toISOString().slice(0, 10),
+    usedAt,
   };
 }
 
