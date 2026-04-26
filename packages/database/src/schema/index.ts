@@ -1,6 +1,7 @@
 import { relations, sql } from 'drizzle-orm';
 import {
   boolean,
+  date,
   index,
   integer,
   jsonb,
@@ -136,6 +137,43 @@ export const globalAccessBlocks = pgTable(
     ),
   }),
 );
+
+export const commandUsageDaily = pgTable(
+  'command_usage_daily',
+  {
+    usageDate: date('usage_date').notNull(),
+    commandName: text('command_name').notNull(),
+    guildId: text('guild_id'),
+    usageCount: integer('usage_count').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    commandUsageDailyUnique: uniqueIndex('command_usage_daily_unique').on(
+      table.usageDate,
+      table.commandName,
+      table.guildId,
+    ),
+    commandUsageDailyDateIndex: index('command_usage_daily_date_idx').on(table.usageDate),
+  }),
+);
+
+export const commandUsageTotals = pgTable('command_usage_totals', {
+  commandName: text('command_name').primaryKey(),
+  usageCount: integer('usage_count').notNull().default(0),
+  firstUsedAt: timestamp('first_used_at', { withTimezone: true }),
+  lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const botGrowthDaily = pgTable('bot_growth_daily', {
+  usageDate: date('usage_date').primaryKey(),
+  guildAdditions: integer('guild_additions').notNull().default(0),
+  guildDeletions: integer('guild_deletions').notNull().default(0),
+  guildRetention: integer('guild_retention').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const pollingLeases = pgTable(
   'polling_leases',

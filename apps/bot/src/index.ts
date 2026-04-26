@@ -3,6 +3,7 @@ import {
   createDatabase,
   createDatabaseDebugReader,
   createDatabaseStatusMetrics,
+  createDatabaseUsageMetrics,
   createGlobalAccessBlockStore,
 } from '@clashmate/database';
 import { isOwner, type SlashCommandDefinition } from '@clashmate/discord';
@@ -17,9 +18,11 @@ const logger = createLogger('bot', config.LOG_LEVEL);
 const database = createDatabase(config.DATABASE_URL);
 const databaseDebugReader = createDatabaseDebugReader(database);
 const databaseStatusMetrics = createDatabaseStatusMetrics(database);
+const databaseUsageMetrics = createDatabaseUsageMetrics(database);
 const globalAccessBlocks = createGlobalAccessBlockStore(database);
 
 const statusMetricReader: StatusMetricReader = {
+  countCommandsUsedLast30Days: databaseStatusMetrics.countCommandsUsedLast30Days,
   countClans: databaseStatusMetrics.countTrackedClans,
   countLinks: databaseStatusMetrics.countPlayerLinks,
 };
@@ -43,6 +46,11 @@ const commandRegistry = createBotCommandRegistry({
     logger,
     ...(gitSha ? { commitSha: gitSha } : {}),
     ...(sourceRepositoryUrl ? { repositoryUrl: sourceRepositoryUrl } : {}),
+  },
+  usage: {
+    metricReader: databaseUsageMetrics,
+    loadedCommandNames: ['blacklist', 'debug', 'guild-ban', 'status', 'usage'],
+    logger,
   },
 });
 
