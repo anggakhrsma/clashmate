@@ -34,6 +34,9 @@ const commandRegistry = createBotCommandRegistry({
     dataReader: databaseDebugReader,
     logger,
   },
+  guildBan: {
+    accessBlocks: globalAccessBlocks,
+  },
   status: {
     metricReader: statusMetricReader,
     version: loadBotPackageVersion(),
@@ -70,15 +73,25 @@ client.on('interactionCreate', async (interaction) => {
   if (!command) return;
 
   try {
-    if (
-      !isOwner(interaction.user.id, config.DISCORD_OWNER_IDS) &&
-      (await globalAccessBlocks.isUserBlacklisted(interaction.user.id))
-    ) {
-      await interaction.reply({
-        content: 'You are not allowed to use ClashMate commands.',
-        ephemeral: true,
-      });
-      return;
+    if (!isOwner(interaction.user.id, config.DISCORD_OWNER_IDS)) {
+      if (await globalAccessBlocks.isUserBlacklisted(interaction.user.id)) {
+        await interaction.reply({
+          content: 'You are not allowed to use ClashMate commands.',
+          ephemeral: true,
+        });
+        return;
+      }
+
+      if (
+        interaction.guildId &&
+        (await globalAccessBlocks.isGuildBlacklisted(interaction.guildId))
+      ) {
+        await interaction.reply({
+          content: 'This server is not allowed to use ClashMate commands.',
+          ephemeral: true,
+        });
+        return;
+      }
     }
 
     await command.execute(interaction, { client, ownerIds: config.DISCORD_OWNER_IDS });

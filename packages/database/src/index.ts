@@ -50,6 +50,7 @@ export interface ToggleGlobalAccessBlockResult {
 
 export interface GlobalAccessBlockStore {
   isUserBlacklisted: (discordUserId: string) => Promise<boolean>;
+  isGuildBlacklisted: (discordGuildId: string) => Promise<boolean>;
   toggle: (input: ToggleGlobalAccessBlockInput) => Promise<ToggleGlobalAccessBlockResult>;
 }
 
@@ -122,19 +123,10 @@ export function createDatabaseDebugReader(database: Database): DatabaseDebugRead
 export function createGlobalAccessBlockStore(database: Database): GlobalAccessBlockStore {
   return {
     isUserBlacklisted: async (discordUserId) => {
-      const [row] = await database
-        .select({ id: schema.globalAccessBlocks.id })
-        .from(schema.globalAccessBlocks)
-        .where(
-          and(
-            eq(schema.globalAccessBlocks.targetType, 'user'),
-            eq(schema.globalAccessBlocks.targetId, discordUserId),
-            isNull(schema.globalAccessBlocks.deletedAt),
-          ),
-        )
-        .limit(1);
-
-      return Boolean(row);
+      return isTargetBlacklisted(database, 'user', discordUserId);
+    },
+    isGuildBlacklisted: async (discordGuildId) => {
+      return isTargetBlacklisted(database, 'guild', discordGuildId);
     },
     toggle: async (input) => {
       return database.transaction(async (tx) => {
@@ -184,6 +176,26 @@ export function createGlobalAccessBlockStore(database: Database): GlobalAccessBl
       });
     },
   };
+}
+
+async function isTargetBlacklisted(
+  database: Database,
+  targetType: GlobalAccessBlockTargetType,
+  targetId: string,
+): Promise<boolean> {
+  const [row] = await database
+    .select({ id: schema.globalAccessBlocks.id })
+    .from(schema.globalAccessBlocks)
+    .where(
+      and(
+        eq(schema.globalAccessBlocks.targetType, targetType),
+        eq(schema.globalAccessBlocks.targetId, targetId),
+        isNull(schema.globalAccessBlocks.deletedAt),
+      ),
+    )
+    .limit(1);
+
+  return Boolean(row);
 }
 
 async function countPollingLeases(database: Database, resourceType: string): Promise<number> {

@@ -14,6 +14,7 @@ function createStore(action: 'created' | 'deleted' = 'created') {
   const toggles: ToggleGlobalAccessBlockInput[] = [];
   const store: GlobalAccessBlockStore = {
     isUserBlacklisted: async () => false,
+    isGuildBlacklisted: async () => false,
     toggle: async (input) => {
       toggles.push(input);
       return { action };
