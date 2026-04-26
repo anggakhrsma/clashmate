@@ -36,9 +36,6 @@ const envSchema = z.object({
   POLL_WAR_SECONDS: z.coerce.number().int().positive().default(120),
   POLL_WAR_JITTER_SECONDS: z.coerce.number().int().nonnegative().default(30),
 
-  SUPPORT_GUILD_ID: z.string().optional(),
-  SUGGESTIONS_FORUM_CHANNEL_ID: z.string().optional(),
-
   SENTRY_DSN: z.string().url().optional(),
 });
 
