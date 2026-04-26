@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, isNull, lte, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gte, isNull, lte, ne, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 
@@ -75,6 +75,40 @@ export interface GlobalAccessBlockStore {
   isUserBlacklisted: (discordUserId: string) => Promise<boolean>;
   isGuildBlacklisted: (discordGuildId: string) => Promise<boolean>;
   toggle: (input: ToggleGlobalAccessBlockInput) => Promise<ToggleGlobalAccessBlockResult>;
+}
+
+export interface DatabaseTrackedClanStore {
+  linkClan: (input: {
+    guildId: string;
+    guildName: string;
+    actorDiscordUserId: string;
+    clan: { tag: string; name: string };
+    category?: string;
+    channelId?: string;
+    channelType?: string;
+  }) => Promise<
+    | {
+        status: 'linked';
+        clanName: string;
+        clanTag: string;
+        category?: { id: string; displayName: string };
+        channelLinked: boolean;
+      }
+    | { status: 'channel_conflict'; conflict: { clanName: string; clanTag: string } }
+  >;
+  unlinkClan: (input: {
+    guildId: string;
+    actorDiscordUserId: string;
+    clanTag: string;
+  }) => Promise<
+    | { status: 'unlinked'; clan: { id: string; clanTag: string; name: string } }
+    | { status: 'not_found' }
+  >;
+  unlinkChannel: (input: {
+    guildId: string;
+    actorDiscordUserId: string;
+    channelId: string;
+  }) => Promise<{ status: 'unlinked'; clanName: string } | { status: 'not_found' }>;
 }
 
 export function createDatabase(databaseUrl: string) {
@@ -250,6 +284,279 @@ export function createGlobalAccessBlockStore(database: Database): GlobalAccessBl
       });
     },
   };
+}
+
+export function createDatabaseTrackedClanStore(database: Database): DatabaseTrackedClanStore {
+  return {
+    linkClan: async (input) =>
+      database.transaction(async (tx) => {
+        await tx
+          .insert(schema.guilds)
+          .values({ id: input.guildId, name: input.guildName })
+          .onConflictDoUpdate({
+            target: schema.guilds.id,
+            set: { name: input.guildName, updatedAt: new Date(), deletedAt: null },
+          });
+
+        const category = input.category
+          ? await findOrCreateClanCategory(
+              tx,
+              input.guildId,
+              input.category,
+              input.actorDiscordUserId,
+            )
+          : undefined;
+
+        const [existing] = await tx
+          .select({ id: schema.trackedClans.id, categoryId: schema.trackedClans.categoryId })
+          .from(schema.trackedClans)
+          .where(
+            and(
+              eq(schema.trackedClans.guildId, input.guildId),
+              eq(schema.trackedClans.clanTag, input.clan.tag),
+              isNull(schema.trackedClans.deletedAt),
+            ),
+          )
+          .limit(1);
+
+        const categoryId = category?.id ?? existing?.categoryId ?? null;
+        const trackedClan = existing
+          ? (
+              await tx
+                .update(schema.trackedClans)
+                .set({
+                  name: input.clan.name,
+                  categoryId,
+                  isActive: true,
+                  updatedAt: new Date(),
+                  deletedAt: null,
+                })
+                .where(eq(schema.trackedClans.id, existing.id))
+                .returning({ id: schema.trackedClans.id })
+            )[0]
+          : (
+              await tx
+                .insert(schema.trackedClans)
+                .values({
+                  guildId: input.guildId,
+                  clanTag: input.clan.tag,
+                  name: input.clan.name,
+                  categoryId,
+                  isActive: true,
+                })
+                .returning({ id: schema.trackedClans.id })
+            )[0];
+
+        if (!trackedClan) throw new Error('Failed to upsert tracked clan.');
+
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: existing ? 'tracked_clan.updated' : 'tracked_clan.linked',
+          targetType: 'tracked_clan',
+          targetId: trackedClan.id,
+          metadata: { clanTag: input.clan.tag, categoryId },
+        });
+
+        await tx
+          .insert(schema.pollingLeases)
+          .values({ resourceType: 'clan', resourceId: `clan:${input.guildId}:${input.clan.tag}` })
+          .onConflictDoUpdate({
+            target: [schema.pollingLeases.resourceType, schema.pollingLeases.resourceId],
+            set: { updatedAt: new Date() },
+          });
+
+        if (!input.channelId) {
+          return {
+            status: 'linked',
+            clanName: input.clan.name,
+            clanTag: input.clan.tag,
+            ...(category ? { category } : {}),
+            channelLinked: false,
+          };
+        }
+
+        const [conflict] = await tx
+          .select({ clanName: schema.trackedClans.name, clanTag: schema.trackedClans.clanTag })
+          .from(schema.trackedClanChannels)
+          .innerJoin(
+            schema.trackedClans,
+            eq(schema.trackedClanChannels.trackedClanId, schema.trackedClans.id),
+          )
+          .where(
+            and(
+              eq(schema.trackedClanChannels.guildId, input.guildId),
+              eq(schema.trackedClanChannels.discordChannelId, input.channelId),
+              isNull(schema.trackedClanChannels.deletedAt),
+              ne(schema.trackedClans.clanTag, input.clan.tag),
+            ),
+          )
+          .limit(1);
+
+        if (conflict) {
+          return {
+            status: 'channel_conflict',
+            conflict: { clanName: conflict.clanName ?? 'Unknown clan', clanTag: conflict.clanTag },
+          };
+        }
+
+        await tx
+          .insert(schema.trackedClanChannels)
+          .values({
+            guildId: input.guildId,
+            trackedClanId: trackedClan.id,
+            discordChannelId: input.channelId,
+            channelType: input.channelType,
+          })
+          .onConflictDoNothing();
+
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: 'tracked_clan.channel_linked',
+          targetType: 'tracked_clan',
+          targetId: trackedClan.id,
+          metadata: { clanTag: input.clan.tag, channelId: input.channelId },
+        });
+
+        return {
+          status: 'linked',
+          clanName: input.clan.name,
+          clanTag: input.clan.tag,
+          ...(category ? { category } : {}),
+          channelLinked: true,
+        };
+      }),
+    unlinkClan: async (input) =>
+      database.transaction(async (tx) => {
+        const [clan] = await tx
+          .select({
+            id: schema.trackedClans.id,
+            clanTag: schema.trackedClans.clanTag,
+            name: schema.trackedClans.name,
+          })
+          .from(schema.trackedClans)
+          .where(
+            and(
+              eq(schema.trackedClans.guildId, input.guildId),
+              eq(schema.trackedClans.clanTag, input.clanTag),
+              isNull(schema.trackedClans.deletedAt),
+            ),
+          )
+          .limit(1);
+        if (!clan) return { status: 'not_found' };
+        const now = new Date();
+        await tx
+          .update(schema.trackedClans)
+          .set({ isActive: false, deletedAt: now, updatedAt: now })
+          .where(eq(schema.trackedClans.id, clan.id));
+        await tx
+          .update(schema.trackedClanChannels)
+          .set({ deletedAt: now, updatedAt: now })
+          .where(
+            and(
+              eq(schema.trackedClanChannels.trackedClanId, clan.id),
+              isNull(schema.trackedClanChannels.deletedAt),
+            ),
+          );
+        await tx
+          .delete(schema.pollingLeases)
+          .where(
+            and(
+              eq(schema.pollingLeases.resourceType, 'clan'),
+              eq(schema.pollingLeases.resourceId, `clan:${input.guildId}:${input.clanTag}`),
+            ),
+          );
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: 'tracked_clan.unlinked',
+          targetType: 'tracked_clan',
+          targetId: clan.id,
+          metadata: { clanTag: clan.clanTag },
+        });
+        return {
+          status: 'unlinked',
+          clan: { id: clan.id, clanTag: clan.clanTag, name: clan.name ?? 'Unknown clan' },
+        };
+      }),
+    unlinkChannel: async (input) =>
+      database.transaction(async (tx) => {
+        const [row] = await tx
+          .select({
+            channelId: schema.trackedClanChannels.id,
+            clanId: schema.trackedClans.id,
+            clanName: schema.trackedClans.name,
+          })
+          .from(schema.trackedClanChannels)
+          .innerJoin(
+            schema.trackedClans,
+            eq(schema.trackedClanChannels.trackedClanId, schema.trackedClans.id),
+          )
+          .where(
+            and(
+              eq(schema.trackedClanChannels.guildId, input.guildId),
+              eq(schema.trackedClanChannels.discordChannelId, input.channelId),
+              isNull(schema.trackedClanChannels.deletedAt),
+            ),
+          )
+          .limit(1);
+        if (!row) return { status: 'not_found' };
+        await tx
+          .update(schema.trackedClanChannels)
+          .set({ deletedAt: new Date(), updatedAt: new Date() })
+          .where(eq(schema.trackedClanChannels.id, row.channelId));
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: 'tracked_clan.channel_unlinked',
+          targetType: 'tracked_clan',
+          targetId: row.clanId,
+          metadata: { channelId: input.channelId },
+        });
+        return { status: 'unlinked', clanName: row.clanName ?? 'Unknown clan' };
+      }),
+  };
+}
+
+async function findOrCreateClanCategory(
+  tx: Parameters<Parameters<Database['transaction']>[0]>[0],
+  guildId: string,
+  category: string,
+  actorDiscordUserId: string,
+): Promise<{ id: string; displayName: string }> {
+  const displayName = category.trim();
+  const name = displayName.toLowerCase().replace(/\s+/g, '_');
+  const [existing] = await tx
+    .select({ id: schema.clanCategories.id, displayName: schema.clanCategories.displayName })
+    .from(schema.clanCategories)
+    .where(
+      and(
+        eq(schema.clanCategories.guildId, guildId),
+        eq(schema.clanCategories.name, name),
+        isNull(schema.clanCategories.deletedAt),
+      ),
+    )
+    .limit(1);
+  if (existing) return existing;
+  const [maxSort] = await tx
+    .select({ value: sql<number>`coalesce(max(${schema.clanCategories.sortOrder}), -1)` })
+    .from(schema.clanCategories)
+    .where(eq(schema.clanCategories.guildId, guildId));
+  const [created] = await tx
+    .insert(schema.clanCategories)
+    .values({ guildId, name, displayName, sortOrder: Number(maxSort?.value ?? -1) + 1 })
+    .returning({ id: schema.clanCategories.id, displayName: schema.clanCategories.displayName });
+  if (!created) throw new Error('Failed to create clan category.');
+  await tx.insert(schema.auditLogs).values({
+    guildId,
+    actorDiscordUserId,
+    action: 'clan_category.created',
+    targetType: 'clan_category',
+    targetId: created.id,
+    metadata: { name, displayName },
+  });
+  return created;
 }
 
 async function isTargetBlacklisted(

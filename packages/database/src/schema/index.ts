@@ -45,6 +45,31 @@ export const guildSettings = pgTable(
   }),
 );
 
+export const clanCategories = pgTable(
+  'clan_categories',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    guildId: text('guild_id')
+      .notNull()
+      .references(() => guilds.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    displayName: text('display_name').notNull(),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  },
+  (table) => ({
+    clanCategoryActiveNameUnique: uniqueIndex('clan_categories_guild_id_name_active_unique')
+      .on(table.guildId, table.name)
+      .where(sql`${table.deletedAt} is null`),
+    clanCategorySortOrderIndex: index('clan_categories_guild_id_sort_order_idx').on(
+      table.guildId,
+      table.sortOrder,
+    ),
+  }),
+);
+
 export const trackedClans = pgTable(
   'tracked_clans',
   {
@@ -55,7 +80,8 @@ export const trackedClans = pgTable(
     clanTag: text('clan_tag').notNull(),
     name: text('name'),
     alias: text('alias'),
-    categoryId: uuid('category_id'),
+    categoryId: uuid('category_id').references(() => clanCategories.id, { onDelete: 'set null' }),
+    sortOrder: integer('sort_order').notNull().default(0),
     isActive: boolean('is_active').notNull().default(true),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -63,11 +89,47 @@ export const trackedClans = pgTable(
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (table) => ({
-    guildClanTagUnique: uniqueIndex('tracked_clans_guild_id_clan_tag_unique').on(
-      table.guildId,
-      table.clanTag,
-    ),
+    guildClanTagActiveUnique: uniqueIndex('tracked_clans_guild_id_clan_tag_active_unique')
+      .on(table.guildId, table.clanTag)
+      .where(sql`${table.deletedAt} is null`),
     clanTagIndex: index('tracked_clans_clan_tag_idx').on(table.clanTag),
+    guildActiveIndex: index('tracked_clans_guild_id_active_idx').on(
+      table.guildId,
+      table.isActive,
+      table.deletedAt,
+    ),
+    guildCategorySortOrderIndex: index('tracked_clans_guild_id_category_id_sort_order_idx').on(
+      table.guildId,
+      table.categoryId,
+      table.sortOrder,
+    ),
+  }),
+);
+
+export const trackedClanChannels = pgTable(
+  'tracked_clan_channels',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    guildId: text('guild_id')
+      .notNull()
+      .references(() => guilds.id, { onDelete: 'cascade' }),
+    trackedClanId: uuid('tracked_clan_id')
+      .notNull()
+      .references(() => trackedClans.id, { onDelete: 'cascade' }),
+    discordChannelId: text('discord_channel_id').notNull(),
+    channelType: text('channel_type'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  },
+  (table) => ({
+    guildChannelActiveUnique: uniqueIndex('tracked_clan_channels_guild_id_channel_active_unique')
+      .on(table.guildId, table.discordChannelId)
+      .where(sql`${table.deletedAt} is null`),
+    clanChannelActiveUnique: uniqueIndex('tracked_clan_channels_clan_id_channel_active_unique')
+      .on(table.trackedClanId, table.discordChannelId)
+      .where(sql`${table.deletedAt} is null`),
+    trackedClanIndex: index('tracked_clan_channels_tracked_clan_id_idx').on(table.trackedClanId),
   }),
 );
 
@@ -200,5 +262,45 @@ export const pollingLeases = pgTable(
 
 export const guildRelations = relations(guilds, ({ many }) => ({
   settings: many(guildSettings),
+  clanCategories: many(clanCategories),
   clans: many(trackedClans),
+  clanChannels: many(trackedClanChannels),
+}));
+
+export const guildSettingsRelations = relations(guildSettings, ({ one }) => ({
+  guild: one(guilds, {
+    fields: [guildSettings.guildId],
+    references: [guilds.id],
+  }),
+}));
+
+export const clanCategoryRelations = relations(clanCategories, ({ one, many }) => ({
+  guild: one(guilds, {
+    fields: [clanCategories.guildId],
+    references: [guilds.id],
+  }),
+  clans: many(trackedClans),
+}));
+
+export const trackedClanRelations = relations(trackedClans, ({ one, many }) => ({
+  guild: one(guilds, {
+    fields: [trackedClans.guildId],
+    references: [guilds.id],
+  }),
+  category: one(clanCategories, {
+    fields: [trackedClans.categoryId],
+    references: [clanCategories.id],
+  }),
+  channels: many(trackedClanChannels),
+}));
+
+export const trackedClanChannelRelations = relations(trackedClanChannels, ({ one }) => ({
+  guild: one(guilds, {
+    fields: [trackedClanChannels.guildId],
+    references: [guilds.id],
+  }),
+  trackedClan: one(trackedClans, {
+    fields: [trackedClanChannels.trackedClanId],
+    references: [trackedClans.id],
+  }),
 }));

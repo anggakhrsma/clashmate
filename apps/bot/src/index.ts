@@ -1,8 +1,10 @@
+import { ClashMateCocClient } from '@clashmate/coc';
 import { loadConfig } from '@clashmate/config';
 import {
   createDatabase,
   createDatabaseDebugReader,
   createDatabaseStatusMetrics,
+  createDatabaseTrackedClanStore,
   createDatabaseUsageMetrics,
   createGlobalAccessBlockStore,
 } from '@clashmate/database';
@@ -19,7 +21,9 @@ const database = createDatabase(config.DATABASE_URL);
 const databaseDebugReader = createDatabaseDebugReader(database);
 const databaseStatusMetrics = createDatabaseStatusMetrics(database);
 const databaseUsageMetrics = createDatabaseUsageMetrics(database);
+const databaseTrackedClans = createDatabaseTrackedClanStore(database);
 const globalAccessBlocks = createGlobalAccessBlockStore(database);
+const cocClient = new ClashMateCocClient({ token: config.CLASH_OF_CLANS_API_TOKEN });
 
 const statusMetricReader: StatusMetricReader = {
   countCommandsUsedLast30Days: databaseStatusMetrics.countCommandsUsedLast30Days,
@@ -40,6 +44,10 @@ const commandRegistry = createBotCommandRegistry({
   guildBan: {
     accessBlocks: globalAccessBlocks,
   },
+  setupClan: {
+    clans: databaseTrackedClans,
+    coc: cocClient,
+  },
   status: {
     metricReader: statusMetricReader,
     version: loadBotPackageVersion(),
@@ -49,7 +57,7 @@ const commandRegistry = createBotCommandRegistry({
   },
   usage: {
     metricReader: databaseUsageMetrics,
-    loadedCommandNames: ['blacklist', 'debug', 'guild-ban', 'status', 'usage'],
+    loadedCommandNames: ['blacklist', 'debug', 'guild-ban', 'setup', 'status', 'usage'],
     logger,
   },
 });

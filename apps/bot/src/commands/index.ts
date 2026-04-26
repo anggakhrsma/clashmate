@@ -11,6 +11,7 @@ import {
   createGuildBanSlashCommand,
   type GuildBanCommandOptions,
 } from './guild-ban.js';
+import { createSetupClanSlashCommand, type SetupClanCommandOptions } from './setup-clan.js';
 import {
   createStatusMessageCommand,
   createStatusSlashCommand,
@@ -22,6 +23,7 @@ export interface BotCommandRegistryOptions {
   blacklist: BlacklistCommandOptions;
   debug: DebugCommandOptions;
   guildBan: GuildBanCommandOptions;
+  setupClan: SetupClanCommandOptions;
   status: StatusCommandOptions;
   usage: UsageCommandOptions;
 }
@@ -32,6 +34,7 @@ export function createBotCommandRegistry(options: BotCommandRegistryOptions): Co
   registry.registerSlash(createBlacklistSlashCommand(options.blacklist));
   registry.registerSlash(createDebugSlashCommand(options.debug));
   registry.registerSlash(createGuildBanSlashCommand(options.guildBan));
+  registry.registerSlash(createSetupClanSlashCommand(options.setupClan));
   registry.registerSlash(createStatusSlashCommand(options.status));
   registry.registerSlash(createUsageSlashCommand(options.usage));
   registry.registerMessage(createBlacklistMessageCommand(options.blacklist));
