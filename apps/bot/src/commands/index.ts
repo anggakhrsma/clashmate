@@ -1,10 +1,10 @@
 import { CommandRegistry } from '@clashmate/discord';
-
 import {
   type BlacklistCommandOptions,
   createBlacklistMessageCommand,
   createBlacklistSlashCommand,
 } from './blacklist.js';
+import { type ClansCommandOptions, createClansSlashCommand } from './clans.js';
 import { createDebugSlashCommand, type DebugCommandOptions } from './debug.js';
 import {
   createGuildBanMessageCommand,
@@ -21,6 +21,7 @@ import { createUsageSlashCommand, type UsageCommandOptions } from './usage.js';
 
 export interface BotCommandRegistryOptions {
   blacklist: BlacklistCommandOptions;
+  clans: ClansCommandOptions;
   debug: DebugCommandOptions;
   guildBan: GuildBanCommandOptions;
   setupClan: SetupClanCommandOptions;
@@ -32,6 +33,7 @@ export function createBotCommandRegistry(options: BotCommandRegistryOptions): Co
   const registry = new CommandRegistry();
 
   registry.registerSlash(createBlacklistSlashCommand(options.blacklist));
+  registry.registerSlash(createClansSlashCommand(options.clans));
   registry.registerSlash(createDebugSlashCommand(options.debug));
   registry.registerSlash(createGuildBanSlashCommand(options.guildBan));
   registry.registerSlash(createSetupClanSlashCommand(options.setupClan));

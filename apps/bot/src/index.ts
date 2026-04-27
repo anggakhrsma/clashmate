@@ -43,6 +43,9 @@ const commandRegistry = createBotCommandRegistry({
   blacklist: {
     accessBlocks: globalAccessBlocks,
   },
+  clans: {
+    clans: databaseTrackedClans,
+  },
   debug: {
     dataReader: databaseDebugReader,
     logger,
@@ -63,7 +66,7 @@ const commandRegistry = createBotCommandRegistry({
   },
   usage: {
     metricReader: databaseUsageMetrics,
-    loadedCommandNames: ['blacklist', 'debug', 'guild-ban', 'setup', 'status', 'usage'],
+    loadedCommandNames: ['blacklist', 'clans', 'debug', 'guild-ban', 'setup', 'status', 'usage'],
     logger,
   },
 });

@@ -229,10 +229,23 @@ export interface GlobalAccessBlockStore {
 }
 
 export interface DatabaseTrackedClanStore {
-  listClanCategories: (guildId: string) => Promise<Array<{ id: string; displayName: string }>>;
+  listClanCategories: (
+    guildId: string,
+  ) => Promise<Array<{ id: string; displayName: string; sortOrder?: number }>>;
   listLinkedClans: (
     guildId: string,
   ) => Promise<Array<{ id: string; clanTag: string; name: string; alias: string | null }>>;
+  listClansForGuild: (guildId: string) => Promise<
+    Array<{
+      id: string;
+      clanTag: string;
+      name: string | null;
+      alias: string | null;
+      categoryId: string | null;
+      sortOrder: number;
+      snapshot?: unknown;
+    }>
+  >;
   linkClan: (input: {
     guildId: string;
     guildName: string;
@@ -859,7 +872,11 @@ export function createDatabaseTrackedClanStore(database: Database): DatabaseTrac
   return {
     listClanCategories: async (guildId) => {
       return database
-        .select({ id: schema.clanCategories.id, displayName: schema.clanCategories.displayName })
+        .select({
+          id: schema.clanCategories.id,
+          displayName: schema.clanCategories.displayName,
+          sortOrder: schema.clanCategories.sortOrder,
+        })
         .from(schema.clanCategories)
         .where(eq(schema.clanCategories.guildId, guildId))
         .orderBy(schema.clanCategories.sortOrder, schema.clanCategories.displayName)
@@ -881,6 +898,32 @@ export function createDatabaseTrackedClanStore(database: Database): DatabaseTrac
         .limit(25);
 
       return rows.map((row) => ({ ...row, name: row.name ?? row.clanTag }));
+    },
+    listClansForGuild: async (guildId) => {
+      return database
+        .select({
+          id: schema.trackedClans.id,
+          clanTag: schema.trackedClans.clanTag,
+          name: schema.trackedClans.name,
+          alias: schema.trackedClans.alias,
+          categoryId: schema.trackedClans.categoryId,
+          sortOrder: schema.trackedClans.sortOrder,
+          snapshot: schema.clanLatestSnapshots.snapshot,
+        })
+        .from(schema.trackedClans)
+        .leftJoin(
+          schema.clanLatestSnapshots,
+          eq(schema.trackedClans.clanTag, schema.clanLatestSnapshots.clanTag),
+        )
+        .where(
+          and(eq(schema.trackedClans.guildId, guildId), eq(schema.trackedClans.isActive, true)),
+        )
+        .orderBy(
+          schema.trackedClans.categoryId,
+          schema.trackedClans.sortOrder,
+          schema.trackedClans.name,
+          schema.trackedClans.clanTag,
+        );
     },
     linkClan: async (input) =>
       database.transaction(async (tx) => {
