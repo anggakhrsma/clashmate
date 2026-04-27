@@ -5,11 +5,13 @@ import {
   createDatabase,
   createPollingEnrollmentStore,
   createPollingLeaseStore,
+  createWarSnapshotStore,
 } from '@clashmate/database';
 import { createLogger } from '@clashmate/logger';
 
 import { createClanPollerHandler } from './clan-poller.js';
 import { syncPollingLeases } from './polling-enrollment.js';
+import { createWarPollerHandler } from './war-poller.js';
 import {
   createNoopPollingLeaseHandler,
   createWorkerOwnerId,
@@ -22,8 +24,10 @@ const database = createDatabase(config.DATABASE_URL);
 const pollingEnrollment = createPollingEnrollmentStore(database);
 const pollingLeases = createPollingLeaseStore(database);
 const clanSnapshots = createClanSnapshotStore(database);
+const warSnapshots = createWarSnapshotStore(database);
 const coc = new ClashMateCocClient({ token: config.CLASH_OF_CLANS_API_TOKEN });
 const clanPollerHandler = createClanPollerHandler({ coc, snapshots: clanSnapshots });
+const warPollerHandler = createWarPollerHandler({ coc, snapshots: warSnapshots });
 const workerOwnerId = createWorkerOwnerId();
 const pollingEnrollmentResult = await syncPollingLeases(pollingEnrollment);
 
@@ -42,7 +46,7 @@ startWorkerPollingLoop({
   handlers: {
     clan: clanPollerHandler,
     player: createNoopPollingLeaseHandler('player'),
-    war: createNoopPollingLeaseHandler('war'),
+    war: warPollerHandler,
   },
   logger,
 });
@@ -53,7 +57,7 @@ logger.info(
     clashApiReady: await coc.ready(),
     clanPollerReady: Boolean(clanPollerHandler),
     playerPollerReady: 'noop',
-    warPollerReady: 'noop',
+    warPollerReady: Boolean(warPollerHandler),
     workerOwnerId,
     pollingEnrollment: pollingEnrollmentResult,
   },

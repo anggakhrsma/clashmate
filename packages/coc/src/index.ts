@@ -60,11 +60,43 @@ export class ClashMateCocClient {
 
     return { tag: this.normalizeTag(data.tag), name: data.name, data };
   }
+
+  async getCurrentWar(clanTag: string): Promise<ClashWar> {
+    const normalizedTag = this.normalizeTag(clanTag);
+    const response = await fetch(
+      `https://api.clashofclans.com/v1/clans/${encodeURIComponent(normalizedTag)}/currentwar`,
+      { headers: { authorization: `Bearer ${this.token}` } },
+    );
+
+    if (!response.ok) {
+      throw new ClashApiError({
+        status: response.status,
+        reason: response.statusText,
+        message: `Clash API request failed with status ${response.status}`,
+      });
+    }
+
+    const data = await response.json();
+    if (!isWarResponse(data)) {
+      throw new ClashApiError({
+        reason: 'invalid_response',
+        message: 'Clash API returned an invalid current war response.',
+      });
+    }
+
+    return { clanTag: normalizedTag, state: data.state, data };
+  }
 }
 
 export interface ClashClan {
   readonly tag: string;
   readonly name: string;
+  readonly data: unknown;
+}
+
+export interface ClashWar {
+  readonly clanTag: string;
+  readonly state: string;
   readonly data: unknown;
 }
 
@@ -76,5 +108,14 @@ function isClanResponse(value: unknown): value is { tag: string; name: string } 
     typeof value.tag === 'string' &&
     'name' in value &&
     typeof value.name === 'string'
+  );
+}
+
+function isWarResponse(value: unknown): value is { state: string } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'state' in value &&
+    typeof value.state === 'string'
   );
 }

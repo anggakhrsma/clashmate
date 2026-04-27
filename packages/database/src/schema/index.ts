@@ -247,6 +247,24 @@ export const clanLatestSnapshots = pgTable(
   }),
 );
 
+export const warLatestSnapshots = pgTable(
+  'war_latest_snapshots',
+  {
+    clanTag: text('clan_tag').primaryKey(),
+    state: text('state').notNull(),
+    snapshot: jsonb('snapshot').notNull(),
+    fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    warLatestSnapshotsFetchedAtIndex: index('war_latest_snapshots_fetched_at_idx').on(
+      table.fetchedAt,
+    ),
+    warLatestSnapshotsStateIndex: index('war_latest_snapshots_state_idx').on(table.state),
+  }),
+);
+
 export const pollingLeases = pgTable(
   'polling_leases',
   {

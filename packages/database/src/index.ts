@@ -129,6 +129,30 @@ export interface ClanSnapshotStore {
   ) => Promise<UpsertLatestClanSnapshotResult>;
 }
 
+export interface UpsertLatestWarSnapshotInput {
+  clanTag: string;
+  state: string;
+  snapshot: unknown;
+  fetchedAt?: Date;
+}
+
+export interface UpsertLatestWarSnapshotResult {
+  status: 'upserted' | 'not_linked';
+}
+
+export interface NormalizedLatestWarSnapshot {
+  clanTag: string;
+  state: string;
+  snapshot: unknown;
+  fetchedAt: Date;
+}
+
+export interface WarSnapshotStore {
+  upsertLatestWarSnapshot: (
+    input: UpsertLatestWarSnapshotInput,
+  ) => Promise<UpsertLatestWarSnapshotResult>;
+}
+
 export interface PollingLeaseStore {
   claimDuePollingLease: (
     resourceType: PollingResourceType,
@@ -498,6 +522,47 @@ export function createClanSnapshotStore(database: Database): ClanSnapshotStore {
   };
 }
 
+export function createWarSnapshotStore(database: Database): WarSnapshotStore {
+  return {
+    upsertLatestWarSnapshot: async (input) => {
+      const snapshot = normalizeLatestWarSnapshotInput(input);
+      const [linkedClan] = await database
+        .select({ clanTag: schema.trackedClans.clanTag })
+        .from(schema.trackedClans)
+        .where(
+          and(
+            eq(schema.trackedClans.clanTag, snapshot.clanTag),
+            eq(schema.trackedClans.isActive, true),
+          ),
+        )
+        .limit(1);
+
+      if (!linkedClan) return { status: 'not_linked' };
+
+      await database
+        .insert(schema.warLatestSnapshots)
+        .values({
+          clanTag: snapshot.clanTag,
+          state: snapshot.state,
+          snapshot: snapshot.snapshot,
+          fetchedAt: snapshot.fetchedAt,
+          updatedAt: snapshot.fetchedAt,
+        })
+        .onConflictDoUpdate({
+          target: schema.warLatestSnapshots.clanTag,
+          set: {
+            state: snapshot.state,
+            snapshot: snapshot.snapshot,
+            fetchedAt: snapshot.fetchedAt,
+            updatedAt: snapshot.fetchedAt,
+          },
+        });
+
+      return { status: 'upserted' };
+    },
+  };
+}
+
 export function createPollingLeaseStore(database: Database): PollingLeaseStore {
   return {
     claimDuePollingLease: async (resourceType, ownerId, lockForSeconds, now = new Date()) => {
@@ -588,6 +653,22 @@ export function normalizeLatestClanSnapshotInput(
   return {
     clanTag,
     name: input.name,
+    snapshot: input.snapshot,
+    fetchedAt: input.fetchedAt ?? new Date(),
+  };
+}
+
+export function normalizeLatestWarSnapshotInput(
+  input: UpsertLatestWarSnapshotInput,
+): NormalizedLatestWarSnapshot {
+  const clanTag = input.clanTag.trim().toUpperCase();
+  if (!clanTag) throw new Error('War snapshot requires a clan tag.');
+  const state = input.state.trim().toLowerCase();
+  if (!state) throw new Error('War snapshot requires a state.');
+
+  return {
+    clanTag,
+    state,
     snapshot: input.snapshot,
     fetchedAt: input.fetchedAt ?? new Date(),
   };
