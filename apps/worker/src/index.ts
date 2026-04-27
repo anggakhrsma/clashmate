@@ -3,6 +3,7 @@ import { loadConfig } from '@clashmate/config';
 import {
   createClanSnapshotStore,
   createDatabase,
+  createPlayerSnapshotStore,
   createPollingEnrollmentStore,
   createPollingLeaseStore,
   createWarSnapshotStore,
@@ -10,13 +11,10 @@ import {
 import { createLogger } from '@clashmate/logger';
 
 import { createClanPollerHandler } from './clan-poller.js';
+import { createPlayerPollerHandler } from './player-poller.js';
 import { syncPollingLeases } from './polling-enrollment.js';
 import { createWarPollerHandler } from './war-poller.js';
-import {
-  createNoopPollingLeaseHandler,
-  createWorkerOwnerId,
-  startWorkerPollingLoop,
-} from './worker-loop.js';
+import { createWorkerOwnerId, startWorkerPollingLoop } from './worker-loop.js';
 
 const config = loadConfig();
 const logger = createLogger('worker', config.LOG_LEVEL);
@@ -24,9 +22,11 @@ const database = createDatabase(config.DATABASE_URL);
 const pollingEnrollment = createPollingEnrollmentStore(database);
 const pollingLeases = createPollingLeaseStore(database);
 const clanSnapshots = createClanSnapshotStore(database);
+const playerSnapshots = createPlayerSnapshotStore(database);
 const warSnapshots = createWarSnapshotStore(database);
 const coc = new ClashMateCocClient({ token: config.CLASH_OF_CLANS_API_TOKEN });
 const clanPollerHandler = createClanPollerHandler({ coc, snapshots: clanSnapshots });
+const playerPollerHandler = createPlayerPollerHandler({ coc, snapshots: playerSnapshots });
 const warPollerHandler = createWarPollerHandler({ coc, snapshots: warSnapshots });
 const workerOwnerId = createWorkerOwnerId();
 const pollingEnrollmentResult = await syncPollingLeases(pollingEnrollment);
@@ -45,7 +45,7 @@ startWorkerPollingLoop({
   },
   handlers: {
     clan: clanPollerHandler,
-    player: createNoopPollingLeaseHandler('player'),
+    player: playerPollerHandler,
     war: warPollerHandler,
   },
   logger,
@@ -56,7 +56,7 @@ logger.info(
     databaseReady: Boolean(database),
     clashApiReady: await coc.ready(),
     clanPollerReady: Boolean(clanPollerHandler),
-    playerPollerReady: 'noop',
+    playerPollerReady: Boolean(playerPollerHandler),
     warPollerReady: Boolean(warPollerHandler),
     workerOwnerId,
     pollingEnrollment: pollingEnrollmentResult,

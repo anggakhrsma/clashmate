@@ -86,6 +86,32 @@ export class ClashMateCocClient {
 
     return { clanTag: normalizedTag, state: data.state, data };
   }
+
+  async getPlayer(tag: string): Promise<ClashPlayer> {
+    const normalizedTag = this.normalizeTag(tag);
+    const response = await fetch(
+      `https://api.clashofclans.com/v1/players/${encodeURIComponent(normalizedTag)}`,
+      { headers: { authorization: `Bearer ${this.token}` } },
+    );
+
+    if (!response.ok) {
+      throw new ClashApiError({
+        status: response.status,
+        reason: response.statusText,
+        message: `Clash API request failed with status ${response.status}`,
+      });
+    }
+
+    const data = await response.json();
+    if (!isPlayerResponse(data)) {
+      throw new ClashApiError({
+        reason: 'invalid_response',
+        message: 'Clash API returned an invalid player response.',
+      });
+    }
+
+    return { tag: this.normalizeTag(data.tag), name: data.name, data };
+  }
 }
 
 export interface ClashClan {
@@ -97,6 +123,12 @@ export interface ClashClan {
 export interface ClashWar {
   readonly clanTag: string;
   readonly state: string;
+  readonly data: unknown;
+}
+
+export interface ClashPlayer {
+  readonly tag: string;
+  readonly name: string;
   readonly data: unknown;
 }
 
@@ -117,5 +149,16 @@ function isWarResponse(value: unknown): value is { state: string } {
     value !== null &&
     'state' in value &&
     typeof value.state === 'string'
+  );
+}
+
+function isPlayerResponse(value: unknown): value is { tag: string; name: string } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'tag' in value &&
+    typeof value.tag === 'string' &&
+    'name' in value &&
+    typeof value.name === 'string'
   );
 }

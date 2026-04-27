@@ -153,6 +153,30 @@ export interface WarSnapshotStore {
   ) => Promise<UpsertLatestWarSnapshotResult>;
 }
 
+export interface UpsertLatestPlayerSnapshotInput {
+  playerTag: string;
+  name: string;
+  snapshot: unknown;
+  fetchedAt?: Date;
+}
+
+export interface UpsertLatestPlayerSnapshotResult {
+  status: 'upserted' | 'not_linked';
+}
+
+export interface NormalizedLatestPlayerSnapshot {
+  playerTag: string;
+  name: string;
+  snapshot: unknown;
+  fetchedAt: Date;
+}
+
+export interface PlayerSnapshotStore {
+  upsertLatestPlayerSnapshot: (
+    input: UpsertLatestPlayerSnapshotInput,
+  ) => Promise<UpsertLatestPlayerSnapshotResult>;
+}
+
 export interface PollingLeaseStore {
   claimDuePollingLease: (
     resourceType: PollingResourceType,
@@ -563,6 +587,42 @@ export function createWarSnapshotStore(database: Database): WarSnapshotStore {
   };
 }
 
+export function createPlayerSnapshotStore(database: Database): PlayerSnapshotStore {
+  return {
+    upsertLatestPlayerSnapshot: async (input) => {
+      const snapshot = normalizeLatestPlayerSnapshotInput(input);
+      const [linkedPlayer] = await database
+        .select({ playerTag: schema.playerLinks.playerTag })
+        .from(schema.playerLinks)
+        .where(eq(schema.playerLinks.playerTag, snapshot.playerTag))
+        .limit(1);
+
+      if (!linkedPlayer) return { status: 'not_linked' };
+
+      await database
+        .insert(schema.playerLatestSnapshots)
+        .values({
+          playerTag: snapshot.playerTag,
+          name: snapshot.name,
+          snapshot: snapshot.snapshot,
+          fetchedAt: snapshot.fetchedAt,
+          updatedAt: snapshot.fetchedAt,
+        })
+        .onConflictDoUpdate({
+          target: schema.playerLatestSnapshots.playerTag,
+          set: {
+            name: snapshot.name,
+            snapshot: snapshot.snapshot,
+            fetchedAt: snapshot.fetchedAt,
+            updatedAt: snapshot.fetchedAt,
+          },
+        });
+
+      return { status: 'upserted' };
+    },
+  };
+}
+
 export function createPollingLeaseStore(database: Database): PollingLeaseStore {
   return {
     claimDuePollingLease: async (resourceType, ownerId, lockForSeconds, now = new Date()) => {
@@ -669,6 +729,20 @@ export function normalizeLatestWarSnapshotInput(
   return {
     clanTag,
     state,
+    snapshot: input.snapshot,
+    fetchedAt: input.fetchedAt ?? new Date(),
+  };
+}
+
+export function normalizeLatestPlayerSnapshotInput(
+  input: UpsertLatestPlayerSnapshotInput,
+): NormalizedLatestPlayerSnapshot {
+  const playerTag = input.playerTag.trim().toUpperCase();
+  if (!playerTag) throw new Error('Player snapshot requires a player tag.');
+
+  return {
+    playerTag,
+    name: input.name,
     snapshot: input.snapshot,
     fetchedAt: input.fetchedAt ?? new Date(),
   };
