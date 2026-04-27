@@ -35,7 +35,7 @@ export class ClashMateCocClient {
     return this.token.length > 0;
   }
 
-  async getClan(tag: string): Promise<{ tag: string; name: string }> {
+  async getClan(tag: string): Promise<ClashClan> {
     const normalizedTag = this.normalizeTag(tag);
     const response = await fetch(
       `https://api.clashofclans.com/v1/clans/${encodeURIComponent(normalizedTag)}`,
@@ -58,8 +58,14 @@ export class ClashMateCocClient {
       });
     }
 
-    return { tag: this.normalizeTag(data.tag), name: data.name };
+    return { tag: this.normalizeTag(data.tag), name: data.name, data };
   }
+}
+
+export interface ClashClan {
+  readonly tag: string;
+  readonly name: string;
+  readonly data: unknown;
 }
 
 function isClanResponse(value: unknown): value is { tag: string; name: string } {

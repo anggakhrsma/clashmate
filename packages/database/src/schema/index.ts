@@ -230,6 +230,23 @@ export const botGrowthDaily = pgTable('bot_growth_daily', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const clanLatestSnapshots = pgTable(
+  'clan_latest_snapshots',
+  {
+    clanTag: text('clan_tag').primaryKey(),
+    name: text('name').notNull(),
+    snapshot: jsonb('snapshot').notNull(),
+    fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    clanLatestSnapshotsFetchedAtIndex: index('clan_latest_snapshots_fetched_at_idx').on(
+      table.fetchedAt,
+    ),
+  }),
+);
+
 export const pollingLeases = pgTable(
   'polling_leases',
   {

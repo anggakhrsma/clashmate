@@ -1,0 +1,66 @@
+import type { ClaimedPollingLease, ClanSnapshotStore } from '@clashmate/database';
+import { describe, expect, it, vi } from 'vitest';
+
+import { createClanPollerHandler } from './clan-poller.js';
+
+const clanLease: ClaimedPollingLease = {
+  resourceType: 'clan',
+  resourceId: '#AAA111',
+  ownerId: 'worker-a',
+  runAfter: new Date('2026-04-26T23:59:00.000Z'),
+  lockedUntil: new Date('2026-04-27T00:00:30.000Z'),
+  attempts: 0,
+  lastError: null,
+};
+
+function createSnapshotStore(status: 'upserted' | 'not_linked'): ClanSnapshotStore {
+  return {
+    upsertLatestClanSnapshot: vi.fn().mockResolvedValue({ status }),
+  };
+}
+
+describe('clan poller handler', () => {
+  it('fetches a linked clan through packages/coc and writes the latest snapshot', async () => {
+    const fetchedAt = new Date('2026-04-27T00:00:00.000Z');
+    const coc = {
+      getClan: vi.fn().mockResolvedValue({ tag: '#AAA111', name: 'Alpha', data: { level: 12 } }),
+    };
+    const snapshots = createSnapshotStore('upserted');
+    const handler = createClanPollerHandler({ coc, snapshots, now: () => fetchedAt });
+
+    await expect(handler(clanLease)).resolves.toEqual({
+      status: 'snapshot_updated',
+      clanTag: '#AAA111',
+    });
+
+    expect(coc.getClan).toHaveBeenCalledWith('#AAA111');
+    expect(snapshots.upsertLatestClanSnapshot).toHaveBeenCalledWith({
+      clanTag: '#AAA111',
+      name: 'Alpha',
+      snapshot: { tag: '#AAA111', name: 'Alpha', data: { level: 12 } },
+      fetchedAt,
+    });
+  });
+
+  it('does not turn an unlinked searched clan into a durable snapshot', async () => {
+    const coc = { getClan: vi.fn().mockResolvedValue({ tag: '#BBB222', name: 'Search Only' }) };
+    const snapshots = createSnapshotStore('not_linked');
+    const handler = createClanPollerHandler({ coc, snapshots });
+
+    await expect(handler({ ...clanLease, resourceId: '#BBB222' })).resolves.toEqual({
+      status: 'not_linked',
+      clanTag: '#BBB222',
+    });
+  });
+
+  it('rejects non-clan leases', async () => {
+    const handler = createClanPollerHandler({
+      coc: { getClan: vi.fn() },
+      snapshots: createSnapshotStore('upserted'),
+    });
+
+    await expect(handler({ ...clanLease, resourceType: 'player' })).rejects.toThrow(
+      'Clan poller cannot process player leases.',
+    );
+  });
+});
