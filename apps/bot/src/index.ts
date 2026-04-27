@@ -9,7 +9,11 @@ import {
   createDatabaseUsageMetrics,
   createGlobalAccessBlockStore,
 } from '@clashmate/database';
-import { isOwner, type SlashCommandDefinition } from '@clashmate/discord';
+import {
+  isOwner,
+  routeAutocompleteInteraction,
+  type SlashCommandDefinition,
+} from '@clashmate/discord';
 import { createLogger } from '@clashmate/logger';
 import { Client, GatewayIntentBits, type InteractionReplyOptions } from 'discord.js';
 
@@ -85,6 +89,18 @@ client.once('ready', async (readyClient) => {
 });
 
 client.on('interactionCreate', async (interaction) => {
+  if (interaction.isAutocomplete()) {
+    try {
+      await routeAutocompleteInteraction(commandRegistry, interaction, {
+        client,
+        ownerIds: config.DISCORD_OWNER_IDS,
+      });
+    } catch (error) {
+      logger.error({ error, command: interaction.commandName }, 'Autocomplete interaction failed');
+    }
+    return;
+  }
+
   if (!interaction.isChatInputCommand()) return;
 
   const command = commandRegistry.slashCommands.get(interaction.commandName);

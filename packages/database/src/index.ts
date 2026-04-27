@@ -229,6 +229,10 @@ export interface GlobalAccessBlockStore {
 }
 
 export interface DatabaseTrackedClanStore {
+  listClanCategories: (guildId: string) => Promise<Array<{ id: string; displayName: string }>>;
+  listLinkedClans: (
+    guildId: string,
+  ) => Promise<Array<{ id: string; clanTag: string; name: string; alias: string | null }>>;
   linkClan: (input: {
     guildId: string;
     guildName: string;
@@ -853,6 +857,31 @@ export function createGlobalAccessBlockStore(database: Database): GlobalAccessBl
 
 export function createDatabaseTrackedClanStore(database: Database): DatabaseTrackedClanStore {
   return {
+    listClanCategories: async (guildId) => {
+      return database
+        .select({ id: schema.clanCategories.id, displayName: schema.clanCategories.displayName })
+        .from(schema.clanCategories)
+        .where(eq(schema.clanCategories.guildId, guildId))
+        .orderBy(schema.clanCategories.sortOrder, schema.clanCategories.displayName)
+        .limit(25);
+    },
+    listLinkedClans: async (guildId) => {
+      const rows = await database
+        .select({
+          id: schema.trackedClans.id,
+          clanTag: schema.trackedClans.clanTag,
+          name: schema.trackedClans.name,
+          alias: schema.trackedClans.alias,
+        })
+        .from(schema.trackedClans)
+        .where(
+          and(eq(schema.trackedClans.guildId, guildId), eq(schema.trackedClans.isActive, true)),
+        )
+        .orderBy(schema.trackedClans.name, schema.trackedClans.clanTag)
+        .limit(25);
+
+      return rows.map((row) => ({ ...row, name: row.name ?? row.clanTag }));
+    },
     linkClan: async (input) =>
       database.transaction(async (tx) => {
         await tx

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  autocompleteSetupClan,
+  filterCategoryChoices,
+  filterClanChoices,
   formatLinkClanMessage,
   formatUnlinkChannelMessage,
   formatUnlinkClanMessage,
@@ -81,5 +84,84 @@ describe('/setup clan', () => {
     expect(formatUnlinkClanMessage({ status: 'not_found' })).toBe(
       'No clans were found on the server for the specified tag.',
     );
+  });
+
+  it('suggests existing guild clan categories matching the focused value', () => {
+    expect(
+      filterCategoryChoices(
+        [
+          { id: 'war-id', displayName: 'War' },
+          { id: 'farm-id', displayName: 'Farming' },
+          { id: 'cwl-id', displayName: 'CWL' },
+        ],
+        'wa',
+      ),
+    ).toEqual([{ name: 'War', value: 'war-id' }]);
+  });
+
+  it('suggests linked guild clans matching tag name or alias', () => {
+    expect(
+      filterClanChoices(
+        [
+          { id: '1', clanTag: '#2PP', name: 'War Heroes', alias: 'main' },
+          { id: '2', clanTag: '#8YY', name: 'Farm Team', alias: 'casual' },
+        ],
+        'main',
+      ),
+    ).toEqual([{ name: 'War Heroes (#2PP)', value: '#2PP' }]);
+
+    expect(
+      filterClanChoices([{ id: '1', clanTag: '#2PP', name: 'War Heroes', alias: null }], '2p'),
+    ).toEqual([{ name: 'War Heroes (#2PP)', value: '#2PP' }]);
+  });
+
+  it('returns empty category choices and preserves typed clan no-match values', () => {
+    expect(filterCategoryChoices([], '')).toEqual([]);
+    expect(filterClanChoices([], '')).toEqual([]);
+    expect(filterClanChoices([], '#ABC123')).toEqual([{ name: '#ABC123', value: '#ABC123' }]);
+  });
+
+  it('handles /setup clan autocomplete through injected stores', async () => {
+    const responses: unknown[] = [];
+    const interaction = {
+      commandName: 'setup',
+      guildId: 'guild-1',
+      options: {
+        getSubcommand: () => 'clan',
+        getFocused: () => ({ name: 'category', value: 'cw' }),
+      },
+      respond: async (choices: unknown[]) => {
+        responses.push(choices);
+      },
+    };
+
+    await autocompleteSetupClan(interaction as never, {
+      coc: { getClan: async () => ({ tag: '#2PP', name: 'Unused' }) },
+      clans: {
+        listClanCategories: async (guildId) => {
+          expect(guildId).toBe('guild-1');
+          return [{ id: 'cwl-id', displayName: 'CWL' }];
+        },
+        listLinkedClans: async () => [],
+        linkClan: async () => ({
+          status: 'linked',
+          clanName: 'Unused',
+          clanTag: '#2PP',
+          channelLinked: false,
+        }),
+        unlinkClan: async () => ({ status: 'not_found' }),
+        unlinkChannel: async () => ({ status: 'not_found' }),
+      },
+    });
+
+    expect(responses).toEqual([[{ name: 'CWL', value: 'cwl-id' }]]);
+  });
+
+  it('does not contain old ClashPerk branding strings', () => {
+    const serialized = JSON.stringify(setupClanCommandData.toJSON());
+
+    expect(serialized).not.toContain('ClashPerk');
+    expect(serialized).not.toContain('clashperk');
+    expect(serialized).not.toContain('cprk.us');
   });
 });

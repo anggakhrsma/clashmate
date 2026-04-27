@@ -23,6 +23,17 @@ yarn-debug.log*
 # TypeScript
 *.tsbuildinfo
 
+# Tests
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+*.test.js
+*.test.jsx
+*.spec.js
+*.spec.jsx
+
+
 # Database generated/local artifacts
 drizzle/
 migrations/

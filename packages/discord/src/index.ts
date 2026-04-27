@@ -1,5 +1,6 @@
 import type {
   ApplicationCommandDataResolvable,
+  AutocompleteInteraction,
   Awaitable,
   ChatInputCommandInteraction,
   Client,
@@ -18,6 +19,10 @@ export interface SlashCommandDefinition {
   readonly name: string;
   readonly data: ApplicationCommandDataResolvable;
   readonly execute: (interaction: CommandInteraction, context: CommandContext) => Awaitable<void>;
+  readonly autocomplete?: (
+    interaction: AutocompleteInteraction,
+    context: CommandContext,
+  ) => Awaitable<void>;
 }
 
 export interface MessageCommandDefinition {
@@ -41,6 +46,22 @@ export class CommandRegistry {
       this.messageCommands.set(alias, command);
     }
   }
+
+  getSlashCommand(name: string): SlashCommandDefinition | undefined {
+    return this.slashCommands.get(name);
+  }
+}
+
+export async function routeAutocompleteInteraction(
+  registry: CommandRegistry,
+  interaction: AutocompleteInteraction,
+  context: CommandContext,
+): Promise<boolean> {
+  const command = registry.getSlashCommand(interaction.commandName);
+  if (!command?.autocomplete) return false;
+
+  await command.autocomplete(interaction, context);
+  return true;
 }
 
 export function isOwner(userId: string, ownerIds: readonly string[]): boolean {

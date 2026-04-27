@@ -1,5 +1,7 @@
 import type { CommandContext, SlashCommandDefinition } from '@clashmate/discord';
 import {
+  type ApplicationCommandOptionChoiceData,
+  type AutocompleteInteraction,
   type Channel,
   ChannelType,
   type ChatInputCommandInteraction,
@@ -73,6 +75,7 @@ export interface SetupClanTrackedClan {
   readonly id: string;
   readonly clanTag: string;
   readonly name: string;
+  readonly alias?: string | null;
 }
 
 export interface SetupClanCategory {
@@ -121,6 +124,8 @@ export interface UnlinkChannelInput {
 }
 
 export interface SetupClanStore {
+  listClanCategories: (guildId: string) => Promise<SetupClanCategory[]>;
+  listLinkedClans: (guildId: string) => Promise<SetupClanTrackedClan[]>;
   linkClan: (input: LinkClanInput) => Promise<LinkClanResult>;
   unlinkClan: (
     input: UnlinkClanInput,
@@ -152,7 +157,73 @@ export function createSetupClanSlashCommand(
 
       await executeSetupClan(interaction, context, options);
     },
+    autocomplete: async (interaction) => {
+      if (interaction.commandName !== SETUP_COMMAND_NAME) return;
+      if (interaction.options.getSubcommand(false) !== 'clan') return;
+
+      await autocompleteSetupClan(interaction, options);
+    },
   };
+}
+
+export async function autocompleteSetupClan(
+  interaction: AutocompleteInteraction,
+  options: SetupClanCommandOptions,
+): Promise<void> {
+  if (!interaction.guildId) {
+    await interaction.respond([]);
+    return;
+  }
+
+  const focused = interaction.options.getFocused(true);
+  const query = String(focused.value ?? '').trim();
+
+  if (focused.name === 'category') {
+    const categories = await options.clans.listClanCategories(interaction.guildId);
+    await interaction.respond(filterCategoryChoices(categories, query));
+    return;
+  }
+
+  if (focused.name === 'clan') {
+    const clans = await options.clans.listLinkedClans(interaction.guildId);
+    await interaction.respond(filterClanChoices(clans, query));
+    return;
+  }
+
+  await interaction.respond([]);
+}
+
+export function filterCategoryChoices(
+  categories: readonly SetupClanCategory[],
+  query: string,
+): ApplicationCommandOptionChoiceData<string>[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  return categories
+    .filter((category) => category.displayName.toLowerCase().includes(normalizedQuery))
+    .slice(0, 25)
+    .map((category) => ({ name: category.displayName, value: category.id }));
+}
+
+export function filterClanChoices(
+  clans: readonly SetupClanTrackedClan[],
+  query: string,
+): ApplicationCommandOptionChoiceData<string>[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  const choices = clans
+    .filter((clan) => {
+      if (!normalizedQuery) return true;
+      return [clan.clanTag, clan.name, clan.alias]
+        .filter((value): value is string => Boolean(value))
+        .some((value) => value.toLowerCase().includes(normalizedQuery));
+    })
+    .slice(0, 25)
+    .map((clan) => ({ name: `${clan.name} (${clan.clanTag})`, value: clan.clanTag }));
+
+  if (choices.length === 0 && query.trim()) {
+    return [{ name: query.trim(), value: query.trim() }];
+  }
+
+  return choices;
 }
 
 async function executeSetupClan(
