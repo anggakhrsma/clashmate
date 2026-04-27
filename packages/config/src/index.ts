@@ -35,6 +35,9 @@ const envSchema = z.object({
   POLL_PLAYER_JITTER_SECONDS: z.coerce.number().int().nonnegative().default(180),
   POLL_WAR_SECONDS: z.coerce.number().int().positive().default(120),
   POLL_WAR_JITTER_SECONDS: z.coerce.number().int().nonnegative().default(30),
+  NOTIFICATION_FANOUT_SECONDS: z.coerce.number().int().positive().default(30),
+  NOTIFICATION_FANOUT_JITTER_SECONDS: z.coerce.number().int().nonnegative().default(10),
+  NOTIFICATION_FANOUT_BATCH_SIZE: z.coerce.number().int().positive().max(1000).default(100),
 
   SENTRY_DSN: z.string().url().optional(),
 });
