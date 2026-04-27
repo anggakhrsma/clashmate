@@ -247,6 +247,85 @@ export const clanLatestSnapshots = pgTable(
   }),
 );
 
+export const clanMemberSnapshots = pgTable(
+  'clan_member_snapshots',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    clanTag: text('clan_tag').notNull(),
+    playerTag: text('player_tag').notNull(),
+    name: text('name').notNull(),
+    role: text('role'),
+    expLevel: integer('exp_level'),
+    leagueId: integer('league_id'),
+    trophies: integer('trophies'),
+    builderBaseTrophies: integer('builder_base_trophies'),
+    clanRank: integer('clan_rank'),
+    previousClanRank: integer('previous_clan_rank'),
+    donations: integer('donations'),
+    donationsReceived: integer('donations_received'),
+    rawMember: jsonb('raw_member').notNull().default(sql`'{}'::jsonb`),
+    firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull(),
+    lastFetchedAt: timestamp('last_fetched_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    clanMemberUnique: uniqueIndex('clan_member_snapshots_clan_tag_player_tag_unique').on(
+      table.clanTag,
+      table.playerTag,
+    ),
+    clanMemberClanLastSeenIndex: index('clan_member_snapshots_clan_tag_last_seen_idx').on(
+      table.clanTag,
+      table.lastSeenAt,
+    ),
+    clanMemberPlayerIndex: index('clan_member_snapshots_player_tag_idx').on(table.playerTag),
+    clanMemberLastFetchedIndex: index('clan_member_snapshots_last_fetched_at_idx').on(
+      table.lastFetchedAt,
+    ),
+  }),
+);
+
+export const clanMemberEvents = pgTable(
+  'clan_member_events',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    guildId: text('guild_id')
+      .notNull()
+      .references(() => guilds.id, { onDelete: 'cascade' }),
+    trackedClanId: uuid('tracked_clan_id').references(() => trackedClans.id, {
+      onDelete: 'set null',
+    }),
+    clanTag: text('clan_tag').notNull(),
+    playerTag: text('player_tag').notNull(),
+    playerName: text('player_name').notNull(),
+    eventType: text('event_type').notNull(),
+    eventKey: text('event_key').notNull(),
+    previousSnapshot: jsonb('previous_snapshot'),
+    currentSnapshot: jsonb('current_snapshot'),
+    sourceFetchedAt: timestamp('source_fetched_at', { withTimezone: true }).notNull(),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+    detectedAt: timestamp('detected_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    clanMemberEventGuildKeyUnique: uniqueIndex('clan_member_events_guild_id_event_key_unique').on(
+      table.guildId,
+      table.eventKey,
+    ),
+    clanMemberEventGuildClanDetectedIndex: index(
+      'clan_member_events_guild_id_clan_tag_detected_at_idx',
+    ).on(table.guildId, table.clanTag, table.detectedAt),
+    clanMemberEventClanPlayerDetectedIndex: index(
+      'clan_member_events_clan_tag_player_tag_detected_at_idx',
+    ).on(table.clanTag, table.playerTag, table.detectedAt),
+    clanMemberEventTypeDetectedIndex: index('clan_member_events_event_type_detected_at_idx').on(
+      table.eventType,
+      table.detectedAt,
+    ),
+  }),
+);
+
 export const warLatestSnapshots = pgTable(
   'war_latest_snapshots',
   {
@@ -310,6 +389,7 @@ export const guildRelations = relations(guilds, ({ many }) => ({
   clanCategories: many(clanCategories),
   clans: many(trackedClans),
   clanChannels: many(trackedClanChannels),
+  clanMemberEvents: many(clanMemberEvents),
 }));
 
 export const guildSettingsRelations = relations(guildSettings, ({ one }) => ({
@@ -337,6 +417,7 @@ export const trackedClanRelations = relations(trackedClans, ({ one, many }) => (
     references: [clanCategories.id],
   }),
   channels: many(trackedClanChannels),
+  memberEvents: many(clanMemberEvents),
 }));
 
 export const trackedClanChannelRelations = relations(trackedClanChannels, ({ one }) => ({
@@ -346,6 +427,17 @@ export const trackedClanChannelRelations = relations(trackedClanChannels, ({ one
   }),
   trackedClan: one(trackedClans, {
     fields: [trackedClanChannels.trackedClanId],
+    references: [trackedClans.id],
+  }),
+}));
+
+export const clanMemberEventRelations = relations(clanMemberEvents, ({ one }) => ({
+  guild: one(guilds, {
+    fields: [clanMemberEvents.guildId],
+    references: [guilds.id],
+  }),
+  trackedClan: one(trackedClans, {
+    fields: [clanMemberEvents.trackedClanId],
     references: [trackedClans.id],
   }),
 }));

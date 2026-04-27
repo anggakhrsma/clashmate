@@ -1,6 +1,7 @@
 import { ClashMateCocClient } from '@clashmate/coc';
 import { loadConfig } from '@clashmate/config';
 import {
+  createClanMemberEventStore,
   createClanSnapshotStore,
   createDatabase,
   createPlayerSnapshotStore,
@@ -22,10 +23,15 @@ const database = createDatabase(config.DATABASE_URL);
 const pollingEnrollment = createPollingEnrollmentStore(database);
 const pollingLeases = createPollingLeaseStore(database);
 const clanSnapshots = createClanSnapshotStore(database);
+const clanMemberEvents = createClanMemberEventStore(database);
 const playerSnapshots = createPlayerSnapshotStore(database);
 const warSnapshots = createWarSnapshotStore(database);
 const coc = new ClashMateCocClient({ token: config.CLASH_OF_CLANS_API_TOKEN });
-const clanPollerHandler = createClanPollerHandler({ coc, snapshots: clanSnapshots });
+const clanPollerHandler = createClanPollerHandler({
+  coc,
+  snapshots: clanSnapshots,
+  memberEvents: clanMemberEvents,
+});
 const playerPollerHandler = createPlayerPollerHandler({ coc, snapshots: playerSnapshots });
 const warPollerHandler = createWarPollerHandler({ coc, snapshots: warSnapshots });
 const workerOwnerId = createWorkerOwnerId();

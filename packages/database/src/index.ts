@@ -129,6 +129,40 @@ export interface ClanSnapshotStore {
   ) => Promise<UpsertLatestClanSnapshotResult>;
 }
 
+export interface ClanMemberSnapshotInput {
+  clanTag: string;
+  playerTag: string;
+  name: string;
+  role?: string | null;
+  expLevel?: number | null;
+  leagueId?: number | null;
+  trophies?: number | null;
+  builderBaseTrophies?: number | null;
+  clanRank?: number | null;
+  previousClanRank?: number | null;
+  donations?: number | null;
+  donationsReceived?: number | null;
+  rawMember: unknown;
+}
+
+export interface ProcessClanMemberSnapshotsInput {
+  clanTag: string;
+  fetchedAt: Date;
+  members: readonly ClanMemberSnapshotInput[];
+}
+
+export interface ProcessClanMemberSnapshotsResult {
+  status: 'processed' | 'not_linked';
+  joined: number;
+  left: number;
+}
+
+export interface ClanMemberEventStore {
+  processClanMemberSnapshots: (
+    input: ProcessClanMemberSnapshotsInput,
+  ) => Promise<ProcessClanMemberSnapshotsResult>;
+}
+
 export interface UpsertLatestWarSnapshotInput {
   clanTag: string;
   state: string;
@@ -563,6 +597,153 @@ export function createClanSnapshotStore(database: Database): ClanSnapshotStore {
   };
 }
 
+export function createClanMemberEventStore(database: Database): ClanMemberEventStore {
+  return {
+    processClanMemberSnapshots: async (input) => {
+      const clanTag = input.clanTag.trim().toUpperCase();
+      if (!clanTag) throw new Error('Clan member snapshots require a clan tag.');
+      const fetchedAt = input.fetchedAt;
+      const members = input.members.map((member) => ({
+        ...member,
+        clanTag,
+        playerTag: member.playerTag.trim().toUpperCase(),
+      }));
+      const memberTags = new Set(members.map((member) => member.playerTag).filter(Boolean));
+      if (memberTags.size !== members.length) {
+        throw new Error('Clan member snapshots require unique non-empty player tags.');
+      }
+
+      return database.transaction(async (tx) => {
+        const linkedClans = await tx
+          .select({ id: schema.trackedClans.id, guildId: schema.trackedClans.guildId })
+          .from(schema.trackedClans)
+          .where(
+            and(eq(schema.trackedClans.clanTag, clanTag), eq(schema.trackedClans.isActive, true)),
+          );
+
+        if (linkedClans.length === 0) return { status: 'not_linked', joined: 0, left: 0 };
+
+        const previousMembers = await tx
+          .select({
+            playerTag: schema.clanMemberSnapshots.playerTag,
+            name: schema.clanMemberSnapshots.name,
+            rawMember: schema.clanMemberSnapshots.rawMember,
+            lastSeenAt: schema.clanMemberSnapshots.lastSeenAt,
+          })
+          .from(schema.clanMemberSnapshots)
+          .where(eq(schema.clanMemberSnapshots.clanTag, clanTag));
+        const previousMemberTags = new Set(previousMembers.map((member) => member.playerTag));
+        const isInitialSnapshot = previousMembers.length === 0;
+
+        let joined = 0;
+        let left = 0;
+
+        const insertEvents = async (event: {
+          playerTag: string;
+          playerName: string;
+          eventType: 'joined' | 'left';
+          previousSnapshot: unknown;
+          currentSnapshot: unknown;
+        }) => {
+          const rows = await tx
+            .insert(schema.clanMemberEvents)
+            .values(
+              linkedClans.map((linkedClan) => ({
+                guildId: linkedClan.guildId,
+                trackedClanId: linkedClan.id,
+                clanTag,
+                playerTag: event.playerTag,
+                playerName: event.playerName,
+                eventType: event.eventType,
+                eventKey: buildClanMemberEventKey({
+                  clanTag,
+                  playerTag: event.playerTag,
+                  eventType: event.eventType,
+                  eventAt: fetchedAt,
+                }),
+                previousSnapshot: event.previousSnapshot,
+                currentSnapshot: event.currentSnapshot,
+                sourceFetchedAt: fetchedAt,
+                occurredAt: fetchedAt,
+                detectedAt: fetchedAt,
+              })),
+            )
+            .onConflictDoNothing()
+            .returning({ id: schema.clanMemberEvents.id });
+          return rows.length;
+        };
+
+        for (const member of members) {
+          if (!isInitialSnapshot && !previousMemberTags.has(member.playerTag)) {
+            joined += await insertEvents({
+              playerTag: member.playerTag,
+              playerName: member.name,
+              eventType: 'joined',
+              previousSnapshot: null,
+              currentSnapshot: member.rawMember,
+            });
+          }
+
+          await tx
+            .insert(schema.clanMemberSnapshots)
+            .values({
+              clanTag,
+              playerTag: member.playerTag,
+              name: member.name,
+              role: member.role,
+              expLevel: member.expLevel,
+              leagueId: member.leagueId,
+              trophies: member.trophies,
+              builderBaseTrophies: member.builderBaseTrophies,
+              clanRank: member.clanRank,
+              previousClanRank: member.previousClanRank,
+              donations: member.donations,
+              donationsReceived: member.donationsReceived,
+              rawMember: member.rawMember,
+              firstSeenAt: fetchedAt,
+              lastSeenAt: fetchedAt,
+              lastFetchedAt: fetchedAt,
+              updatedAt: fetchedAt,
+            })
+            .onConflictDoUpdate({
+              target: [schema.clanMemberSnapshots.clanTag, schema.clanMemberSnapshots.playerTag],
+              set: {
+                name: member.name,
+                role: member.role,
+                expLevel: member.expLevel,
+                leagueId: member.leagueId,
+                trophies: member.trophies,
+                builderBaseTrophies: member.builderBaseTrophies,
+                clanRank: member.clanRank,
+                previousClanRank: member.previousClanRank,
+                donations: member.donations,
+                donationsReceived: member.donationsReceived,
+                rawMember: member.rawMember,
+                lastSeenAt: fetchedAt,
+                lastFetchedAt: fetchedAt,
+                updatedAt: fetchedAt,
+              },
+            });
+        }
+
+        for (const previousMember of previousMembers) {
+          if (memberTags.has(previousMember.playerTag) || previousMember.lastSeenAt >= fetchedAt)
+            continue;
+          left += await insertEvents({
+            playerTag: previousMember.playerTag,
+            playerName: previousMember.name,
+            eventType: 'left',
+            previousSnapshot: previousMember.rawMember,
+            currentSnapshot: null,
+          });
+        }
+
+        return { status: 'processed', joined, left };
+      });
+    },
+  };
+}
+
 export function createWarSnapshotStore(database: Database): WarSnapshotStore {
   return {
     upsertLatestWarSnapshot: async (input) => {
@@ -733,6 +914,18 @@ export function normalizeLatestClanSnapshotInput(
     snapshot: input.snapshot,
     fetchedAt: input.fetchedAt ?? new Date(),
   };
+}
+
+export function buildClanMemberEventKey(input: {
+  clanTag: string;
+  playerTag: string;
+  eventType: 'joined' | 'left';
+  eventAt: Date;
+}): string {
+  const clanTag = input.clanTag.trim().toUpperCase();
+  const playerTag = input.playerTag.trim().toUpperCase();
+  if (!clanTag || !playerTag) throw new Error('Clan member event keys require tags.');
+  return `clan:${clanTag}:member:${playerTag}:${input.eventType}:${input.eventAt.toISOString()}`;
 }
 
 export function normalizeLatestWarSnapshotInput(
