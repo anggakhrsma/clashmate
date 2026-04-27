@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, inArray, isNull, lte, ne, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, inArray, isNull, lte, ne, or, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 
@@ -161,6 +161,64 @@ export interface ClanMemberEventStore {
   processClanMemberSnapshots: (
     input: ProcessClanMemberSnapshotsInput,
   ) => Promise<ProcessClanMemberSnapshotsResult>;
+}
+
+export type NotificationSourceType = 'clan_member_event';
+export type NotificationTargetType = 'discord_channel';
+
+export interface BuildNotificationOutboxIdempotencyKeyInput {
+  guildId: string;
+  sourceType: NotificationSourceType;
+  sourceId: string;
+  targetType: NotificationTargetType;
+  targetId: string;
+}
+
+export interface FanOutClanMemberEventNotificationsInput {
+  since?: Date;
+  limit?: number;
+  now?: Date;
+}
+
+export interface FanOutClanMemberEventNotificationsResult {
+  eventsScanned: number;
+  matchedTargets: number;
+  insertedOutboxEntries: number;
+}
+
+export interface NotificationFanOutStore {
+  fanOutClanMemberEventNotifications: (
+    input?: FanOutClanMemberEventNotificationsInput,
+  ) => Promise<FanOutClanMemberEventNotificationsResult>;
+}
+
+export interface ClanMemberNotificationFanOutTarget {
+  eventId: string;
+  guildId: string;
+  configId: string;
+  discordChannelId: string;
+  clanTag: string;
+  playerTag: string;
+  playerName: string;
+  eventType: string;
+  eventKey: string;
+  occurredAt: Date;
+  detectedAt: Date;
+}
+
+export interface NotificationOutboxInsertValue {
+  guildId: string;
+  configId: string;
+  sourceType: NotificationSourceType;
+  sourceId: string;
+  idempotencyKey: string;
+  targetType: NotificationTargetType;
+  targetId: string;
+  status: 'pending';
+  payload: Record<string, unknown>;
+  attempts: number;
+  nextAttemptAt: Date;
+  updatedAt: Date;
 }
 
 export interface UpsertLatestWarSnapshotInput {
@@ -744,6 +802,124 @@ export function createClanMemberEventStore(database: Database): ClanMemberEventS
   };
 }
 
+export function createNotificationFanOutStore(database: Database): NotificationFanOutStore {
+  return {
+    fanOutClanMemberEventNotifications: async (input = {}) => {
+      const limit = input.limit ?? 100;
+      if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
+        throw new Error('Clan member notification fan-out limit must be between 1 and 1000.');
+      }
+      const now = input.now ?? new Date();
+
+      const baseQuery = database
+        .select({
+          eventId: schema.clanMemberEvents.id,
+          guildId: schema.clanMemberEvents.guildId,
+          trackedClanId: schema.clanMemberEvents.trackedClanId,
+          clanTag: schema.clanMemberEvents.clanTag,
+          playerTag: schema.clanMemberEvents.playerTag,
+          playerName: schema.clanMemberEvents.playerName,
+          eventType: schema.clanMemberEvents.eventType,
+          eventKey: schema.clanMemberEvents.eventKey,
+          occurredAt: schema.clanMemberEvents.occurredAt,
+          detectedAt: schema.clanMemberEvents.detectedAt,
+        })
+        .from(schema.clanMemberEvents)
+        .where(
+          input.since ? gte(schema.clanMemberEvents.detectedAt, input.since) : sql<boolean>`true`,
+        )
+        .orderBy(asc(schema.clanMemberEvents.detectedAt), asc(schema.clanMemberEvents.id))
+        .limit(limit);
+
+      const events = await baseQuery;
+      if (events.length === 0) {
+        return { eventsScanned: 0, matchedTargets: 0, insertedOutboxEntries: 0 };
+      }
+
+      const eventIds = events.map((event) => event.eventId);
+      const targets = await database
+        .select({
+          eventId: schema.clanMemberEvents.id,
+          guildId: schema.clanMemberEvents.guildId,
+          trackedClanId: schema.clanMemberEvents.trackedClanId,
+          clanTag: schema.clanMemberEvents.clanTag,
+          playerTag: schema.clanMemberEvents.playerTag,
+          playerName: schema.clanMemberEvents.playerName,
+          eventType: schema.clanMemberEvents.eventType,
+          eventKey: schema.clanMemberEvents.eventKey,
+          occurredAt: schema.clanMemberEvents.occurredAt,
+          detectedAt: schema.clanMemberEvents.detectedAt,
+          configId: schema.clanMemberNotificationConfigs.id,
+          discordChannelId: schema.clanMemberNotificationConfigs.discordChannelId,
+        })
+        .from(schema.clanMemberEvents)
+        .innerJoin(
+          schema.clanMemberNotificationConfigs,
+          and(
+            eq(schema.clanMemberNotificationConfigs.guildId, schema.clanMemberEvents.guildId),
+            eq(
+              schema.clanMemberNotificationConfigs.trackedClanId,
+              schema.clanMemberEvents.trackedClanId,
+            ),
+            eq(schema.clanMemberNotificationConfigs.eventType, schema.clanMemberEvents.eventType),
+            eq(schema.clanMemberNotificationConfigs.isEnabled, true),
+          ),
+        )
+        .where(inArray(schema.clanMemberEvents.id, eventIds));
+
+      if (targets.length === 0) {
+        return { eventsScanned: events.length, matchedTargets: 0, insertedOutboxEntries: 0 };
+      }
+
+      const rows = await database
+        .insert(schema.notificationOutbox)
+        .values(buildClanMemberNotificationOutboxValues(targets, now))
+        .onConflictDoNothing({ target: schema.notificationOutbox.idempotencyKey })
+        .returning({ id: schema.notificationOutbox.id });
+
+      return {
+        eventsScanned: events.length,
+        matchedTargets: targets.length,
+        insertedOutboxEntries: rows.length,
+      };
+    },
+  };
+}
+
+export function buildClanMemberNotificationOutboxValues(
+  targets: readonly ClanMemberNotificationFanOutTarget[],
+  now: Date,
+): NotificationOutboxInsertValue[] {
+  return targets.map((target) => ({
+    guildId: target.guildId,
+    configId: target.configId,
+    sourceType: 'clan_member_event',
+    sourceId: target.eventId,
+    idempotencyKey: buildNotificationOutboxIdempotencyKey({
+      guildId: target.guildId,
+      sourceType: 'clan_member_event',
+      sourceId: target.eventId,
+      targetType: 'discord_channel',
+      targetId: target.discordChannelId,
+    }),
+    targetType: 'discord_channel',
+    targetId: target.discordChannelId,
+    status: 'pending',
+    payload: {
+      clanTag: target.clanTag,
+      playerTag: target.playerTag,
+      playerName: target.playerName,
+      eventType: target.eventType,
+      eventKey: target.eventKey,
+      occurredAt: target.occurredAt.toISOString(),
+      detectedAt: target.detectedAt.toISOString(),
+    },
+    attempts: 0,
+    nextAttemptAt: now,
+    updatedAt: now,
+  }));
+}
+
 export function createWarSnapshotStore(database: Database): WarSnapshotStore {
   return {
     upsertLatestWarSnapshot: async (input) => {
@@ -926,6 +1102,24 @@ export function buildClanMemberEventKey(input: {
   const playerTag = input.playerTag.trim().toUpperCase();
   if (!clanTag || !playerTag) throw new Error('Clan member event keys require tags.');
   return `clan:${clanTag}:member:${playerTag}:${input.eventType}:${input.eventAt.toISOString()}`;
+}
+
+export function buildNotificationOutboxIdempotencyKey(
+  input: BuildNotificationOutboxIdempotencyKeyInput,
+): string {
+  const guildId = input.guildId.trim();
+  const sourceId = input.sourceId.trim().toLowerCase();
+  const targetId = input.targetId.trim();
+  if (!guildId || !sourceId || !targetId) {
+    throw new Error('Notification outbox idempotency keys require guild, source, and target IDs.');
+  }
+
+  return [
+    'notification',
+    `guild:${guildId}`,
+    `source:${input.sourceType}:${sourceId}`,
+    `target:${input.targetType}:${targetId}`,
+  ].join(':');
 }
 
 export function normalizeLatestWarSnapshotInput(

@@ -326,6 +326,81 @@ export const clanMemberEvents = pgTable(
   }),
 );
 
+export const clanMemberNotificationConfigs = pgTable(
+  'clan_member_notification_configs',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    guildId: text('guild_id')
+      .notNull()
+      .references(() => guilds.id, { onDelete: 'cascade' }),
+    trackedClanId: uuid('tracked_clan_id')
+      .notNull()
+      .references(() => trackedClans.id, { onDelete: 'cascade' }),
+    discordChannelId: text('discord_channel_id').notNull(),
+    eventType: text('event_type').notNull(),
+    isEnabled: boolean('is_enabled').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    clanMemberNotificationConfigUnique: uniqueIndex(
+      'clan_member_notification_configs_guild_clan_channel_event_unique',
+    ).on(table.guildId, table.trackedClanId, table.discordChannelId, table.eventType),
+    clanMemberNotificationConfigGuildClanIndex: index(
+      'clan_member_notification_configs_guild_clan_idx',
+    ).on(table.guildId, table.trackedClanId),
+    clanMemberNotificationConfigChannelIndex: index(
+      'clan_member_notification_configs_guild_channel_idx',
+    ).on(table.guildId, table.discordChannelId),
+  }),
+);
+
+export const notificationOutbox = pgTable(
+  'notification_outbox',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    guildId: text('guild_id')
+      .notNull()
+      .references(() => guilds.id, { onDelete: 'cascade' }),
+    configId: uuid('config_id').references(() => clanMemberNotificationConfigs.id, {
+      onDelete: 'set null',
+    }),
+    sourceType: text('source_type').notNull(),
+    sourceId: uuid('source_id').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    targetType: text('target_type').notNull(),
+    targetId: text('target_id').notNull(),
+    status: text('status').notNull().default('pending'),
+    payload: jsonb('payload').notNull().default(sql`'{}'::jsonb`),
+    attempts: integer('attempts').notNull().default(0),
+    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }).notNull().defaultNow(),
+    lastError: text('last_error'),
+    deliveredAt: timestamp('delivered_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    notificationOutboxIdempotencyUnique: uniqueIndex(
+      'notification_outbox_idempotency_key_unique',
+    ).on(table.idempotencyKey),
+    notificationOutboxDueIndex: index('notification_outbox_status_next_attempt_at_idx').on(
+      table.status,
+      table.nextAttemptAt,
+    ),
+    notificationOutboxGuildStatusCreatedIndex: index(
+      'notification_outbox_guild_id_status_created_at_idx',
+    ).on(table.guildId, table.status, table.createdAt),
+    notificationOutboxSourceIndex: index('notification_outbox_source_idx').on(
+      table.sourceType,
+      table.sourceId,
+    ),
+    notificationOutboxTargetIndex: index('notification_outbox_target_idx').on(
+      table.targetType,
+      table.targetId,
+    ),
+  }),
+);
+
 export const warLatestSnapshots = pgTable(
   'war_latest_snapshots',
   {
@@ -390,6 +465,8 @@ export const guildRelations = relations(guilds, ({ many }) => ({
   clans: many(trackedClans),
   clanChannels: many(trackedClanChannels),
   clanMemberEvents: many(clanMemberEvents),
+  clanMemberNotificationConfigs: many(clanMemberNotificationConfigs),
+  notificationOutbox: many(notificationOutbox),
 }));
 
 export const guildSettingsRelations = relations(guildSettings, ({ one }) => ({
@@ -418,6 +495,7 @@ export const trackedClanRelations = relations(trackedClans, ({ one, many }) => (
   }),
   channels: many(trackedClanChannels),
   memberEvents: many(clanMemberEvents),
+  clanMemberNotificationConfigs: many(clanMemberNotificationConfigs),
 }));
 
 export const trackedClanChannelRelations = relations(trackedClanChannels, ({ one }) => ({
@@ -439,5 +517,31 @@ export const clanMemberEventRelations = relations(clanMemberEvents, ({ one }) =>
   trackedClan: one(trackedClans, {
     fields: [clanMemberEvents.trackedClanId],
     references: [trackedClans.id],
+  }),
+}));
+
+export const clanMemberNotificationConfigRelations = relations(
+  clanMemberNotificationConfigs,
+  ({ one, many }) => ({
+    guild: one(guilds, {
+      fields: [clanMemberNotificationConfigs.guildId],
+      references: [guilds.id],
+    }),
+    trackedClan: one(trackedClans, {
+      fields: [clanMemberNotificationConfigs.trackedClanId],
+      references: [trackedClans.id],
+    }),
+    outboxEntries: many(notificationOutbox),
+  }),
+);
+
+export const notificationOutboxRelations = relations(notificationOutbox, ({ one }) => ({
+  guild: one(guilds, {
+    fields: [notificationOutbox.guildId],
+    references: [guilds.id],
+  }),
+  config: one(clanMemberNotificationConfigs, {
+    fields: [notificationOutbox.configId],
+    references: [clanMemberNotificationConfigs.id],
   }),
 }));
