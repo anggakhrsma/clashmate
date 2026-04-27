@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, isNull, lte, ne, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gte, inArray, isNull, lte, ne, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 
@@ -75,6 +75,32 @@ export interface DatabaseDebugReader {
   listTrackedClansForGuild: (guildId: string) => Promise<DebugTrackedClanRecord[]>;
   getPollerDiagnostics: () => Promise<DatabasePollerDiagnostics>;
   getConfigDiagnostics: (guildId: string) => Promise<DatabaseConfigDiagnostics>;
+}
+
+export type PollingResourceType = 'clan' | 'player' | 'war';
+
+export const TOP_LEVEL_POLLING_RESOURCE_TYPES = ['clan', 'player', 'war'] as const;
+
+export interface PollingEnrollmentStore {
+  upsertPollingLease: (input: {
+    resourceType: PollingResourceType;
+    resourceId: string;
+    runAfter?: Date;
+  }) => Promise<void>;
+  syncClanPollingLeases: (runAfter?: Date) => Promise<{ enrolled: number; removed: number }>;
+  syncLinkedPlayerPollingLeases: (
+    runAfter?: Date,
+  ) => Promise<{ enrolled: number; removed: number }>;
+  syncWarPollingLeasesFromLinkedClans: (runAfter?: Date) => Promise<{
+    enrolled: number;
+    removed: number;
+  }>;
+}
+
+export interface PollingEnrollmentSource {
+  readonly resourceId: string;
+  readonly deletedAt?: Date | null;
+  readonly isActive?: boolean;
 }
 
 export type GlobalAccessBlockTargetType = 'user' | 'guild';
@@ -318,6 +344,78 @@ export function createDatabaseDebugReader(database: Database): DatabaseDebugRead
   };
 }
 
+export function createPollingEnrollmentStore(database: Database): PollingEnrollmentStore {
+  return {
+    upsertPollingLease: async (input) => {
+      assertTopLevelPollingResourceType(input.resourceType);
+      await upsertPollingLease(database, input.resourceType, input.resourceId, input.runAfter);
+    },
+    syncClanPollingLeases: async (runAfter) => {
+      const rows = await database
+        .select({
+          resourceId: schema.trackedClans.clanTag,
+          deletedAt: schema.trackedClans.deletedAt,
+          isActive: schema.trackedClans.isActive,
+        })
+        .from(schema.trackedClans);
+      return syncPollingLeasesForType(
+        database,
+        'clan',
+        buildPollingEnrollmentResourceIds(rows),
+        runAfter,
+      );
+    },
+    syncLinkedPlayerPollingLeases: async (runAfter) => {
+      const rows = await database
+        .select({
+          resourceId: schema.playerLinks.playerTag,
+          deletedAt: schema.playerLinks.deletedAt,
+        })
+        .from(schema.playerLinks);
+      return syncPollingLeasesForType(
+        database,
+        'player',
+        buildPollingEnrollmentResourceIds(rows),
+        runAfter,
+      );
+    },
+    syncWarPollingLeasesFromLinkedClans: async (runAfter) => {
+      const rows = await database
+        .select({
+          resourceId: schema.trackedClans.clanTag,
+          deletedAt: schema.trackedClans.deletedAt,
+          isActive: schema.trackedClans.isActive,
+        })
+        .from(schema.trackedClans);
+      const resourceIds = buildPollingEnrollmentResourceIds(rows).map(
+        (clanTag) => `current-war:${clanTag}`,
+      );
+      return syncPollingLeasesForType(database, 'war', resourceIds, runAfter);
+    },
+  };
+}
+
+export function buildPollingEnrollmentResourceIds(
+  sources: readonly PollingEnrollmentSource[],
+): string[] {
+  return [
+    ...new Set(
+      sources
+        .filter((source) => source.deletedAt == null && source.isActive !== false)
+        .map((source) => source.resourceId.trim().toUpperCase())
+        .filter(Boolean),
+    ),
+  ].sort();
+}
+
+export function assertTopLevelPollingResourceType(
+  resourceType: string,
+): asserts resourceType is PollingResourceType {
+  if (!TOP_LEVEL_POLLING_RESOURCE_TYPES.includes(resourceType as PollingResourceType)) {
+    throw new Error(`Unsupported top-level polling resource type: ${resourceType}`);
+  }
+}
+
 export function createGlobalAccessBlockStore(database: Database): GlobalAccessBlockStore {
   return {
     isUserBlacklisted: async (discordUserId) => {
@@ -448,14 +546,6 @@ export function createDatabaseTrackedClanStore(database: Database): DatabaseTrac
           metadata: { clanTag: input.clan.tag, categoryId },
         });
 
-        await tx
-          .insert(schema.pollingLeases)
-          .values({ resourceType: 'clan', resourceId: `clan:${input.guildId}:${input.clan.tag}` })
-          .onConflictDoUpdate({
-            target: [schema.pollingLeases.resourceType, schema.pollingLeases.resourceId],
-            set: { updatedAt: new Date() },
-          });
-
         if (!input.channelId) {
           return {
             status: 'linked',
@@ -547,14 +637,6 @@ export function createDatabaseTrackedClanStore(database: Database): DatabaseTrac
             and(
               eq(schema.trackedClanChannels.trackedClanId, clan.id),
               isNull(schema.trackedClanChannels.deletedAt),
-            ),
-          );
-        await tx
-          .delete(schema.pollingLeases)
-          .where(
-            and(
-              eq(schema.pollingLeases.resourceType, 'clan'),
-              eq(schema.pollingLeases.resourceId, `clan:${input.guildId}:${input.clanTag}`),
             ),
           );
         await tx.insert(schema.auditLogs).values({
@@ -685,6 +767,54 @@ async function countDuePollingLeases(database: Database): Promise<number> {
     .where(lte(schema.pollingLeases.runAfter, new Date()));
 
   return row?.value ?? 0;
+}
+
+async function upsertPollingLease(
+  database: Database,
+  resourceType: PollingResourceType,
+  resourceId: string,
+  runAfter = new Date(),
+): Promise<void> {
+  await database
+    .insert(schema.pollingLeases)
+    .values({ resourceType, resourceId, runAfter, updatedAt: new Date() })
+    .onConflictDoUpdate({
+      target: [schema.pollingLeases.resourceType, schema.pollingLeases.resourceId],
+      set: { runAfter, updatedAt: new Date() },
+    });
+}
+
+async function syncPollingLeasesForType(
+  database: Database,
+  resourceType: PollingResourceType,
+  resourceIds: readonly string[],
+  runAfter = new Date(),
+): Promise<{ enrolled: number; removed: number }> {
+  assertTopLevelPollingResourceType(resourceType);
+  const existingRows = await database
+    .select({ resourceId: schema.pollingLeases.resourceId })
+    .from(schema.pollingLeases)
+    .where(eq(schema.pollingLeases.resourceType, resourceType));
+  const existing = new Set(existingRows.map((row) => row.resourceId));
+  const desired = new Set(resourceIds);
+
+  for (const resourceId of desired) {
+    await upsertPollingLease(database, resourceType, resourceId, runAfter);
+  }
+
+  const stale = [...existing].filter((resourceId) => !desired.has(resourceId));
+  if (stale.length > 0) {
+    await database
+      .delete(schema.pollingLeases)
+      .where(
+        and(
+          eq(schema.pollingLeases.resourceType, resourceType),
+          inArray(schema.pollingLeases.resourceId, stale),
+        ),
+      );
+  }
+
+  return { enrolled: desired.size, removed: stale.length };
 }
 
 export { schema };
