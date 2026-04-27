@@ -10,7 +10,7 @@ import {
 
 export const WORKER_POLLING_RESOURCE_TYPES = TOP_LEVEL_POLLING_RESOURCE_TYPES;
 
-export type PollingLeaseHandler = (lease: ClaimedPollingLease) => Promise<void>;
+export type PollingLeaseHandler = (lease: ClaimedPollingLease) => Promise<unknown>;
 
 export interface PollingOrchestrationOptions {
   readonly leaseStore: PollingLeaseStore;
