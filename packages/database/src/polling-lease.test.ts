@@ -37,6 +37,46 @@ function claimDueLease(
   return due;
 }
 
+function completeLease(leases: Lease[], resourceType: string, resourceId: string, ownerId: string) {
+  const lease = leases.find(
+    (candidate) =>
+      candidate.resourceType === resourceType &&
+      candidate.resourceId === resourceId &&
+      candidate.ownerId === ownerId,
+  );
+
+  if (!lease) return false;
+
+  lease.ownerId = null;
+  lease.lockedUntil = null;
+  lease.attempts = 0;
+  lease.lastError = null;
+  return true;
+}
+
+function failLease(
+  leases: Lease[],
+  resourceType: string,
+  resourceId: string,
+  ownerId: string,
+  error: string,
+) {
+  const lease = leases.find(
+    (candidate) =>
+      candidate.resourceType === resourceType &&
+      candidate.resourceId === resourceId &&
+      candidate.ownerId === ownerId,
+  );
+
+  if (!lease) return false;
+
+  lease.ownerId = null;
+  lease.lockedUntil = null;
+  lease.attempts += 1;
+  lease.lastError = error;
+  return true;
+}
+
 describe('polling lease claiming rules', () => {
   it('keeps top-level poller types limited to clan, player, and war', () => {
     expect(TOP_LEVEL_POLLING_RESOURCE_TYPES).toEqual(['clan', 'player', 'war']);
@@ -115,6 +155,56 @@ describe('polling lease claiming rules', () => {
     expect(claimDueLease(leases, 'war', 'worker-a', 30, now)).toMatchObject({
       ownerId: 'worker-a',
       lockedUntil: new Date('2026-04-27T00:00:30.000Z'),
+    });
+  });
+
+  it('completes a lease only when the worker still owns it', () => {
+    const leases: Lease[] = [
+      {
+        resourceType: 'clan',
+        resourceId: '#AAA111',
+        ownerId: 'worker-a',
+        runAfter: new Date('2026-04-26T23:59:00.000Z'),
+        lockedUntil: new Date('2026-04-27T00:00:30.000Z'),
+        attempts: 2,
+        lastError: 'previous failure',
+      },
+    ];
+
+    expect(completeLease(leases, 'clan', '#AAA111', 'worker-b')).toBe(false);
+    expect(leases[0]).toMatchObject({ ownerId: 'worker-a', attempts: 2 });
+
+    expect(completeLease(leases, 'clan', '#AAA111', 'worker-a')).toBe(true);
+    expect(leases[0]).toMatchObject({
+      ownerId: null,
+      lockedUntil: null,
+      attempts: 0,
+      lastError: null,
+    });
+  });
+
+  it('fails a lease only when the worker still owns it', () => {
+    const leases: Lease[] = [
+      {
+        resourceType: 'war',
+        resourceId: 'current-war:#AAA111',
+        ownerId: 'worker-a',
+        runAfter: new Date('2026-04-26T23:59:00.000Z'),
+        lockedUntil: new Date('2026-04-27T00:00:30.000Z'),
+        attempts: 0,
+        lastError: null,
+      },
+    ];
+
+    expect(failLease(leases, 'war', 'current-war:#AAA111', 'worker-b', 'boom')).toBe(false);
+    expect(leases[0]).toMatchObject({ ownerId: 'worker-a', attempts: 0, lastError: null });
+
+    expect(failLease(leases, 'war', 'current-war:#AAA111', 'worker-a', 'boom')).toBe(true);
+    expect(leases[0]).toMatchObject({
+      ownerId: null,
+      lockedUntil: null,
+      attempts: 1,
+      lastError: 'boom',
     });
   });
 

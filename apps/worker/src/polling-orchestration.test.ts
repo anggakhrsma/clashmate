@@ -60,6 +60,7 @@ describe('polling orchestration', () => {
     expect(leaseStore.completePollingLease).toHaveBeenCalledWith(
       'clan',
       '#AAA111',
+      'worker-a',
       new Date('2026-04-27T00:05:00.000Z'),
     );
     expect(leaseStore.failPollingLease).not.toHaveBeenCalled();
@@ -88,6 +89,7 @@ describe('polling orchestration', () => {
     expect(leaseStore.failPollingLease).toHaveBeenCalledWith(
       'clan',
       '#AAA111',
+      'worker-a',
       error,
       new Date('2026-04-27T00:00:30.000Z'),
     );

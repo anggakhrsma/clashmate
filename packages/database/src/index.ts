@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, inArray, lte, ne, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gte, inArray, isNull, lte, ne, or, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 
@@ -115,11 +115,13 @@ export interface PollingLeaseStore {
   completePollingLease: (
     resourceType: PollingResourceType,
     resourceId: string,
+    ownerId: string,
     nextRun: Date,
   ) => Promise<void>;
   failPollingLease: (
     resourceType: PollingResourceType,
     resourceId: string,
+    ownerId: string,
     error: unknown,
     nextRun: Date,
   ) => Promise<void>;
@@ -457,8 +459,9 @@ export function createPollingLeaseStore(database: Database): PollingLeaseStore {
 
       return normalizeExecuteRows<ClaimedPollingLease>(rows)[0] ?? null;
     },
-    completePollingLease: async (resourceType, resourceId, nextRun) => {
+    completePollingLease: async (resourceType, resourceId, ownerId, nextRun) => {
       assertTopLevelPollingResourceType(resourceType);
+      if (!ownerId.trim()) throw new Error('Polling lease ownerId is required.');
       await database
         .update(schema.pollingLeases)
         .set({
@@ -473,11 +476,13 @@ export function createPollingLeaseStore(database: Database): PollingLeaseStore {
           and(
             eq(schema.pollingLeases.resourceType, resourceType),
             eq(schema.pollingLeases.resourceId, resourceId),
+            eq(schema.pollingLeases.ownerId, ownerId),
           ),
         );
     },
-    failPollingLease: async (resourceType, resourceId, error, nextRun) => {
+    failPollingLease: async (resourceType, resourceId, ownerId, error, nextRun) => {
       assertTopLevelPollingResourceType(resourceType);
+      if (!ownerId.trim()) throw new Error('Polling lease ownerId is required.');
       await database
         .update(schema.pollingLeases)
         .set({
@@ -492,6 +497,7 @@ export function createPollingLeaseStore(database: Database): PollingLeaseStore {
           and(
             eq(schema.pollingLeases.resourceType, resourceType),
             eq(schema.pollingLeases.resourceId, resourceId),
+            eq(schema.pollingLeases.ownerId, ownerId),
           ),
         );
     },
@@ -907,18 +913,25 @@ async function syncPollingLeasesForType(
   }
 
   const stale = [...existing].filter((resourceId) => !desired.has(resourceId));
+  let removed = 0;
   if (stale.length > 0) {
-    await database
+    const deletedRows = await database
       .delete(schema.pollingLeases)
       .where(
         and(
           eq(schema.pollingLeases.resourceType, resourceType),
           inArray(schema.pollingLeases.resourceId, stale),
+          or(
+            isNull(schema.pollingLeases.lockedUntil),
+            lte(schema.pollingLeases.lockedUntil, runAfter),
+          ),
         ),
-      );
+      )
+      .returning({ resourceId: schema.pollingLeases.resourceId });
+    removed = deletedRows.length;
   }
 
-  return { enrolled: desired.size, removed: stale.length };
+  return { enrolled: desired.size, removed };
 }
 
 export { schema };

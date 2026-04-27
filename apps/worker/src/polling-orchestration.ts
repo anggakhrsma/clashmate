@@ -48,6 +48,7 @@ export async function processOneDuePollingLease(
     await options.leaseStore.completePollingLease(
       resourceType,
       lease.resourceId,
+      options.ownerId,
       computeJitteredNextRun(
         options.now?.() ?? new Date(),
         options.intervals[resourceType],
@@ -59,6 +60,7 @@ export async function processOneDuePollingLease(
     await options.leaseStore.failPollingLease(
       resourceType,
       lease.resourceId,
+      options.ownerId,
       error,
       computeJitteredNextRun(
         options.now?.() ?? new Date(),
