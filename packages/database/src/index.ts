@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, inArray, isNull, lte, ne, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gte, inArray, lte, ne, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 
@@ -99,7 +99,6 @@ export interface PollingEnrollmentStore {
 
 export interface PollingEnrollmentSource {
   readonly resourceId: string;
-  readonly deletedAt?: Date | null;
   readonly isActive?: boolean;
 }
 
@@ -182,15 +181,12 @@ export function createDatabaseStatusMetrics(database: Database): DatabaseStatusM
       const [row] = await database
         .select({ value: count() })
         .from(schema.trackedClans)
-        .where(and(eq(schema.trackedClans.isActive, true), isNull(schema.trackedClans.deletedAt)));
+        .where(eq(schema.trackedClans.isActive, true));
 
       return row?.value ?? 0;
     },
     countPlayerLinks: async () => {
-      const [row] = await database
-        .select({ value: count() })
-        .from(schema.playerLinks)
-        .where(isNull(schema.playerLinks.deletedAt));
+      const [row] = await database.select({ value: count() }).from(schema.playerLinks);
 
       return row?.value ?? 0;
     },
@@ -319,7 +315,7 @@ export function createDatabaseDebugReader(database: Database): DatabaseDebugRead
           lastSeenAt: schema.trackedClans.lastSeenAt,
         })
         .from(schema.trackedClans)
-        .where(and(eq(schema.trackedClans.guildId, guildId), isNull(schema.trackedClans.deletedAt)))
+        .where(eq(schema.trackedClans.guildId, guildId))
         .orderBy(schema.trackedClans.name, schema.trackedClans.clanTag);
     },
     getPollerDiagnostics: async () => {
@@ -336,7 +332,7 @@ export function createDatabaseDebugReader(database: Database): DatabaseDebugRead
       const [row] = await database
         .select({ diagnosticsEnabled: schema.guilds.diagnosticsEnabled })
         .from(schema.guilds)
-        .where(and(eq(schema.guilds.id, guildId), isNull(schema.guilds.deletedAt)))
+        .where(eq(schema.guilds.id, guildId))
         .limit(1);
 
       return { diagnosticsEnabled: row?.diagnosticsEnabled ?? 'Unknown' };
@@ -354,7 +350,6 @@ export function createPollingEnrollmentStore(database: Database): PollingEnrollm
       const rows = await database
         .select({
           resourceId: schema.trackedClans.clanTag,
-          deletedAt: schema.trackedClans.deletedAt,
           isActive: schema.trackedClans.isActive,
         })
         .from(schema.trackedClans);
@@ -369,7 +364,6 @@ export function createPollingEnrollmentStore(database: Database): PollingEnrollm
       const rows = await database
         .select({
           resourceId: schema.playerLinks.playerTag,
-          deletedAt: schema.playerLinks.deletedAt,
         })
         .from(schema.playerLinks);
       return syncPollingLeasesForType(
@@ -383,7 +377,6 @@ export function createPollingEnrollmentStore(database: Database): PollingEnrollm
       const rows = await database
         .select({
           resourceId: schema.trackedClans.clanTag,
-          deletedAt: schema.trackedClans.deletedAt,
           isActive: schema.trackedClans.isActive,
         })
         .from(schema.trackedClans);
@@ -401,7 +394,7 @@ export function buildPollingEnrollmentResourceIds(
   return [
     ...new Set(
       sources
-        .filter((source) => source.deletedAt == null && source.isActive !== false)
+        .filter((source) => source.isActive !== false)
         .map((source) => source.resourceId.trim().toUpperCase())
         .filter(Boolean),
     ),
@@ -433,15 +426,13 @@ export function createGlobalAccessBlockStore(database: Database): GlobalAccessBl
             and(
               eq(schema.globalAccessBlocks.targetType, input.targetType),
               eq(schema.globalAccessBlocks.targetId, input.targetId),
-              isNull(schema.globalAccessBlocks.deletedAt),
             ),
           )
           .limit(1);
 
         if (existing) {
           await tx
-            .update(schema.globalAccessBlocks)
-            .set({ deletedAt: new Date(), updatedAt: new Date() })
+            .delete(schema.globalAccessBlocks)
             .where(eq(schema.globalAccessBlocks.id, existing.id));
           await tx.insert(schema.auditLogs).values({
             guildId: null,
@@ -483,7 +474,7 @@ export function createDatabaseTrackedClanStore(database: Database): DatabaseTrac
           .values({ id: input.guildId, name: input.guildName })
           .onConflictDoUpdate({
             target: schema.guilds.id,
-            set: { name: input.guildName, updatedAt: new Date(), deletedAt: null },
+            set: { name: input.guildName, updatedAt: new Date() },
           });
 
         const category = input.category
@@ -502,7 +493,6 @@ export function createDatabaseTrackedClanStore(database: Database): DatabaseTrac
             and(
               eq(schema.trackedClans.guildId, input.guildId),
               eq(schema.trackedClans.clanTag, input.clan.tag),
-              isNull(schema.trackedClans.deletedAt),
             ),
           )
           .limit(1);
@@ -517,7 +507,6 @@ export function createDatabaseTrackedClanStore(database: Database): DatabaseTrac
                   categoryId,
                   isActive: true,
                   updatedAt: new Date(),
-                  deletedAt: null,
                 })
                 .where(eq(schema.trackedClans.id, existing.id))
                 .returning({ id: schema.trackedClans.id })
@@ -567,7 +556,6 @@ export function createDatabaseTrackedClanStore(database: Database): DatabaseTrac
             and(
               eq(schema.trackedClanChannels.guildId, input.guildId),
               eq(schema.trackedClanChannels.discordChannelId, input.channelId),
-              isNull(schema.trackedClanChannels.deletedAt),
               ne(schema.trackedClans.clanTag, input.clan.tag),
             ),
           )
@@ -620,25 +608,14 @@ export function createDatabaseTrackedClanStore(database: Database): DatabaseTrac
             and(
               eq(schema.trackedClans.guildId, input.guildId),
               eq(schema.trackedClans.clanTag, input.clanTag),
-              isNull(schema.trackedClans.deletedAt),
             ),
           )
           .limit(1);
         if (!clan) return { status: 'not_found' };
-        const now = new Date();
         await tx
-          .update(schema.trackedClans)
-          .set({ isActive: false, deletedAt: now, updatedAt: now })
-          .where(eq(schema.trackedClans.id, clan.id));
-        await tx
-          .update(schema.trackedClanChannels)
-          .set({ deletedAt: now, updatedAt: now })
-          .where(
-            and(
-              eq(schema.trackedClanChannels.trackedClanId, clan.id),
-              isNull(schema.trackedClanChannels.deletedAt),
-            ),
-          );
+          .delete(schema.trackedClanChannels)
+          .where(eq(schema.trackedClanChannels.trackedClanId, clan.id));
+        await tx.delete(schema.trackedClans).where(eq(schema.trackedClans.id, clan.id));
         await tx.insert(schema.auditLogs).values({
           guildId: input.guildId,
           actorDiscordUserId: input.actorDiscordUserId,
@@ -669,14 +646,12 @@ export function createDatabaseTrackedClanStore(database: Database): DatabaseTrac
             and(
               eq(schema.trackedClanChannels.guildId, input.guildId),
               eq(schema.trackedClanChannels.discordChannelId, input.channelId),
-              isNull(schema.trackedClanChannels.deletedAt),
             ),
           )
           .limit(1);
         if (!row) return { status: 'not_found' };
         await tx
-          .update(schema.trackedClanChannels)
-          .set({ deletedAt: new Date(), updatedAt: new Date() })
+          .delete(schema.trackedClanChannels)
           .where(eq(schema.trackedClanChannels.id, row.channelId));
         await tx.insert(schema.auditLogs).values({
           guildId: input.guildId,
@@ -702,13 +677,7 @@ async function findOrCreateClanCategory(
   const [existing] = await tx
     .select({ id: schema.clanCategories.id, displayName: schema.clanCategories.displayName })
     .from(schema.clanCategories)
-    .where(
-      and(
-        eq(schema.clanCategories.guildId, guildId),
-        eq(schema.clanCategories.name, name),
-        isNull(schema.clanCategories.deletedAt),
-      ),
-    )
+    .where(and(eq(schema.clanCategories.guildId, guildId), eq(schema.clanCategories.name, name)))
     .limit(1);
   if (existing) return existing;
   const [maxSort] = await tx
@@ -743,7 +712,6 @@ async function isTargetBlacklisted(
       and(
         eq(schema.globalAccessBlocks.targetType, targetType),
         eq(schema.globalAccessBlocks.targetId, targetId),
-        isNull(schema.globalAccessBlocks.deletedAt),
       ),
     )
     .limit(1);

@@ -7,24 +7,19 @@ import {
 } from './index.js';
 
 describe('polling enrollment rules', () => {
-  it('enrolls active non-deleted tracked clans only', () => {
+  it('enrolls active tracked clans only', () => {
     expect(
       buildPollingEnrollmentResourceIds([
-        { resourceId: '#AAA111', isActive: true, deletedAt: null },
-        { resourceId: '#BBB222', isActive: false, deletedAt: null },
-        { resourceId: '#CCC333', isActive: true, deletedAt: new Date('2026-01-01T00:00:00Z') },
-        { resourceId: ' #aaa111 ', isActive: true, deletedAt: null },
+        { resourceId: '#AAA111', isActive: true },
+        { resourceId: '#BBB222', isActive: false },
+        { resourceId: ' #aaa111 ', isActive: true },
       ]),
     ).toEqual(['#AAA111']);
   });
 
-  it('enrolls non-deleted linked players only', () => {
+  it('enrolls linked players and normalizes duplicate tags', () => {
     expect(
-      buildPollingEnrollmentResourceIds([
-        { resourceId: '#PLAYER1', deletedAt: null },
-        { resourceId: '#PLAYER2', deletedAt: new Date('2026-01-01T00:00:00Z') },
-        { resourceId: ' #player1 ', deletedAt: null },
-      ]),
+      buildPollingEnrollmentResourceIds([{ resourceId: '#PLAYER1' }, { resourceId: ' #player1 ' }]),
     ).toEqual(['#PLAYER1']);
   });
 

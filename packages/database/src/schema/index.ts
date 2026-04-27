@@ -21,7 +21,6 @@ export const guilds = pgTable('guilds', {
   diagnosticsEnabled: boolean('diagnostics_enabled').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-  deletedAt: timestamp('deleted_at', { withTimezone: true }),
 });
 
 export const guildSettings = pgTable(
@@ -35,7 +34,6 @@ export const guildSettings = pgTable(
     value: jsonb('value').notNull().default(sql`'{}'::jsonb`),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-    deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (table) => ({
     guildSettingKeyUnique: uniqueIndex('guild_settings_guild_id_key_unique').on(
@@ -57,12 +55,12 @@ export const clanCategories = pgTable(
     sortOrder: integer('sort_order').notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-    deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (table) => ({
-    clanCategoryActiveNameUnique: uniqueIndex('clan_categories_guild_id_name_active_unique')
-      .on(table.guildId, table.name)
-      .where(sql`${table.deletedAt} is null`),
+    clanCategoryNameUnique: uniqueIndex('clan_categories_guild_id_name_unique').on(
+      table.guildId,
+      table.name,
+    ),
     clanCategorySortOrderIndex: index('clan_categories_guild_id_sort_order_idx').on(
       table.guildId,
       table.sortOrder,
@@ -86,18 +84,14 @@ export const trackedClans = pgTable(
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-    deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (table) => ({
-    guildClanTagActiveUnique: uniqueIndex('tracked_clans_guild_id_clan_tag_active_unique')
-      .on(table.guildId, table.clanTag)
-      .where(sql`${table.deletedAt} is null`),
-    clanTagIndex: index('tracked_clans_clan_tag_idx').on(table.clanTag),
-    guildActiveIndex: index('tracked_clans_guild_id_active_idx').on(
+    guildClanTagUnique: uniqueIndex('tracked_clans_guild_id_clan_tag_unique').on(
       table.guildId,
-      table.isActive,
-      table.deletedAt,
+      table.clanTag,
     ),
+    clanTagIndex: index('tracked_clans_clan_tag_idx').on(table.clanTag),
+    guildActiveIndex: index('tracked_clans_guild_id_active_idx').on(table.guildId, table.isActive),
     guildCategorySortOrderIndex: index('tracked_clans_guild_id_category_id_sort_order_idx').on(
       table.guildId,
       table.categoryId,
@@ -120,15 +114,16 @@ export const trackedClanChannels = pgTable(
     channelType: text('channel_type'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-    deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (table) => ({
-    guildChannelActiveUnique: uniqueIndex('tracked_clan_channels_guild_id_channel_active_unique')
-      .on(table.guildId, table.discordChannelId)
-      .where(sql`${table.deletedAt} is null`),
-    clanChannelActiveUnique: uniqueIndex('tracked_clan_channels_clan_id_channel_active_unique')
-      .on(table.trackedClanId, table.discordChannelId)
-      .where(sql`${table.deletedAt} is null`),
+    guildChannelUnique: uniqueIndex('tracked_clan_channels_guild_id_channel_unique').on(
+      table.guildId,
+      table.discordChannelId,
+    ),
+    clanChannelUnique: uniqueIndex('tracked_clan_channels_clan_id_channel_unique').on(
+      table.trackedClanId,
+      table.discordChannelId,
+    ),
     trackedClanIndex: index('tracked_clan_channels_tracked_clan_id_idx').on(table.trackedClanId),
   }),
 );
@@ -144,7 +139,6 @@ export const playerLinks = pgTable(
     isDefault: boolean('is_default').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-    deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (table) => ({
     userPlayerUnique: uniqueIndex('player_links_user_player_unique').on(
@@ -186,16 +180,15 @@ export const globalAccessBlocks = pgTable(
     createdByDiscordUserId: text('created_by_discord_user_id').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-    deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (table) => ({
-    activeTargetUnique: uniqueIndex('global_access_blocks_active_target_unique')
-      .on(table.targetType, table.targetId)
-      .where(sql`${table.deletedAt} is null`),
+    targetUnique: uniqueIndex('global_access_blocks_target_unique').on(
+      table.targetType,
+      table.targetId,
+    ),
     targetLookupIndex: index('global_access_blocks_target_lookup_idx').on(
       table.targetType,
       table.targetId,
-      table.deletedAt,
     ),
   }),
 );
