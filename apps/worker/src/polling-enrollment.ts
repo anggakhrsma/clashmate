@@ -6,14 +6,14 @@ export interface SyncPollingLeasesResult {
   readonly war: { enrolled: number; removed: number };
 }
 
-export async function syncPollingLeasesFromLinkedResources(
+export async function syncPollingLeases(
   enrollment: PollingEnrollmentStore,
   runAfter = new Date(),
 ): Promise<SyncPollingLeasesResult> {
   const [clan, player, war] = await Promise.all([
     enrollment.syncClanPollingLeases(runAfter),
-    enrollment.syncLinkedPlayerPollingLeases(runAfter),
-    enrollment.syncWarPollingLeasesFromLinkedClans(runAfter),
+    enrollment.syncPlayerPollingLeases(runAfter),
+    enrollment.syncWarPollingLeases(runAfter),
   ]);
 
   return { clan, player, war };

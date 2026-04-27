@@ -88,13 +88,46 @@ export interface PollingEnrollmentStore {
     runAfter?: Date;
   }) => Promise<void>;
   syncClanPollingLeases: (runAfter?: Date) => Promise<{ enrolled: number; removed: number }>;
-  syncLinkedPlayerPollingLeases: (
-    runAfter?: Date,
-  ) => Promise<{ enrolled: number; removed: number }>;
-  syncWarPollingLeasesFromLinkedClans: (runAfter?: Date) => Promise<{
+  syncPlayerPollingLeases: (runAfter?: Date) => Promise<{ enrolled: number; removed: number }>;
+  syncWarPollingLeases: (runAfter?: Date) => Promise<{
     enrolled: number;
     removed: number;
   }>;
+}
+
+export interface ClaimedPollingLease {
+  resourceType: PollingResourceType;
+  resourceId: string;
+  ownerId: string;
+  runAfter: Date;
+  lockedUntil: Date;
+  attempts: number;
+  lastError: string | null;
+}
+
+export interface PollingLeaseStore {
+  claimDuePollingLease: (
+    resourceType: PollingResourceType,
+    ownerId: string,
+    lockForSeconds: number,
+    now?: Date,
+  ) => Promise<ClaimedPollingLease | null>;
+  completePollingLease: (
+    resourceType: PollingResourceType,
+    resourceId: string,
+    nextRun: Date,
+  ) => Promise<void>;
+  failPollingLease: (
+    resourceType: PollingResourceType,
+    resourceId: string,
+    error: unknown,
+    nextRun: Date,
+  ) => Promise<void>;
+}
+
+export interface PollingIntervalConfig {
+  baseSeconds: number;
+  jitterSeconds: number;
 }
 
 export interface PollingEnrollmentSource {
@@ -360,7 +393,7 @@ export function createPollingEnrollmentStore(database: Database): PollingEnrollm
         runAfter,
       );
     },
-    syncLinkedPlayerPollingLeases: async (runAfter) => {
+    syncPlayerPollingLeases: async (runAfter) => {
       const rows = await database
         .select({
           resourceId: schema.playerLinks.playerTag,
@@ -373,7 +406,7 @@ export function createPollingEnrollmentStore(database: Database): PollingEnrollm
         runAfter,
       );
     },
-    syncWarPollingLeasesFromLinkedClans: async (runAfter) => {
+    syncWarPollingLeases: async (runAfter) => {
       const rows = await database
         .select({
           resourceId: schema.trackedClans.clanTag,
@@ -386,6 +419,95 @@ export function createPollingEnrollmentStore(database: Database): PollingEnrollm
       return syncPollingLeasesForType(database, 'war', resourceIds, runAfter);
     },
   };
+}
+
+export function createPollingLeaseStore(database: Database): PollingLeaseStore {
+  return {
+    claimDuePollingLease: async (resourceType, ownerId, lockForSeconds, now = new Date()) => {
+      assertTopLevelPollingResourceType(resourceType);
+      if (!ownerId.trim()) throw new Error('Polling lease ownerId is required.');
+      if (!Number.isFinite(lockForSeconds) || lockForSeconds <= 0) {
+        throw new Error('Polling lease lock duration must be a positive number of seconds.');
+      }
+
+      const lockedUntil = new Date(now.getTime() + lockForSeconds * 1000);
+      const rows = await database.execute(sql<ClaimedPollingLease>`
+        update polling_leases
+        set owner_id = ${ownerId},
+            locked_until = ${lockedUntil},
+            updated_at = ${now}
+        where id = (
+          select id
+          from polling_leases
+          where resource_type = ${resourceType}
+            and run_after <= ${now}
+            and (locked_until is null or locked_until <= ${now})
+          order by run_after asc, created_at asc
+          for update skip locked
+          limit 1
+        )
+        returning resource_type as "resourceType",
+                  resource_id as "resourceId",
+                  owner_id as "ownerId",
+                  run_after as "runAfter",
+                  locked_until as "lockedUntil",
+                  attempts,
+                  last_error as "lastError"
+      `);
+
+      return normalizeExecuteRows<ClaimedPollingLease>(rows)[0] ?? null;
+    },
+    completePollingLease: async (resourceType, resourceId, nextRun) => {
+      assertTopLevelPollingResourceType(resourceType);
+      await database
+        .update(schema.pollingLeases)
+        .set({
+          ownerId: null,
+          lockedUntil: null,
+          runAfter: nextRun,
+          attempts: 0,
+          lastError: null,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(schema.pollingLeases.resourceType, resourceType),
+            eq(schema.pollingLeases.resourceId, resourceId),
+          ),
+        );
+    },
+    failPollingLease: async (resourceType, resourceId, error, nextRun) => {
+      assertTopLevelPollingResourceType(resourceType);
+      await database
+        .update(schema.pollingLeases)
+        .set({
+          ownerId: null,
+          lockedUntil: null,
+          runAfter: nextRun,
+          attempts: sql`${schema.pollingLeases.attempts} + 1`,
+          lastError: formatPollingLeaseError(error),
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(schema.pollingLeases.resourceType, resourceType),
+            eq(schema.pollingLeases.resourceId, resourceId),
+          ),
+        );
+    },
+  };
+}
+
+export function computeJitteredNextRun(
+  now: Date,
+  config: PollingIntervalConfig,
+  random = Math.random,
+): Date {
+  if (config.baseSeconds < 0 || config.jitterSeconds < 0) {
+    throw new Error('Polling intervals must not be negative.');
+  }
+  const jitter = Math.floor(random() * (config.jitterSeconds + 1));
+  return new Date(now.getTime() + (config.baseSeconds + jitter) * 1000);
 }
 
 export function buildPollingEnrollmentResourceIds(
@@ -407,6 +529,20 @@ export function assertTopLevelPollingResourceType(
   if (!TOP_LEVEL_POLLING_RESOURCE_TYPES.includes(resourceType as PollingResourceType)) {
     throw new Error(`Unsupported top-level polling resource type: ${resourceType}`);
   }
+}
+
+function formatPollingLeaseError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.slice(0, 4000);
+}
+
+function normalizeExecuteRows<T>(result: unknown): T[] {
+  if (Array.isArray(result)) return result as T[];
+  if (result && typeof result === 'object' && 'rows' in result) {
+    const rows = (result as { rows: unknown }).rows;
+    return Array.isArray(rows) ? (rows as T[]) : [];
+  }
+  return [];
 }
 
 export function createGlobalAccessBlockStore(database: Database): GlobalAccessBlockStore {
