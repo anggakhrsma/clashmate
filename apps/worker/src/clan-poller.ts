@@ -49,6 +49,10 @@ export function createClanPollerHandler(options: ClanPollerHandlerOptions) {
 interface ClanWithMembers {
   readonly memberList?: readonly RawClanMember[];
   readonly members?: readonly RawClanMember[];
+  readonly data?: {
+    readonly memberList?: readonly RawClanMember[];
+    readonly members?: readonly RawClanMember[];
+  };
 }
 
 interface RawClanMember {
@@ -67,7 +71,12 @@ interface RawClanMember {
 
 export function extractClanMemberSnapshots(clan: unknown): ClanMemberSnapshotInput[] {
   const clanWithMembers = clan as ClanWithMembers;
-  const memberList = clanWithMembers.memberList ?? clanWithMembers.members ?? [];
+  const memberList =
+    clanWithMembers.memberList ??
+    clanWithMembers.members ??
+    clanWithMembers.data?.memberList ??
+    clanWithMembers.data?.members ??
+    [];
   return memberList.map((member) => {
     if (!member.tag?.trim()) throw new Error('Clan member payload is missing a player tag.');
     return {

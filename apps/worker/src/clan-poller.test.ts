@@ -71,6 +71,58 @@ describe('clan poller handler', () => {
     });
   });
 
+  it('extracts clan members from the real ClashMateCocClient data wrapper shape', async () => {
+    const fetchedAt = new Date('2026-04-27T00:00:00.000Z');
+    const coc = {
+      getClan: vi.fn().mockResolvedValue({
+        tag: '#AAA111',
+        name: 'Alpha',
+        data: {
+          memberList: [
+            {
+              tag: '#P2',
+              name: 'Two',
+              role: 'admin',
+              expLevel: 200,
+              league: { id: 29000022 },
+              trophies: 5678,
+              donations: 90,
+              donationsReceived: 12,
+            },
+          ],
+        },
+      }),
+    };
+    const snapshots = createSnapshotStore('upserted');
+    const memberEvents: ClanMemberEventStore = {
+      processClanMemberSnapshots: vi.fn().mockResolvedValue({
+        status: 'processed',
+        joined: 1,
+        left: 0,
+      }),
+    };
+    const handler = createClanPollerHandler({ coc, snapshots, memberEvents, now: () => fetchedAt });
+
+    await handler(clanLease);
+
+    expect(memberEvents.processClanMemberSnapshots).toHaveBeenCalledWith({
+      clanTag: '#AAA111',
+      fetchedAt,
+      members: [
+        expect.objectContaining({
+          playerTag: '#P2',
+          name: 'Two',
+          role: 'admin',
+          expLevel: 200,
+          leagueId: 29000022,
+          trophies: 5678,
+          donations: 90,
+          donationsReceived: 12,
+        }),
+      ],
+    });
+  });
+
   it('does not turn an unlinked searched clan into a durable snapshot', async () => {
     const coc = { getClan: vi.fn().mockResolvedValue({ tag: '#BBB222', name: 'Search Only' }) };
     const snapshots = createSnapshotStore('not_linked');
