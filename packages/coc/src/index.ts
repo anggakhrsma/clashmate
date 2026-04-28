@@ -1,7 +1,15 @@
 import { normalizeClashTag } from '@clashmate/shared';
+import { Client, HttpError } from 'clashofclans.js';
 
 export interface ClashMateCocClientOptions {
   readonly token: string;
+  readonly client?: ClashOfClansApiClient;
+}
+
+export interface ClashOfClansApiClient {
+  getClan: (tag: string) => Promise<unknown>;
+  getCurrentWar: (tag: string) => Promise<unknown | null>;
+  getPlayer: (tag: string) => Promise<unknown>;
 }
 
 export interface ClashApiErrorDetails {
@@ -22,9 +30,11 @@ export class ClashApiError extends Error {
 
 export class ClashMateCocClient {
   readonly token: string;
+  private readonly client: ClashOfClansApiClient;
 
   constructor(options: ClashMateCocClientOptions) {
     this.token = options.token;
+    this.client = options.client ?? new Client({ keys: [options.token] });
   }
 
   normalizeTag(tag: string): string {
@@ -37,20 +47,7 @@ export class ClashMateCocClient {
 
   async getClan(tag: string): Promise<ClashClan> {
     const normalizedTag = this.normalizeTag(tag);
-    const response = await fetch(
-      `https://api.clashofclans.com/v1/clans/${encodeURIComponent(normalizedTag)}`,
-      { headers: { authorization: `Bearer ${this.token}` } },
-    );
-
-    if (!response.ok) {
-      throw new ClashApiError({
-        status: response.status,
-        reason: response.statusText,
-        message: `Clash API request failed with status ${response.status}`,
-      });
-    }
-
-    const data = await response.json();
+    const data = await this.request(() => this.client.getClan(normalizedTag));
     if (!isClanResponse(data)) {
       throw new ClashApiError({
         reason: 'invalid_response',
@@ -63,20 +60,8 @@ export class ClashMateCocClient {
 
   async getCurrentWar(clanTag: string): Promise<ClashWar> {
     const normalizedTag = this.normalizeTag(clanTag);
-    const response = await fetch(
-      `https://api.clashofclans.com/v1/clans/${encodeURIComponent(normalizedTag)}/currentwar`,
-      { headers: { authorization: `Bearer ${this.token}` } },
-    );
-
-    if (!response.ok) {
-      throw new ClashApiError({
-        status: response.status,
-        reason: response.statusText,
-        message: `Clash API request failed with status ${response.status}`,
-      });
-    }
-
-    const data = await response.json();
+    const data = await this.request(() => this.client.getCurrentWar(normalizedTag));
+    if (data === null) return { clanTag: normalizedTag, state: 'notInWar', data };
     if (!isWarResponse(data)) {
       throw new ClashApiError({
         reason: 'invalid_response',
@@ -89,20 +74,7 @@ export class ClashMateCocClient {
 
   async getPlayer(tag: string): Promise<ClashPlayer> {
     const normalizedTag = this.normalizeTag(tag);
-    const response = await fetch(
-      `https://api.clashofclans.com/v1/players/${encodeURIComponent(normalizedTag)}`,
-      { headers: { authorization: `Bearer ${this.token}` } },
-    );
-
-    if (!response.ok) {
-      throw new ClashApiError({
-        status: response.status,
-        reason: response.statusText,
-        message: `Clash API request failed with status ${response.status}`,
-      });
-    }
-
-    const data = await response.json();
+    const data = await this.request(() => this.client.getPlayer(normalizedTag));
     if (!isPlayerResponse(data)) {
       throw new ClashApiError({
         reason: 'invalid_response',
@@ -111,6 +83,26 @@ export class ClashMateCocClient {
     }
 
     return { tag: this.normalizeTag(data.tag), name: data.name, data };
+  }
+
+  private async request<T>(operation: () => Promise<T>): Promise<T> {
+    try {
+      return await operation();
+    } catch (error) {
+      if (error instanceof ClashApiError) throw error;
+      if (error instanceof HttpError) {
+        throw new ClashApiError({
+          status: error.status,
+          reason: error.reason,
+          message: error.message || `Clash API request failed with status ${error.status}`,
+        });
+      }
+
+      throw new ClashApiError({
+        reason: 'request_failed',
+        message: error instanceof Error ? error.message : 'Clash API request failed.',
+      });
+    }
   }
 }
 
