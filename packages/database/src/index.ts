@@ -222,6 +222,8 @@ export interface NotificationOutboxInsertValue {
 }
 
 export interface ClaimNotificationOutboxEntriesInput {
+  ownerId: string;
+  lockForSeconds: number;
   limit?: number;
   maxAttempts?: number;
   now?: Date;
@@ -240,6 +242,7 @@ export interface ClaimedNotificationOutboxEntry {
 
 export interface MarkNotificationOutboxFailedInput {
   id: string;
+  ownerId: string;
   error: unknown;
   retryAt: Date;
   maxAttempts?: number;
@@ -247,9 +250,9 @@ export interface MarkNotificationOutboxFailedInput {
 
 export interface NotificationOutboxDeliveryStore {
   claimDueNotificationOutboxEntries: (
-    input?: ClaimNotificationOutboxEntriesInput,
+    input: ClaimNotificationOutboxEntriesInput,
   ) => Promise<ClaimedNotificationOutboxEntry[]>;
-  markNotificationOutboxSent: (id: string, deliveredAt?: Date) => Promise<void>;
+  markNotificationOutboxSent: (id: string, ownerId: string, deliveredAt?: Date) => Promise<void>;
   markNotificationOutboxFailed: (input: MarkNotificationOutboxFailedInput) => Promise<void>;
 }
 
@@ -948,9 +951,15 @@ export function createNotificationOutboxDeliveryStore(
   database: Database,
 ): NotificationOutboxDeliveryStore {
   return {
-    claimDueNotificationOutboxEntries: async (input = {}) => {
+    claimDueNotificationOutboxEntries: async (input) => {
       const limit = input.limit ?? 50;
       const maxAttempts = input.maxAttempts ?? 5;
+      const ownerId = input.ownerId.trim();
+      const lockForSeconds = input.lockForSeconds;
+      if (!ownerId) throw new Error('Notification delivery ownerId is required.');
+      if (!Number.isInteger(lockForSeconds) || lockForSeconds < 1) {
+        throw new Error('Notification delivery lockForSeconds must be a positive integer.');
+      }
       if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
         throw new Error('Notification delivery claim limit must be between 1 and 1000.');
       }
@@ -958,17 +967,22 @@ export function createNotificationOutboxDeliveryStore(
         throw new Error('Notification delivery max attempts must be a positive integer.');
       }
       const now = input.now ?? new Date();
+      const lockedUntil = new Date(now.getTime() + lockForSeconds * 1000);
 
       const rows = await database.execute(sql<ClaimedNotificationOutboxEntry>`
         update notification_outbox
         set status = 'sending',
+            owner_id = ${ownerId},
+            locked_until = ${lockedUntil},
             updated_at = ${now}
         where id in (
           select id
           from notification_outbox
-          where status in ('pending', 'retry')
-            and next_attempt_at <= ${now}
-            and attempts < ${maxAttempts}
+          where attempts < ${maxAttempts}
+            and (
+              (status in ('pending', 'retry') and next_attempt_at <= ${now})
+              or (status = 'sending' and (locked_until is null or locked_until <= ${now}))
+            )
           order by next_attempt_at asc, created_at asc
           for update skip locked
           limit ${limit}
@@ -985,19 +999,30 @@ export function createNotificationOutboxDeliveryStore(
 
       return normalizeExecuteRows<ClaimedNotificationOutboxEntry>(rows);
     },
-    markNotificationOutboxSent: async (id, deliveredAt = new Date()) => {
+    markNotificationOutboxSent: async (id, ownerId, deliveredAt = new Date()) => {
+      if (!ownerId.trim()) throw new Error('Notification delivery ownerId is required.');
       await database
         .update(schema.notificationOutbox)
         .set({
           status: 'sent',
           deliveredAt,
+          ownerId: null,
+          lockedUntil: null,
           lastError: null,
           updatedAt: deliveredAt,
         })
-        .where(eq(schema.notificationOutbox.id, id));
+        .where(
+          and(
+            eq(schema.notificationOutbox.id, id),
+            eq(schema.notificationOutbox.ownerId, ownerId),
+            eq(schema.notificationOutbox.status, 'sending'),
+          ),
+        );
     },
     markNotificationOutboxFailed: async (input) => {
       const maxAttempts = input.maxAttempts ?? 5;
+      const ownerId = input.ownerId.trim();
+      if (!ownerId) throw new Error('Notification delivery ownerId is required.');
       if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
         throw new Error('Notification delivery max attempts must be a positive integer.');
       }
@@ -1007,6 +1032,8 @@ export function createNotificationOutboxDeliveryStore(
         update notification_outbox
         set attempts = attempts + 1,
             status = case when attempts + 1 >= ${maxAttempts} then 'failed' else 'retry' end,
+            owner_id = null,
+            locked_until = null,
             next_attempt_at = case
               when attempts + 1 >= ${maxAttempts} then next_attempt_at
               else ${input.retryAt}
@@ -1014,6 +1041,8 @@ export function createNotificationOutboxDeliveryStore(
             last_error = ${error},
             updated_at = ${now}
         where id = ${input.id}
+          and owner_id = ${ownerId}
+          and status = 'sending'
       `);
     },
   };

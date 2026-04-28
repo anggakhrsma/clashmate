@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildClanMemberNotificationOutboxValues,
   buildNotificationOutboxIdempotencyKey,
+  createNotificationOutboxDeliveryStore,
   schema,
 } from './index.js';
 
@@ -82,8 +83,37 @@ describe('notification outbox schema foundation', () => {
     expect(schema.notificationOutbox.status.name).toBe('status');
     expect(schema.notificationOutbox.attempts.name).toBe('attempts');
     expect(schema.notificationOutbox.nextAttemptAt.name).toBe('next_attempt_at');
+    expect(schema.notificationOutbox.ownerId.name).toBe('owner_id');
+    expect(schema.notificationOutbox.lockedUntil.name).toBe('locked_until');
     expect(schema.notificationOutbox.lastError.name).toBe('last_error');
     expect('deletedAt' in schema.notificationOutbox).toBe(false);
+  });
+
+  it('rejects blank delivery lease owner IDs before mutating outbox rows', async () => {
+    const store = createNotificationOutboxDeliveryStore({} as never);
+
+    await expect(
+      store.claimDueNotificationOutboxEntries({ ownerId: ' ', lockForSeconds: 60 }),
+    ).rejects.toThrow('Notification delivery ownerId is required.');
+    await expect(store.markNotificationOutboxSent('outbox-1', ' ')).rejects.toThrow(
+      'Notification delivery ownerId is required.',
+    );
+    await expect(
+      store.markNotificationOutboxFailed({
+        id: 'outbox-1',
+        ownerId: ' ',
+        error: new Error('nope'),
+        retryAt: new Date('2026-04-28T00:00:00.000Z'),
+      }),
+    ).rejects.toThrow('Notification delivery ownerId is required.');
+  });
+
+  it('rejects invalid notification delivery lock durations', async () => {
+    const store = createNotificationOutboxDeliveryStore({} as never);
+
+    await expect(
+      store.claimDueNotificationOutboxEntries({ ownerId: 'worker-1', lockForSeconds: 0 }),
+    ).rejects.toThrow('Notification delivery lockForSeconds must be a positive integer.');
   });
 
   it('keeps clan member notification targets focused and guild-scoped', () => {

@@ -81,9 +81,16 @@ describe('notification delivery loop', () => {
     ]);
     const sender = { sendChannelMessage: vi.fn().mockResolvedValue(undefined) };
 
-    await runNotificationDeliveryIteration({ deliveryStore, sender, interval: { baseSeconds: 1, jitterSeconds: 0 } });
+    await runNotificationDeliveryIteration({
+      deliveryStore,
+      sender,
+      ownerId: 'worker-1',
+      interval: { baseSeconds: 1, jitterSeconds: 0 },
+    });
 
     expect(deliveryStore.claimDueNotificationOutboxEntries).toHaveBeenCalledWith({
+      ownerId: 'worker-1',
+      lockForSeconds: 60,
       limit: 50,
       maxAttempts: 5,
     });
@@ -91,7 +98,11 @@ describe('notification delivery loop', () => {
       'channel-1',
       '**Chief (#PLAYER)** joined clan **#ABC123**.',
     );
-    expect(deliveryStore.markNotificationOutboxSent).toHaveBeenCalledWith('outbox-1', expect.any(Date));
+    expect(deliveryStore.markNotificationOutboxSent).toHaveBeenCalledWith(
+      'outbox-1',
+      'worker-1',
+      expect.any(Date),
+    );
     expect(deliveryStore.markNotificationOutboxFailed).not.toHaveBeenCalled();
   });
 
@@ -120,6 +131,7 @@ describe('notification delivery loop', () => {
     await runNotificationDeliveryIteration({
       deliveryStore,
       sender,
+      ownerId: 'worker-1',
       interval: { baseSeconds: 1, jitterSeconds: 0 },
       maxAttempts: 3,
       retryBaseSeconds: 10,
@@ -127,6 +139,7 @@ describe('notification delivery loop', () => {
 
     expect(deliveryStore.markNotificationOutboxFailed).toHaveBeenCalledWith({
       id: 'outbox-1',
+      ownerId: 'worker-1',
       error,
       retryAt: expect.any(Date),
       maxAttempts: 3,

@@ -216,9 +216,10 @@ deterministic idempotency key, and use `on conflict do nothing` for retry/concur
 Actual Discord sending is handled by a separate outbox sender that claims due rows by
 `status` and `next_attempt_at`, updates attempts and `last_error` on failure, and marks successful
 deliveries as `sent` with `delivered_at`. Claiming uses a PostgreSQL `FOR UPDATE SKIP LOCKED`
-update to move rows from `pending`/`retry` to `sending`, so multiple worker instances can safely run
-the sender. Failed deliveries move to `retry` with exponential backoff until max attempts, then
-`failed`.
+update to move due `pending`/`retry` rows to `sending`, sets `owner_id` and `locked_until`, and can
+reclaim expired `sending` rows after a worker crash. Completion and failure updates are scoped by
+the same `owner_id`, so one worker cannot mark rows currently owned by another. Failed deliveries
+move to `retry` with exponential backoff until max attempts, then `failed`.
 
 The worker runs a separate notification fan-out loop independent from the clan/player/war lease
 families. It periodically scans recent `clan_member_events`, matches enabled

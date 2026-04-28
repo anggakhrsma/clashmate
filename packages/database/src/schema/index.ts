@@ -374,6 +374,8 @@ export const notificationOutbox = pgTable(
     payload: jsonb('payload').notNull().default(sql`'{}'::jsonb`),
     attempts: integer('attempts').notNull().default(0),
     nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }).notNull().defaultNow(),
+    ownerId: text('owner_id'),
+    lockedUntil: timestamp('locked_until', { withTimezone: true }),
     lastError: text('last_error'),
     deliveredAt: timestamp('delivered_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -386,6 +388,10 @@ export const notificationOutbox = pgTable(
     notificationOutboxDueIndex: index('notification_outbox_status_next_attempt_at_idx').on(
       table.status,
       table.nextAttemptAt,
+    ),
+    notificationOutboxLeaseIndex: index('notification_outbox_status_locked_until_idx').on(
+      table.status,
+      table.lockedUntil,
     ),
     notificationOutboxGuildStatusCreatedIndex: index(
       'notification_outbox_guild_id_status_created_at_idx',

@@ -13,6 +13,8 @@ export interface DiscordNotificationSender {
 export interface NotificationDeliveryLoopOptions {
   readonly deliveryStore: NotificationOutboxDeliveryStore;
   readonly sender: DiscordNotificationSender;
+  readonly ownerId: string;
+  readonly lockForSeconds?: number;
   readonly interval: NotificationDeliveryLoopIntervalConfig;
   readonly batchSize?: number;
   readonly maxAttempts?: number;
@@ -54,7 +56,10 @@ export async function runNotificationDeliveryIteration(
 ): Promise<void> {
   const batchSize = options.batchSize ?? 50;
   const maxAttempts = options.maxAttempts ?? 5;
+  const lockForSeconds = options.lockForSeconds ?? 60;
   const claimed = await options.deliveryStore.claimDueNotificationOutboxEntries({
+    ownerId: options.ownerId,
+    lockForSeconds,
     limit: batchSize,
     maxAttempts,
   });
@@ -74,7 +79,7 @@ export async function runNotificationDeliveryIteration(
         entry.targetId,
         formatNotificationOutboxMessage(entry),
       );
-      await options.deliveryStore.markNotificationOutboxSent(entry.id, new Date());
+      await options.deliveryStore.markNotificationOutboxSent(entry.id, options.ownerId, new Date());
       options.logger?.info?.({ outboxId: entry.id, targetId: entry.targetId }, 'Sent notification');
     } catch (error) {
       const retryAt = computeNotificationRetryAt(
@@ -84,6 +89,7 @@ export async function runNotificationDeliveryIteration(
       );
       await options.deliveryStore.markNotificationOutboxFailed({
         id: entry.id,
+        ownerId: options.ownerId,
         error,
         retryAt,
         maxAttempts,

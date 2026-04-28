@@ -58,6 +58,8 @@ startNotificationFanOutLoop({
 startNotificationDeliveryLoop({
   deliveryStore: notificationDelivery,
   sender: notificationSender,
+  ownerId: workerOwnerId,
+  lockForSeconds: 60,
   interval: {
     baseSeconds: config.NOTIFICATION_DELIVERY_SECONDS,
     jitterSeconds: config.NOTIFICATION_DELIVERY_JITTER_SECONDS,
