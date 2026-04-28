@@ -213,9 +213,12 @@ Notification delivery should be restart-safe and idempotent through PostgreSQL. 
 `clan_member_notification_configs`, insert one `notification_outbox` row per Discord target with a
 deterministic idempotency key, and use `on conflict do nothing` for retry/concurrency safety.
 
-Actual Discord sending should be handled by a separate outbox sender that claims due rows by
+Actual Discord sending is handled by a separate outbox sender that claims due rows by
 `status` and `next_attempt_at`, updates attempts and `last_error` on failure, and marks successful
-deliveries as `sent` with `delivered_at`.
+deliveries as `sent` with `delivered_at`. Claiming uses a PostgreSQL `FOR UPDATE SKIP LOCKED`
+update to move rows from `pending`/`retry` to `sending`, so multiple worker instances can safely run
+the sender. Failed deliveries move to `retry` with exponential backoff until max attempts, then
+`failed`.
 
 The worker runs a separate notification fan-out loop independent from the clan/player/war lease
 families. It periodically scans recent `clan_member_events`, matches enabled
@@ -226,6 +229,12 @@ idempotency keys. It does not send Discord messages. Recommended env configurati
 NOTIFICATION_FANOUT_SECONDS=30
 NOTIFICATION_FANOUT_JITTER_SECONDS=10
 NOTIFICATION_FANOUT_BATCH_SIZE=100
+
+NOTIFICATION_DELIVERY_SECONDS=15
+NOTIFICATION_DELIVERY_JITTER_SECONDS=5
+NOTIFICATION_DELIVERY_BATCH_SIZE=50
+NOTIFICATION_DELIVERY_MAX_ATTEMPTS=5
+NOTIFICATION_DELIVERY_RETRY_SECONDS=30
 ```
 
 Fan-out errors are logged and the loop continues; duplicate or retried scans are safe because

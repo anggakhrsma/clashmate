@@ -94,6 +94,9 @@ importers:
       '@clashmate/logger':
         specifier: workspace:*
         version: link:../../packages/logger
+      discord.js:
+        specifier: latest
+        version: 14.26.3
     devDependencies:
       tsx:
         specifier: latest

@@ -38,6 +38,11 @@ const envSchema = z.object({
   NOTIFICATION_FANOUT_SECONDS: z.coerce.number().int().positive().default(30),
   NOTIFICATION_FANOUT_JITTER_SECONDS: z.coerce.number().int().nonnegative().default(10),
   NOTIFICATION_FANOUT_BATCH_SIZE: z.coerce.number().int().positive().max(1000).default(100),
+  NOTIFICATION_DELIVERY_SECONDS: z.coerce.number().int().positive().default(15),
+  NOTIFICATION_DELIVERY_JITTER_SECONDS: z.coerce.number().int().nonnegative().default(5),
+  NOTIFICATION_DELIVERY_BATCH_SIZE: z.coerce.number().int().positive().max(1000).default(50),
+  NOTIFICATION_DELIVERY_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+  NOTIFICATION_DELIVERY_RETRY_SECONDS: z.coerce.number().int().positive().default(30),
 
   SENTRY_DSN: z.string().url().optional(),
 });

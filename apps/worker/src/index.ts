@@ -5,6 +5,7 @@ import {
   createClanSnapshotStore,
   createDatabase,
   createNotificationFanOutStore,
+  createNotificationOutboxDeliveryStore,
   createPlayerSnapshotStore,
   createPollingEnrollmentStore,
   createPollingLeaseStore,
@@ -13,6 +14,8 @@ import {
 import { createLogger } from '@clashmate/logger';
 
 import { createClanPollerHandler } from './clan-poller.js';
+import { createDiscordRestNotificationSender } from './discord-notification-sender.js';
+import { startNotificationDeliveryLoop } from './notification-delivery-loop.js';
 import { startNotificationFanOutLoop } from './notification-fanout-loop.js';
 import { createPlayerPollerHandler } from './player-poller.js';
 import { syncPollingLeases } from './polling-enrollment.js';
@@ -29,6 +32,8 @@ const clanMemberEvents = createClanMemberEventStore(database);
 const playerSnapshots = createPlayerSnapshotStore(database);
 const warSnapshots = createWarSnapshotStore(database);
 const notificationFanOut = createNotificationFanOutStore(database);
+const notificationDelivery = createNotificationOutboxDeliveryStore(database);
+const notificationSender = createDiscordRestNotificationSender(config.DISCORD_TOKEN);
 const coc = new ClashMateCocClient({ token: config.CLASH_OF_CLANS_API_TOKEN });
 const clanPollerHandler = createClanPollerHandler({
   coc,
@@ -47,6 +52,19 @@ startNotificationFanOutLoop({
     jitterSeconds: config.NOTIFICATION_FANOUT_JITTER_SECONDS,
   },
   batchSize: config.NOTIFICATION_FANOUT_BATCH_SIZE,
+  logger,
+});
+
+startNotificationDeliveryLoop({
+  deliveryStore: notificationDelivery,
+  sender: notificationSender,
+  interval: {
+    baseSeconds: config.NOTIFICATION_DELIVERY_SECONDS,
+    jitterSeconds: config.NOTIFICATION_DELIVERY_JITTER_SECONDS,
+  },
+  batchSize: config.NOTIFICATION_DELIVERY_BATCH_SIZE,
+  maxAttempts: config.NOTIFICATION_DELIVERY_MAX_ATTEMPTS,
+  retryBaseSeconds: config.NOTIFICATION_DELIVERY_RETRY_SECONDS,
   logger,
 });
 
@@ -78,9 +96,14 @@ logger.info(
     playerPollerReady: Boolean(playerPollerHandler),
     warPollerReady: Boolean(warPollerHandler),
     notificationFanOutReady: Boolean(notificationFanOut),
+    notificationDeliveryReady: Boolean(notificationDelivery),
     notificationFanOutIntervalSeconds: config.NOTIFICATION_FANOUT_SECONDS,
     notificationFanOutJitterSeconds: config.NOTIFICATION_FANOUT_JITTER_SECONDS,
     notificationFanOutBatchSize: config.NOTIFICATION_FANOUT_BATCH_SIZE,
+    notificationDeliveryIntervalSeconds: config.NOTIFICATION_DELIVERY_SECONDS,
+    notificationDeliveryJitterSeconds: config.NOTIFICATION_DELIVERY_JITTER_SECONDS,
+    notificationDeliveryBatchSize: config.NOTIFICATION_DELIVERY_BATCH_SIZE,
+    notificationDeliveryMaxAttempts: config.NOTIFICATION_DELIVERY_MAX_ATTEMPTS,
     workerOwnerId,
     pollingEnrollment: pollingEnrollmentResult,
   },

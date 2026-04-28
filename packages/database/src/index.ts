@@ -221,6 +221,38 @@ export interface NotificationOutboxInsertValue {
   updatedAt: Date;
 }
 
+export interface ClaimNotificationOutboxEntriesInput {
+  limit?: number;
+  maxAttempts?: number;
+  now?: Date;
+}
+
+export interface ClaimedNotificationOutboxEntry {
+  id: string;
+  guildId: string;
+  sourceType: string;
+  sourceId: string;
+  targetType: string;
+  targetId: string;
+  payload: unknown;
+  attempts: number;
+}
+
+export interface MarkNotificationOutboxFailedInput {
+  id: string;
+  error: unknown;
+  retryAt: Date;
+  maxAttempts?: number;
+}
+
+export interface NotificationOutboxDeliveryStore {
+  claimDueNotificationOutboxEntries: (
+    input?: ClaimNotificationOutboxEntriesInput,
+  ) => Promise<ClaimedNotificationOutboxEntry[]>;
+  markNotificationOutboxSent: (id: string, deliveredAt?: Date) => Promise<void>;
+  markNotificationOutboxFailed: (input: MarkNotificationOutboxFailedInput) => Promise<void>;
+}
+
 export interface UpsertLatestWarSnapshotInput {
   clanTag: string;
   state: string;
@@ -908,6 +940,81 @@ export function createNotificationFanOutStore(database: Database): NotificationF
         matchedTargets: targets.length,
         insertedOutboxEntries: rows.length,
       };
+    },
+  };
+}
+
+export function createNotificationOutboxDeliveryStore(
+  database: Database,
+): NotificationOutboxDeliveryStore {
+  return {
+    claimDueNotificationOutboxEntries: async (input = {}) => {
+      const limit = input.limit ?? 50;
+      const maxAttempts = input.maxAttempts ?? 5;
+      if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
+        throw new Error('Notification delivery claim limit must be between 1 and 1000.');
+      }
+      if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
+        throw new Error('Notification delivery max attempts must be a positive integer.');
+      }
+      const now = input.now ?? new Date();
+
+      const rows = await database.execute(sql<ClaimedNotificationOutboxEntry>`
+        update notification_outbox
+        set status = 'sending',
+            updated_at = ${now}
+        where id in (
+          select id
+          from notification_outbox
+          where status in ('pending', 'retry')
+            and next_attempt_at <= ${now}
+            and attempts < ${maxAttempts}
+          order by next_attempt_at asc, created_at asc
+          for update skip locked
+          limit ${limit}
+        )
+        returning id,
+                  guild_id as "guildId",
+                  source_type as "sourceType",
+                  source_id as "sourceId",
+                  target_type as "targetType",
+                  target_id as "targetId",
+                  payload,
+                  attempts
+      `);
+
+      return normalizeExecuteRows<ClaimedNotificationOutboxEntry>(rows);
+    },
+    markNotificationOutboxSent: async (id, deliveredAt = new Date()) => {
+      await database
+        .update(schema.notificationOutbox)
+        .set({
+          status: 'sent',
+          deliveredAt,
+          lastError: null,
+          updatedAt: deliveredAt,
+        })
+        .where(eq(schema.notificationOutbox.id, id));
+    },
+    markNotificationOutboxFailed: async (input) => {
+      const maxAttempts = input.maxAttempts ?? 5;
+      if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
+        throw new Error('Notification delivery max attempts must be a positive integer.');
+      }
+      const now = new Date();
+      const error = formatPollingLeaseError(input.error);
+      await database.execute(sql`
+        update notification_outbox
+        set attempts = attempts + 1,
+            status = case when attempts + 1 >= ${maxAttempts} then 'failed' else 'retry' end,
+            next_attempt_at = case
+              when attempts + 1 >= ${maxAttempts} then next_attempt_at
+              else ${input.retryAt}
+            end,
+            last_error = ${error},
+            updated_at = ${now}
+        where id = ${input.id}
+      `);
     },
   };
 }
