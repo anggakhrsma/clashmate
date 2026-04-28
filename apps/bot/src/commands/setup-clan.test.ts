@@ -4,6 +4,8 @@ import {
   autocompleteSetupClan,
   filterCategoryChoices,
   filterClanChoices,
+  formatConfigureJoinLeaveMessage,
+  formatDisableJoinLeaveMessage,
   formatLinkClanMessage,
   formatUnlinkChannelMessage,
   formatUnlinkClanMessage,
@@ -37,6 +39,47 @@ describe('/setup clan', () => {
     const clanOption = subcommand?.options?.find((option) => option.name === 'clan');
     expect(clanOption?.required).toBe(true);
     expect(clanOption?.autocomplete).toBe(true);
+
+    const logsSubcommand = json.options?.find((option) => option.name === 'clan-logs') as
+      | {
+          description?: string;
+          options?: Array<{ name: string; required?: boolean; autocomplete?: boolean }>;
+        }
+      | undefined;
+    expect(logsSubcommand?.description).toBe('Setup automatic logs for the clan.');
+    expect(logsSubcommand?.options?.map((option) => option.name)).toEqual([
+      'clan',
+      'action',
+      'channel',
+    ]);
+
+    const logsClanOption = logsSubcommand?.options?.find((option) => option.name === 'clan');
+    expect(logsClanOption?.required).toBe(true);
+    expect(logsClanOption?.autocomplete).toBe(true);
+  });
+
+  it('formats Join/Leave Log configuration messages', () => {
+    expect(
+      formatConfigureJoinLeaveMessage({
+        status: 'configured',
+        clanName: 'Alpha',
+        clanTag: '#2PP',
+        discordChannelId: '123',
+      }),
+    ).toBe('Enabled Join/Leave Log for **Alpha (#2PP)** in <#123>.');
+    expect(formatConfigureJoinLeaveMessage({ status: 'clan_not_linked' })).toBe(
+      'That clan is not linked to this server. Use `/setup clan` first.',
+    );
+    expect(
+      formatDisableJoinLeaveMessage({ status: 'disabled', clanName: 'Alpha', clanTag: '#2PP' }),
+    ).toBe('Disabled Join/Leave Log for **Alpha (#2PP)**.');
+    expect(
+      formatDisableJoinLeaveMessage({
+        status: 'not_configured',
+        clanName: 'Alpha',
+        clanTag: '#2PP',
+      }),
+    ).toBe('No Join/Leave Log is enabled for **Alpha (#2PP)**.');
   });
 
   it('formats link success and channel conflict messages', () => {

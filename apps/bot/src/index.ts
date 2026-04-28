@@ -2,6 +2,7 @@ import { ClashMateCocClient } from '@clashmate/coc';
 import { loadConfig } from '@clashmate/config';
 import {
   createDatabase,
+  createDatabaseClanMemberNotificationConfigStore,
   createDatabaseCommandUsageRecorder,
   createDatabaseDebugReader,
   createDatabaseStatusMetrics,
@@ -28,6 +29,7 @@ const databaseDebugReader = createDatabaseDebugReader(database);
 const databaseStatusMetrics = createDatabaseStatusMetrics(database);
 const databaseUsageMetrics = createDatabaseUsageMetrics(database);
 const databaseTrackedClans = createDatabaseTrackedClanStore(database);
+const databaseClanMemberNotifications = createDatabaseClanMemberNotificationConfigStore(database);
 const globalAccessBlocks = createGlobalAccessBlockStore(database);
 const cocClient = new ClashMateCocClient({ token: config.CLASH_OF_CLANS_API_TOKEN });
 
@@ -56,6 +58,7 @@ const commandRegistry = createBotCommandRegistry({
   setupClan: {
     clans: databaseTrackedClans,
     coc: cocClient,
+    memberNotifications: databaseClanMemberNotifications,
   },
   status: {
     metricReader: statusMetricReader,

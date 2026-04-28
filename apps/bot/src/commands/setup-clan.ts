@@ -64,6 +64,33 @@ export const setupClanCommandData = new SlashCommandBuilder()
             'Unlink a clan from the server and remove all the features related to it.',
           ),
       ),
+  )
+  .addSubcommand((subcommand) =>
+    subcommand
+      .setName('clan-logs')
+      .setDescription('Setup automatic logs for the clan.')
+      .addStringOption((option) =>
+        option
+          .setName('clan')
+          .setDescription('Select the clan to setup logs.')
+          .setRequired(true)
+          .setAutocomplete(true),
+      )
+      .addStringOption((option) =>
+        option
+          .setName('action')
+          .setDescription('What logs to enable or disable.')
+          .addChoices(
+            { name: 'Enable', value: 'enable-logs' },
+            { name: 'Disable', value: 'disable-logs' },
+          ),
+      )
+      .addChannelOption((option) =>
+        option
+          .setName('channel')
+          .setDescription('Channel to send updates to (defaults to the current channel)')
+          .addChannelTypes(...allowedClanChannelTypes),
+      ),
   );
 
 export interface SetupClanClashClan {
@@ -135,6 +162,42 @@ export interface SetupClanStore {
   ) => Promise<{ status: 'unlinked'; clanName: string } | { status: 'not_found' }>;
 }
 
+export interface ConfigureClanMemberNotificationsInput {
+  readonly guildId: string;
+  readonly actorDiscordUserId: string;
+  readonly clanTag: string;
+  readonly discordChannelId: string;
+}
+
+export interface DisableClanMemberNotificationsInput {
+  readonly guildId: string;
+  readonly actorDiscordUserId: string;
+  readonly clanTag: string;
+}
+
+export type ConfigureClanMemberNotificationsResult =
+  | {
+      readonly status: 'configured';
+      readonly clanName: string;
+      readonly clanTag: string;
+      readonly discordChannelId: string;
+    }
+  | { readonly status: 'clan_not_linked' };
+
+export type DisableClanMemberNotificationsResult =
+  | { readonly status: 'disabled'; readonly clanName: string; readonly clanTag: string }
+  | { readonly status: 'not_configured'; readonly clanName: string; readonly clanTag: string }
+  | { readonly status: 'clan_not_linked' };
+
+export interface SetupClanMemberNotificationStore {
+  configureJoinLeaveNotifications: (
+    input: ConfigureClanMemberNotificationsInput,
+  ) => Promise<ConfigureClanMemberNotificationsResult>;
+  disableJoinLeaveNotifications: (
+    input: DisableClanMemberNotificationsInput,
+  ) => Promise<DisableClanMemberNotificationsResult>;
+}
+
 export interface SetupClanApi {
   getClan: (clanTag: string) => Promise<SetupClanClashClan>;
 }
@@ -142,6 +205,7 @@ export interface SetupClanApi {
 export interface SetupClanCommandOptions {
   clans: SetupClanStore;
   coc: SetupClanApi;
+  memberNotifications?: SetupClanMemberNotificationStore;
 }
 
 export function createSetupClanSlashCommand(
@@ -153,13 +217,21 @@ export function createSetupClanSlashCommand(
     execute: async (interaction, context) => {
       if (!interaction.isChatInputCommand()) return;
       if (interaction.commandName !== SETUP_COMMAND_NAME) return;
-      if (interaction.options.getSubcommand() !== 'clan') return;
+      const subcommand = interaction.options.getSubcommand();
+
+      if (subcommand === 'clan-logs') {
+        await executeSetupClanLogs(interaction, context, options);
+        return;
+      }
+
+      if (subcommand !== 'clan') return;
 
       await executeSetupClan(interaction, context, options);
     },
     autocomplete: async (interaction) => {
       if (interaction.commandName !== SETUP_COMMAND_NAME) return;
-      if (interaction.options.getSubcommand(false) !== 'clan') return;
+      const subcommand = interaction.options.getSubcommand(false);
+      if (subcommand !== 'clan' && subcommand !== 'clan-logs') return;
 
       await autocompleteSetupClan(interaction, options);
     },
@@ -191,6 +263,76 @@ export async function autocompleteSetupClan(
   }
 
   await interaction.respond([]);
+}
+
+async function executeSetupClanLogs(
+  interaction: ChatInputCommandInteraction,
+  _context: CommandContext,
+  options: SetupClanCommandOptions,
+): Promise<void> {
+  if (!interaction.inCachedGuild()) {
+    await interaction.reply({
+      content: '`/setup clan-logs` can only be used in a server.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  if (!interaction.memberPermissions.has(PermissionFlagsBits.ManageGuild)) {
+    await interaction.reply({
+      content: 'You need the Manage Server permission to use `/setup clan-logs`.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  if (!options.memberNotifications) {
+    await interaction.reply({
+      content: 'Clan Join/Leave Log configuration is not available yet.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const clanOption = interaction.options.getString('clan', true);
+  let clanTag: string;
+  try {
+    clanTag = normalizeClashTag(clanOption);
+  } catch {
+    await interaction.reply({
+      content: 'Please provide a valid Clash of Clans clan tag.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const action = interaction.options.getString('action') ?? 'enable-logs';
+  if (action === 'disable-logs') {
+    const result = await options.memberNotifications.disableJoinLeaveNotifications({
+      guildId: interaction.guildId,
+      actorDiscordUserId: interaction.user.id,
+      clanTag,
+    });
+    await interaction.reply({ content: formatDisableJoinLeaveMessage(result), ephemeral: true });
+    return;
+  }
+
+  const channel = interaction.options.getChannel('channel') ?? interaction.channel;
+  if (!channel) {
+    await interaction.reply({
+      content: 'Please choose a channel for the Join/Leave Log.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const result = await options.memberNotifications.configureJoinLeaveNotifications({
+    guildId: interaction.guildId,
+    actorDiscordUserId: interaction.user.id,
+    clanTag,
+    discordChannelId: channel.id,
+  });
+  await interaction.reply({ content: formatConfigureJoinLeaveMessage(result), ephemeral: true });
 }
 
 export function filterCategoryChoices(
@@ -351,4 +493,28 @@ export function formatLinkClanMessage(
   const channelText = result.channelLinked && channelId ? ` <#${channelId}>` : '';
   const categoryText = result.category ? ` with category **${result.category.displayName}**` : '';
   return `Successfully linked **${result.clanName} (${result.clanTag})** to **${guildName}**${channelText}${categoryText}.`;
+}
+
+export function formatConfigureJoinLeaveMessage(
+  result: ConfigureClanMemberNotificationsResult,
+): string {
+  if (result.status === 'clan_not_linked') {
+    return 'That clan is not linked to this server. Use `/setup clan` first.';
+  }
+
+  return `Enabled Join/Leave Log for **${result.clanName} (${result.clanTag})** in <#${result.discordChannelId}>.`;
+}
+
+export function formatDisableJoinLeaveMessage(
+  result: DisableClanMemberNotificationsResult,
+): string {
+  if (result.status === 'clan_not_linked') {
+    return 'That clan is not linked to this server. Use `/setup clan` first.';
+  }
+
+  if (result.status === 'not_configured') {
+    return `No Join/Leave Log is enabled for **${result.clanName} (${result.clanTag})**.`;
+  }
+
+  return `Disabled Join/Leave Log for **${result.clanName} (${result.clanTag})**.`;
 }

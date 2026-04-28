@@ -371,6 +371,32 @@ export interface DatabaseTrackedClanStore {
   }) => Promise<{ status: 'unlinked'; clanName: string } | { status: 'not_found' }>;
 }
 
+export interface DatabaseClanMemberNotificationConfigStore {
+  configureJoinLeaveNotifications: (input: {
+    guildId: string;
+    actorDiscordUserId: string;
+    clanTag: string;
+    discordChannelId: string;
+  }) => Promise<
+    | {
+        status: 'configured';
+        clanName: string;
+        clanTag: string;
+        discordChannelId: string;
+      }
+    | { status: 'clan_not_linked' }
+  >;
+  disableJoinLeaveNotifications: (input: {
+    guildId: string;
+    actorDiscordUserId: string;
+    clanTag: string;
+  }) => Promise<
+    | { status: 'disabled'; clanName: string; clanTag: string }
+    | { status: 'not_configured'; clanName: string; clanTag: string }
+    | { status: 'clan_not_linked' }
+  >;
+}
+
 export function createDatabase(databaseUrl: string) {
   const client = postgres(databaseUrl, {
     max: 10,
@@ -1508,6 +1534,184 @@ export function createDatabaseTrackedClanStore(database: Database): DatabaseTrac
         });
         return { status: 'unlinked', clanName: row.clanName ?? 'Unknown clan' };
       }),
+  };
+}
+
+const CLAN_MEMBER_JOIN_LEAVE_EVENT_TYPES = ['joined', 'left'] as const;
+
+export function createDatabaseClanMemberNotificationConfigStore(
+  database: Database,
+): DatabaseClanMemberNotificationConfigStore {
+  return {
+    configureJoinLeaveNotifications: async (input) => {
+      const clanTag = input.clanTag.trim().toUpperCase();
+      return database.transaction(async (tx) => {
+        const [trackedClan] = await tx
+          .select({
+            id: schema.trackedClans.id,
+            clanTag: schema.trackedClans.clanTag,
+            name: schema.trackedClans.name,
+          })
+          .from(schema.trackedClans)
+          .where(
+            and(
+              eq(schema.trackedClans.guildId, input.guildId),
+              eq(schema.trackedClans.clanTag, clanTag),
+              eq(schema.trackedClans.isActive, true),
+            ),
+          )
+          .limit(1);
+
+        if (!trackedClan) return { status: 'clan_not_linked' as const };
+
+        const existing = await tx
+          .select({
+            id: schema.clanMemberNotificationConfigs.id,
+            discordChannelId: schema.clanMemberNotificationConfigs.discordChannelId,
+            eventType: schema.clanMemberNotificationConfigs.eventType,
+          })
+          .from(schema.clanMemberNotificationConfigs)
+          .where(
+            and(
+              eq(schema.clanMemberNotificationConfigs.guildId, input.guildId),
+              eq(schema.clanMemberNotificationConfigs.trackedClanId, trackedClan.id),
+              inArray(
+                schema.clanMemberNotificationConfigs.eventType,
+                CLAN_MEMBER_JOIN_LEAVE_EVENT_TYPES,
+              ),
+            ),
+          );
+
+        await tx
+          .delete(schema.clanMemberNotificationConfigs)
+          .where(
+            and(
+              eq(schema.clanMemberNotificationConfigs.guildId, input.guildId),
+              eq(schema.clanMemberNotificationConfigs.trackedClanId, trackedClan.id),
+              inArray(
+                schema.clanMemberNotificationConfigs.eventType,
+                CLAN_MEMBER_JOIN_LEAVE_EVENT_TYPES,
+              ),
+            ),
+          );
+
+        const now = new Date();
+        await tx.insert(schema.clanMemberNotificationConfigs).values(
+          CLAN_MEMBER_JOIN_LEAVE_EVENT_TYPES.map((eventType) => ({
+            guildId: input.guildId,
+            trackedClanId: trackedClan.id,
+            discordChannelId: input.discordChannelId,
+            eventType,
+            isEnabled: true,
+            createdAt: now,
+            updatedAt: now,
+          })),
+        );
+
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: 'clan_member_notifications.enabled',
+          targetType: 'tracked_clan',
+          targetId: trackedClan.id,
+          metadata: {
+            clanTag: trackedClan.clanTag,
+            clanName: trackedClan.name,
+            discordChannelId: input.discordChannelId,
+            eventTypes: [...CLAN_MEMBER_JOIN_LEAVE_EVENT_TYPES],
+            previousConfigs: existing,
+          },
+        });
+
+        return {
+          status: 'configured' as const,
+          clanName: trackedClan.name ?? trackedClan.clanTag,
+          clanTag: trackedClan.clanTag,
+          discordChannelId: input.discordChannelId,
+        };
+      });
+    },
+    disableJoinLeaveNotifications: async (input) => {
+      const clanTag = input.clanTag.trim().toUpperCase();
+      return database.transaction(async (tx) => {
+        const [trackedClan] = await tx
+          .select({
+            id: schema.trackedClans.id,
+            clanTag: schema.trackedClans.clanTag,
+            name: schema.trackedClans.name,
+          })
+          .from(schema.trackedClans)
+          .where(
+            and(
+              eq(schema.trackedClans.guildId, input.guildId),
+              eq(schema.trackedClans.clanTag, clanTag),
+              eq(schema.trackedClans.isActive, true),
+            ),
+          )
+          .limit(1);
+
+        if (!trackedClan) return { status: 'clan_not_linked' as const };
+
+        const existing = await tx
+          .select({
+            id: schema.clanMemberNotificationConfigs.id,
+            discordChannelId: schema.clanMemberNotificationConfigs.discordChannelId,
+            eventType: schema.clanMemberNotificationConfigs.eventType,
+          })
+          .from(schema.clanMemberNotificationConfigs)
+          .where(
+            and(
+              eq(schema.clanMemberNotificationConfigs.guildId, input.guildId),
+              eq(schema.clanMemberNotificationConfigs.trackedClanId, trackedClan.id),
+              inArray(
+                schema.clanMemberNotificationConfigs.eventType,
+                CLAN_MEMBER_JOIN_LEAVE_EVENT_TYPES,
+              ),
+            ),
+          );
+
+        if (existing.length === 0) {
+          return {
+            status: 'not_configured' as const,
+            clanName: trackedClan.name ?? trackedClan.clanTag,
+            clanTag: trackedClan.clanTag,
+          };
+        }
+
+        await tx
+          .delete(schema.clanMemberNotificationConfigs)
+          .where(
+            and(
+              eq(schema.clanMemberNotificationConfigs.guildId, input.guildId),
+              eq(schema.clanMemberNotificationConfigs.trackedClanId, trackedClan.id),
+              inArray(
+                schema.clanMemberNotificationConfigs.eventType,
+                CLAN_MEMBER_JOIN_LEAVE_EVENT_TYPES,
+              ),
+            ),
+          );
+
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: 'clan_member_notifications.disabled',
+          targetType: 'tracked_clan',
+          targetId: trackedClan.id,
+          metadata: {
+            clanTag: trackedClan.clanTag,
+            clanName: trackedClan.name,
+            eventTypes: [...CLAN_MEMBER_JOIN_LEAVE_EVENT_TYPES],
+            removedConfigs: existing,
+          },
+        });
+
+        return {
+          status: 'disabled' as const,
+          clanName: trackedClan.name ?? trackedClan.clanTag,
+          clanTag: trackedClan.clanTag,
+        };
+      });
+    },
   };
 }
 
