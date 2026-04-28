@@ -9,6 +9,7 @@ import {
   createPlayerSnapshotStore,
   createPollingEnrollmentStore,
   createPollingLeaseStore,
+  createWarAttackEventStore,
   createWarSnapshotStore,
 } from '@clashmate/database';
 import { createLogger } from '@clashmate/logger';
@@ -31,6 +32,7 @@ const clanSnapshots = createClanSnapshotStore(database);
 const clanMemberEvents = createClanMemberEventStore(database);
 const playerSnapshots = createPlayerSnapshotStore(database);
 const warSnapshots = createWarSnapshotStore(database);
+const warAttackEvents = createWarAttackEventStore(database);
 const notificationFanOut = createNotificationFanOutStore(database);
 const notificationDelivery = createNotificationOutboxDeliveryStore(database);
 const notificationSender = createDiscordRestNotificationSender(config.DISCORD_TOKEN);
@@ -41,7 +43,11 @@ const clanPollerHandler = createClanPollerHandler({
   memberEvents: clanMemberEvents,
 });
 const playerPollerHandler = createPlayerPollerHandler({ coc, snapshots: playerSnapshots });
-const warPollerHandler = createWarPollerHandler({ coc, snapshots: warSnapshots });
+const warPollerHandler = createWarPollerHandler({
+  coc,
+  snapshots: warSnapshots,
+  attackEvents: warAttackEvents,
+});
 const workerOwnerId = createWorkerOwnerId();
 const pollingEnrollmentResult = await syncPollingLeases(pollingEnrollment);
 

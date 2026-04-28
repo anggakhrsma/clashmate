@@ -1,7 +1,7 @@
 import type { ClaimedPollingLease, WarSnapshotStore } from '@clashmate/database';
 import { describe, expect, it, vi } from 'vitest';
 
-import { createWarPollerHandler, parseCurrentWarResourceId } from './war-poller.js';
+import { createWarPollerHandler, detectWarAttackEvents, parseCurrentWarResourceId } from './war-poller.js';
 
 const warLease: ClaimedPollingLease = {
   resourceType: 'war',
@@ -36,6 +36,7 @@ describe('war poller handler', () => {
       status: 'snapshot_updated',
       clanTag: '#AAA111',
       state: 'inWar',
+      attackEventsInserted: 0,
     });
 
     expect(coc.getCurrentWar).toHaveBeenCalledWith('#AAA111');
@@ -62,7 +63,102 @@ describe('war poller handler', () => {
       status: 'not_linked',
       clanTag: '#BBB222',
       state: 'notInWar',
+      attackEventsInserted: 0,
     });
+  });
+
+  it('detects current-war attacks with deterministic war identity inputs', () => {
+    const fetchedAt = new Date('2026-04-27T00:00:00.000Z');
+
+    expect(
+      detectWarAttackEvents(
+        {
+          clanTag: '#AAA111',
+          data: {
+            startTime: '20260427T010000.000Z',
+            clan: {
+              members: [
+                {
+                  tag: '#P1',
+                  attacks: [
+                    {
+                      attackerTag: '#P1',
+                      defenderTag: '#Q1',
+                      stars: 3,
+                      destructionPercentage: 100,
+                      order: 4,
+                      duration: 111,
+                    },
+                  ],
+                },
+              ],
+            },
+            opponent: {
+              tag: '#OPP222',
+              members: [{ tag: '#Q1', bestOpponentAttack: { order: 4 } }],
+            },
+          },
+        },
+        fetchedAt,
+      ),
+    ).toEqual([
+      {
+        clanTag: '#AAA111',
+        warKey: 'current:#aaa111:#opp222:20260427t010000.000z',
+        attackerTag: '#P1',
+        defenderTag: '#Q1',
+        attackOrder: 4,
+        stars: 3,
+        destructionPercentage: 100,
+        duration: 111,
+        freshAttack: true,
+        rawAttack: {
+          attackerTag: '#P1',
+          defenderTag: '#Q1',
+          stars: 3,
+          destructionPercentage: 100,
+          order: 4,
+          duration: 111,
+        },
+        sourceFetchedAt: fetchedAt,
+        occurredAt: fetchedAt,
+        detectedAt: fetchedAt,
+      },
+    ]);
+  });
+
+  it('inserts detected attacks only after the linked war snapshot is accepted', async () => {
+    const attackEvents = { insertWarAttackEvents: vi.fn().mockResolvedValue({ inserted: 1 }) };
+    const handler = createWarPollerHandler({
+      coc: {
+        getCurrentWar: vi.fn().mockResolvedValue({
+          clanTag: '#AAA111',
+          state: 'inWar',
+          data: {
+            clan: {
+              members: [
+                {
+                  attacks: [
+                    {
+                      attackerTag: '#P1',
+                      defenderTag: '#Q1',
+                      stars: 2,
+                      destructionPercentage: 80,
+                      order: 1,
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        }),
+      },
+      snapshots: createSnapshotStore('upserted'),
+      attackEvents,
+    });
+
+    await expect(handler(warLease)).resolves.toMatchObject({ attackEventsInserted: 1 });
+    expect(attackEvents.insertWarAttackEvents).toHaveBeenCalledTimes(1);
   });
 
   it('rejects non-war leases', async () => {

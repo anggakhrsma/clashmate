@@ -280,6 +280,33 @@ export interface WarSnapshotStore {
   ) => Promise<UpsertLatestWarSnapshotResult>;
 }
 
+export interface WarAttackEventInput {
+  clanTag: string;
+  warKey: string;
+  attackerTag: string;
+  defenderTag: string;
+  attackOrder: number;
+  stars: number;
+  destructionPercentage: number;
+  duration?: number | null;
+  freshAttack: boolean;
+  rawAttack: unknown;
+  sourceFetchedAt: Date;
+  occurredAt: Date;
+  detectedAt?: Date;
+}
+
+export interface InsertWarAttackEventsResult {
+  status: 'processed' | 'not_linked';
+  inserted: number;
+}
+
+export interface WarAttackEventStore {
+  insertWarAttackEvents: (
+    input: readonly WarAttackEventInput[],
+  ) => Promise<InsertWarAttackEventsResult>;
+}
+
 export interface UpsertLatestPlayerSnapshotInput {
   playerTag: string;
   name: string;
@@ -1123,6 +1150,63 @@ export function createWarSnapshotStore(database: Database): WarSnapshotStore {
   };
 }
 
+export function createWarAttackEventStore(database: Database): WarAttackEventStore {
+  return {
+    insertWarAttackEvents: async (input) => {
+      const firstEvent = input[0];
+      if (!firstEvent) return { status: 'processed', inserted: 0 };
+
+      const clanTag = normalizeWarAttackEventInput(firstEvent).clanTag;
+      const linkedClans = await database
+        .select({
+          id: schema.trackedClans.id,
+          guildId: schema.trackedClans.guildId,
+          clanTag: schema.trackedClans.clanTag,
+        })
+        .from(schema.trackedClans)
+        .where(
+          and(eq(schema.trackedClans.clanTag, clanTag), eq(schema.trackedClans.isActive, true)),
+        );
+
+      if (linkedClans.length === 0) return { status: 'not_linked', inserted: 0 };
+
+      const values = linkedClans.flatMap((linkedClan) =>
+        input.map((event) => {
+          const normalizedEvent = normalizeWarAttackEventInput(event);
+          return {
+            guildId: linkedClan.guildId,
+            trackedClanId: linkedClan.id,
+            clanTag: normalizedEvent.clanTag,
+            warKey: normalizedEvent.warKey,
+            eventKey: buildWarAttackEventKey(normalizedEvent),
+            attackerTag: normalizedEvent.attackerTag,
+            defenderTag: normalizedEvent.defenderTag,
+            attackOrder: normalizedEvent.attackOrder,
+            stars: normalizedEvent.stars,
+            destructionPercentage: normalizedEvent.destructionPercentage,
+            duration: normalizedEvent.duration,
+            freshAttack: normalizedEvent.freshAttack,
+            rawAttack: normalizedEvent.rawAttack,
+            sourceFetchedAt: normalizedEvent.sourceFetchedAt,
+            occurredAt: normalizedEvent.occurredAt,
+            detectedAt: normalizedEvent.detectedAt ?? new Date(),
+          };
+        }),
+      );
+
+      const inserted = await database
+        .insert(schema.warAttackEvents)
+        .values(values)
+        .onConflictDoNothing({
+          target: [schema.warAttackEvents.guildId, schema.warAttackEvents.eventKey],
+        })
+        .returning({ id: schema.warAttackEvents.id });
+
+      return { status: 'processed', inserted: inserted.length };
+    },
+  };
+}
+
 export function createPlayerSnapshotStore(database: Database): PlayerSnapshotStore {
   return {
     upsertLatestPlayerSnapshot: async (input) => {
@@ -1298,6 +1382,26 @@ export function normalizeLatestWarSnapshotInput(
     snapshot: input.snapshot,
     fetchedAt: input.fetchedAt ?? new Date(),
   };
+}
+
+export function normalizeWarAttackEventInput(input: WarAttackEventInput): WarAttackEventInput {
+  const clanTag = input.clanTag.trim().toUpperCase();
+  const warKey = input.warKey.trim().toLowerCase();
+  const attackerTag = input.attackerTag.trim().toUpperCase();
+  const defenderTag = input.defenderTag.trim().toUpperCase();
+  if (!clanTag || !warKey || !attackerTag || !defenderTag) {
+    throw new Error('War attack events require clan, war, attacker, and defender identifiers.');
+  }
+  if (!Number.isInteger(input.attackOrder) || input.attackOrder < 0) {
+    throw new Error('War attack events require a non-negative attack order.');
+  }
+
+  return { ...input, clanTag, warKey, attackerTag, defenderTag };
+}
+
+export function buildWarAttackEventKey(input: WarAttackEventInput): string {
+  const event = normalizeWarAttackEventInput(input);
+  return `war:${event.warKey}:attack:${event.attackerTag}:${event.defenderTag}:${event.attackOrder}`;
 }
 
 export function normalizeLatestPlayerSnapshotInput(
