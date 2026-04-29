@@ -610,6 +610,46 @@ export const warAttackEvents = pgTable(
   }),
 );
 
+export const warStateEvents = pgTable(
+  'war_state_events',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    guildId: text('guild_id')
+      .notNull()
+      .references(() => guilds.id, { onDelete: 'cascade' }),
+    trackedClanId: uuid('tracked_clan_id').references(() => trackedClans.id, {
+      onDelete: 'set null',
+    }),
+    clanTag: text('clan_tag').notNull(),
+    warKey: text('war_key').notNull(),
+    eventKey: text('event_key').notNull(),
+    previousState: text('previous_state'),
+    currentState: text('current_state').notNull(),
+    previousSnapshot: jsonb('previous_snapshot'),
+    currentSnapshot: jsonb('current_snapshot').notNull(),
+    sourceFetchedAt: timestamp('source_fetched_at', { withTimezone: true }).notNull(),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+    detectedAt: timestamp('detected_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    warStateEventGuildKeyUnique: uniqueIndex('war_state_events_guild_id_event_key_unique').on(
+      table.guildId,
+      table.eventKey,
+    ),
+    warStateEventDetectedIdIndex: index('war_state_events_detected_at_id_idx').on(
+      table.detectedAt,
+      table.id,
+    ),
+    warStateEventGuildClanDetectedIndex: index(
+      'war_state_events_guild_id_clan_tag_detected_at_idx',
+    ).on(table.guildId, table.clanTag, table.detectedAt),
+    warStateEventTrackedClanIndex: index('war_state_events_tracked_clan_id_idx').on(
+      table.trackedClanId,
+    ),
+  }),
+);
+
 export const playerLatestSnapshots = pgTable(
   'player_latest_snapshots',
   {

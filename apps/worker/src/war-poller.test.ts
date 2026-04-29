@@ -1,7 +1,12 @@
-import type { ClaimedPollingLease, WarSnapshotStore } from '@clashmate/database';
+import type { ClaimedPollingLease, NormalizedLatestWarSnapshot, WarSnapshotStore } from '@clashmate/database';
 import { describe, expect, it, vi } from 'vitest';
 
-import { createWarPollerHandler, detectWarAttackEvents, parseCurrentWarResourceId } from './war-poller.js';
+import {
+  createWarPollerHandler,
+  detectWarAttackEvents,
+  detectWarStateTransitionEvent,
+  parseCurrentWarResourceId,
+} from './war-poller.js';
 
 const warLease: ClaimedPollingLease = {
   resourceType: 'war',
@@ -13,8 +18,12 @@ const warLease: ClaimedPollingLease = {
   lastError: null,
 };
 
-function createSnapshotStore(status: 'upserted' | 'not_linked'): WarSnapshotStore {
+function createSnapshotStore(
+  status: 'upserted' | 'not_linked',
+  previous: NormalizedLatestWarSnapshot | null = null,
+): WarSnapshotStore {
   return {
+    getLatestWarSnapshot: vi.fn().mockResolvedValue(previous),
     upsertLatestWarSnapshot: vi.fn().mockResolvedValue({ status }),
   };
 }
@@ -37,6 +46,7 @@ describe('war poller handler', () => {
       clanTag: '#AAA111',
       state: 'inWar',
       attackEventsInserted: 0,
+      stateEventsInserted: 0,
     });
 
     expect(coc.getCurrentWar).toHaveBeenCalledWith('#AAA111');
@@ -64,7 +74,72 @@ describe('war poller handler', () => {
       clanTag: '#BBB222',
       state: 'notInWar',
       attackEventsInserted: 0,
+      stateEventsInserted: 0,
     });
+  });
+
+  it('detects war state transitions from the previous latest snapshot', () => {
+    const previousFetchedAt = new Date('2026-04-27T00:00:00.000Z');
+    const fetchedAt = new Date('2026-04-27T01:10:00.000Z');
+
+    expect(
+      detectWarStateTransitionEvent(
+        {
+          clanTag: '#AAA111',
+          state: 'preparation',
+          snapshot: { state: 'preparation' },
+          fetchedAt: previousFetchedAt,
+        },
+        {
+          clanTag: '#AAA111',
+          state: 'inWar',
+          data: {
+            startTime: '2026-04-27T01:00:00.000Z',
+            clan: { members: [] },
+            opponent: { tag: '#OPP222' },
+          },
+        },
+        fetchedAt,
+      ),
+    ).toEqual({
+      clanTag: '#AAA111',
+      warKey: 'current:#aaa111:#opp222:2026-04-27t01:00:00.000z',
+      previousState: 'preparation',
+      currentState: 'inwar',
+      previousSnapshot: { state: 'preparation' },
+      currentSnapshot: {
+        clanTag: '#AAA111',
+        state: 'inWar',
+        data: {
+          startTime: '2026-04-27T01:00:00.000Z',
+          clan: { members: [] },
+          opponent: { tag: '#OPP222' },
+        },
+      },
+      sourceFetchedAt: fetchedAt,
+      occurredAt: new Date('2026-04-27T01:00:00.000Z'),
+      detectedAt: fetchedAt,
+    });
+  });
+
+  it('does not detect war state events for initial snapshots or unchanged states', () => {
+    const fetchedAt = new Date('2026-04-27T01:10:00.000Z');
+
+    expect(
+      detectWarStateTransitionEvent(null, { clanTag: '#AAA111', state: 'inWar', data: {} }, fetchedAt),
+    ).toBeNull();
+    expect(
+      detectWarStateTransitionEvent(
+        {
+          clanTag: '#AAA111',
+          state: 'inwar',
+          snapshot: { state: 'inWar' },
+          fetchedAt,
+        },
+        { clanTag: '#AAA111', state: 'inWar', data: {} },
+        fetchedAt,
+      ),
+    ).toBeNull();
   });
 
   it('detects current-war attacks with deterministic war identity inputs', () => {
@@ -159,6 +234,66 @@ describe('war poller handler', () => {
 
     await expect(handler(warLease)).resolves.toMatchObject({ attackEventsInserted: 1 });
     expect(attackEvents.insertWarAttackEvents).toHaveBeenCalledTimes(1);
+  });
+
+  it('inserts detected state transitions only after the linked war snapshot is accepted', async () => {
+    const fetchedAt = new Date('2026-04-27T01:10:00.000Z');
+    const stateEvents = { insertWarStateEvents: vi.fn().mockResolvedValue({ inserted: 1 }) };
+    const handler = createWarPollerHandler({
+      coc: {
+        getCurrentWar: vi.fn().mockResolvedValue({
+          clanTag: '#AAA111',
+          state: 'inWar',
+          data: {
+            startTime: '2026-04-27T01:00:00.000Z',
+            clan: { members: [] },
+            opponent: { tag: '#OPP222' },
+          },
+        }),
+      },
+      snapshots: createSnapshotStore('upserted', {
+        clanTag: '#AAA111',
+        state: 'preparation',
+        snapshot: { state: 'preparation' },
+        fetchedAt: new Date('2026-04-27T00:55:00.000Z'),
+      }),
+      stateEvents,
+      now: () => fetchedAt,
+    });
+
+    await expect(handler(warLease)).resolves.toMatchObject({ stateEventsInserted: 1 });
+    expect(stateEvents.insertWarStateEvents).toHaveBeenCalledTimes(1);
+    expect(stateEvents.insertWarStateEvents).toHaveBeenCalledWith([
+      expect.objectContaining({
+        clanTag: '#AAA111',
+        previousState: 'preparation',
+        currentState: 'inwar',
+        sourceFetchedAt: fetchedAt,
+        detectedAt: fetchedAt,
+      }),
+    ]);
+  });
+
+  it('skips state transition inserts when the current war snapshot is not linked', async () => {
+    const stateEvents = { insertWarStateEvents: vi.fn() };
+    const handler = createWarPollerHandler({
+      coc: {
+        getCurrentWar: vi.fn().mockResolvedValue({ clanTag: '#AAA111', state: 'inWar', data: {} }),
+      },
+      snapshots: createSnapshotStore('not_linked', {
+        clanTag: '#AAA111',
+        state: 'preparation',
+        snapshot: { state: 'preparation' },
+        fetchedAt: new Date('2026-04-27T00:55:00.000Z'),
+      }),
+      stateEvents,
+    });
+
+    await expect(handler(warLease)).resolves.toMatchObject({
+      status: 'not_linked',
+      stateEventsInserted: 0,
+    });
+    expect(stateEvents.insertWarStateEvents).not.toHaveBeenCalled();
   });
 
   it('rejects non-war leases', async () => {

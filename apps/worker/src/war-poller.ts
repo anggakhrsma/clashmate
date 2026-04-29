@@ -1,9 +1,12 @@
 import type { ClashMateCocClient } from '@clashmate/coc';
 import type {
   ClaimedPollingLease,
+  NormalizedLatestWarSnapshot,
   WarAttackEventInput,
   WarAttackEventStore,
   WarSnapshotStore,
+  WarStateEventInput,
+  WarStateEventStore,
 } from '@clashmate/database';
 
 export const CURRENT_WAR_RESOURCE_PREFIX = 'current-war:';
@@ -12,6 +15,7 @@ export interface WarPollerHandlerOptions {
   readonly coc: Pick<ClashMateCocClient, 'getCurrentWar'>;
   readonly snapshots: WarSnapshotStore;
   readonly attackEvents?: WarAttackEventStore;
+  readonly stateEvents?: WarStateEventStore;
   readonly now?: () => Date;
 }
 
@@ -20,6 +24,7 @@ export interface WarPollerResult {
   readonly clanTag: string;
   readonly state: string;
   readonly attackEventsInserted: number;
+  readonly stateEventsInserted: number;
 }
 
 export function createWarPollerHandler(options: WarPollerHandlerOptions) {
@@ -29,6 +34,7 @@ export function createWarPollerHandler(options: WarPollerHandlerOptions) {
     }
 
     const clanTag = parseCurrentWarResourceId(lease.resourceId);
+    const previousSnapshot = await options.snapshots.getLatestWarSnapshot(clanTag);
     const war = await options.coc.getCurrentWar(clanTag);
     const fetchedAt = options.now?.() ?? new Date();
     const result = await options.snapshots.upsertLatestWarSnapshot({
@@ -43,13 +49,44 @@ export function createWarPollerHandler(options: WarPollerHandlerOptions) {
       result.status === 'upserted' && options.attackEvents
         ? await options.attackEvents.insertWarAttackEvents(attacks)
         : { inserted: 0 };
+    const stateEvent = detectWarStateTransitionEvent(previousSnapshot, war, fetchedAt);
+    const stateResult =
+      result.status === 'upserted' && stateEvent && options.stateEvents
+        ? await options.stateEvents.insertWarStateEvents([stateEvent])
+        : { inserted: 0 };
 
     return {
       status: result.status === 'upserted' ? 'snapshot_updated' : 'not_linked',
       clanTag: war.clanTag,
       state: war.state,
       attackEventsInserted: attackResult.inserted,
+      stateEventsInserted: stateResult.inserted,
     };
+  };
+}
+
+export function detectWarStateTransitionEvent(
+  previous: NormalizedLatestWarSnapshot | null,
+  current: { clanTag: string; state: string; data?: unknown },
+  fetchedAt: Date,
+): WarStateEventInput | null {
+  if (!previous) return null;
+
+  const previousState = previous.state.trim().toLowerCase();
+  const currentState = current.state.trim().toLowerCase();
+  if (!previousState || !currentState || previousState === currentState) return null;
+
+  const currentData = isWarData(current.data) ? current.data : undefined;
+  return {
+    clanTag: current.clanTag,
+    warKey: buildWarKey(current.clanTag, currentData ?? {}),
+    previousState,
+    currentState,
+    previousSnapshot: previous.snapshot,
+    currentSnapshot: current,
+    sourceFetchedAt: fetchedAt,
+    occurredAt: chooseWarStateTransitionOccurredAt(currentState, currentData, fetchedAt),
+    detectedAt: fetchedAt,
   };
 }
 
@@ -93,8 +130,29 @@ function buildWarKey(clanTag: string, data: WarData): string {
   return `current:${clanTag.trim().toUpperCase()}:${opponentTag.trim().toUpperCase()}:${start}`.toLowerCase();
 }
 
+function chooseWarStateTransitionOccurredAt(
+  currentState: string,
+  data: WarData | undefined,
+  fetchedAt: Date,
+): Date {
+  const timestamp =
+    currentState === 'preparation'
+      ? data?.preparationStartTime
+      : currentState === 'inwar'
+        ? data?.startTime
+        : currentState === 'warended'
+          ? data?.endTime
+          : undefined;
+
+  if (!timestamp) return fetchedAt;
+  const parsed = new Date(timestamp);
+  return Number.isNaN(parsed.getTime()) ? fetchedAt : parsed;
+}
+
 interface WarData {
+  readonly preparationStartTime?: string;
   readonly startTime?: string;
+  readonly endTime?: string;
   readonly clan?: { readonly members?: readonly WarMember[] };
   readonly opponent?: { readonly tag?: string; readonly members?: readonly WarMember[] };
 }

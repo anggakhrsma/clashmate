@@ -480,6 +480,7 @@ export interface NormalizedLatestWarSnapshot {
 }
 
 export interface WarSnapshotStore {
+  getLatestWarSnapshot: (clanTag: string) => Promise<NormalizedLatestWarSnapshot | null>;
   upsertLatestWarSnapshot: (
     input: UpsertLatestWarSnapshotInput,
   ) => Promise<UpsertLatestWarSnapshotResult>;
@@ -510,6 +511,37 @@ export interface WarAttackEventStore {
   insertWarAttackEvents: (
     input: readonly WarAttackEventInput[],
   ) => Promise<InsertWarAttackEventsResult>;
+}
+
+export interface WarStateEventInput {
+  clanTag: string;
+  warKey: string;
+  previousState?: string | null;
+  currentState: string;
+  previousSnapshot?: unknown | null;
+  currentSnapshot: unknown;
+  sourceFetchedAt: Date;
+  occurredAt: Date;
+  detectedAt?: Date;
+}
+
+export interface NormalizedWarStateEventInput extends WarStateEventInput {
+  clanTag: string;
+  warKey: string;
+  previousState: string | null;
+  currentState: string;
+  previousSnapshot: unknown | null;
+}
+
+export interface InsertWarStateEventsResult {
+  status: 'processed' | 'not_linked';
+  inserted: number;
+}
+
+export interface WarStateEventStore {
+  insertWarStateEvents: (
+    input: readonly WarStateEventInput[],
+  ) => Promise<InsertWarStateEventsResult>;
 }
 
 export interface UpsertLatestPlayerSnapshotInput {
@@ -2180,6 +2212,23 @@ export function isClanDonationNotificationConfigEligibleForEvent(input: {
 
 export function createWarSnapshotStore(database: Database): WarSnapshotStore {
   return {
+    getLatestWarSnapshot: async (clanTagInput) => {
+      const clanTag = clanTagInput.trim().toUpperCase();
+      if (!clanTag) throw new Error('War snapshot requires a clan tag.');
+
+      const [row] = await database
+        .select({
+          clanTag: schema.warLatestSnapshots.clanTag,
+          state: schema.warLatestSnapshots.state,
+          snapshot: schema.warLatestSnapshots.snapshot,
+          fetchedAt: schema.warLatestSnapshots.fetchedAt,
+        })
+        .from(schema.warLatestSnapshots)
+        .where(eq(schema.warLatestSnapshots.clanTag, clanTag))
+        .limit(1);
+
+      return row ?? null;
+    },
     upsertLatestWarSnapshot: async (input) => {
       const snapshot = normalizeLatestWarSnapshotInput(input);
       const [linkedClan] = await database
@@ -2270,6 +2319,59 @@ export function createWarAttackEventStore(database: Database): WarAttackEventSto
           target: [schema.warAttackEvents.guildId, schema.warAttackEvents.eventKey],
         })
         .returning({ id: schema.warAttackEvents.id });
+
+      return { status: 'processed', inserted: inserted.length };
+    },
+  };
+}
+
+export function createWarStateEventStore(database: Database): WarStateEventStore {
+  return {
+    insertWarStateEvents: async (input) => {
+      const firstEvent = input[0];
+      if (!firstEvent) return { status: 'processed', inserted: 0 };
+
+      const clanTag = normalizeWarStateEventInput(firstEvent).clanTag;
+      const linkedClans = await database
+        .select({
+          id: schema.trackedClans.id,
+          guildId: schema.trackedClans.guildId,
+          clanTag: schema.trackedClans.clanTag,
+        })
+        .from(schema.trackedClans)
+        .where(
+          and(eq(schema.trackedClans.clanTag, clanTag), eq(schema.trackedClans.isActive, true)),
+        );
+
+      if (linkedClans.length === 0) return { status: 'not_linked', inserted: 0 };
+
+      const values = linkedClans.flatMap((linkedClan) =>
+        input.map((event) => {
+          const normalizedEvent = normalizeWarStateEventInput(event);
+          return {
+            guildId: linkedClan.guildId,
+            trackedClanId: linkedClan.id,
+            clanTag: normalizedEvent.clanTag,
+            warKey: normalizedEvent.warKey,
+            eventKey: buildWarStateEventKey(normalizedEvent),
+            previousState: normalizedEvent.previousState,
+            currentState: normalizedEvent.currentState,
+            previousSnapshot: normalizedEvent.previousSnapshot,
+            currentSnapshot: normalizedEvent.currentSnapshot,
+            sourceFetchedAt: normalizedEvent.sourceFetchedAt,
+            occurredAt: normalizedEvent.occurredAt,
+            detectedAt: normalizedEvent.detectedAt ?? new Date(),
+          };
+        }),
+      );
+
+      const inserted = await database
+        .insert(schema.warStateEvents)
+        .values(values)
+        .onConflictDoNothing({
+          target: [schema.warStateEvents.guildId, schema.warStateEvents.eventKey],
+        })
+        .returning({ id: schema.warStateEvents.id });
 
       return { status: 'processed', inserted: inserted.length };
     },
@@ -2533,6 +2635,38 @@ export function normalizeWarAttackEventInput(input: WarAttackEventInput): WarAtt
 export function buildWarAttackEventKey(input: WarAttackEventInput): string {
   const event = normalizeWarAttackEventInput(input);
   return `war:${event.warKey}:attack:${event.attackerTag}:${event.defenderTag}:${event.attackOrder}`;
+}
+
+export function normalizeWarStateEventInput(
+  input: WarStateEventInput,
+): NormalizedWarStateEventInput {
+  const clanTag = input.clanTag.trim().toUpperCase();
+  const warKey = input.warKey.trim().toLowerCase();
+  const currentState = input.currentState.trim().toLowerCase();
+  const previousState = input.previousState?.trim().toLowerCase() || null;
+  if (!clanTag || !warKey || !currentState) {
+    throw new Error('War state events require clan, war, and current state identifiers.');
+  }
+
+  return {
+    ...input,
+    clanTag,
+    warKey,
+    previousState,
+    currentState,
+    previousSnapshot: input.previousSnapshot ?? null,
+  };
+}
+
+export function buildWarStateEventKey(input: WarStateEventInput): string {
+  const event = normalizeWarStateEventInput(input);
+  const previousState = event.previousState ?? 'none';
+  return [
+    `war:${event.warKey}`,
+    `clan:${event.clanTag}`,
+    `state:${previousState}->${event.currentState}`,
+    event.occurredAt.toISOString(),
+  ].join(':');
 }
 
 export function normalizeLatestPlayerSnapshotInput(
