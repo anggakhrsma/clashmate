@@ -65,6 +65,10 @@ const commandRegistry = createBotCommandRegistry({
     coc: cocClient,
     links: databasePlayerLinks,
   },
+  player: {
+    coc: cocClient,
+    links: databasePlayerLinks,
+  },
   remaining: {
     store: {
       listLinkedClans: databaseTrackedClans.listLinkedClans,
@@ -96,6 +100,7 @@ const commandRegistry = createBotCommandRegistry({
       'debug',
       'guild-ban',
       'link',
+      'player',
       'remaining',
       'setup',
       'status',

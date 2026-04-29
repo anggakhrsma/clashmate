@@ -12,6 +12,7 @@ import {
   type GuildBanCommandOptions,
 } from './guild-ban.js';
 import { createLinkSlashCommand, type LinkCommandOptions } from './link.js';
+import { createPlayerSlashCommand, type PlayerCommandOptions } from './player.js';
 import { createRemainingSlashCommand, type RemainingCommandOptions } from './remaining.js';
 import { createSetupClanSlashCommand, type SetupClanCommandOptions } from './setup-clan.js';
 import {
@@ -28,6 +29,7 @@ export interface BotCommandRegistryOptions {
   debug: DebugCommandOptions;
   guildBan: GuildBanCommandOptions;
   link: LinkCommandOptions;
+  player: PlayerCommandOptions;
   remaining: RemainingCommandOptions;
   setupClan: SetupClanCommandOptions;
   status: StatusCommandOptions;
@@ -43,6 +45,7 @@ export function createBotCommandRegistry(options: BotCommandRegistryOptions): Co
   registry.registerSlash(createDebugSlashCommand(options.debug));
   registry.registerSlash(createGuildBanSlashCommand(options.guildBan));
   registry.registerSlash(createLinkSlashCommand(options.link));
+  registry.registerSlash(createPlayerSlashCommand(options.player));
   registry.registerSlash(createRemainingSlashCommand(options.remaining));
   registry.registerSlash(createSetupClanSlashCommand(options.setupClan));
   registry.registerSlash(createStatusSlashCommand(options.status));
