@@ -323,6 +323,30 @@ export const clanMemberEvents = pgTable(
       table.eventType,
       table.detectedAt,
     ),
+    clanMemberEventDetectedIdIndex: index('clan_member_events_detected_at_id_idx').on(
+      table.detectedAt,
+      table.id,
+    ),
+  }),
+);
+
+export const notificationFanoutCursors = pgTable(
+  'notification_fanout_cursors',
+  {
+    cursorName: text('cursor_name').primaryKey(),
+    sourceType: text('source_type').notNull(),
+    lastDetectedAt: timestamp('last_detected_at', { withTimezone: true }),
+    lastEventId: uuid('last_event_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    notificationFanoutCursorSourceIndex: index('notification_fanout_cursors_source_type_idx').on(
+      table.sourceType,
+    ),
+    notificationFanoutCursorPositionIndex: index(
+      'notification_fanout_cursors_source_position_idx',
+    ).on(table.sourceType, table.lastDetectedAt, table.lastEventId),
   }),
 );
 
