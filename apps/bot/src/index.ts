@@ -84,8 +84,13 @@ const commandRegistry = createBotCommandRegistry({
       'setup',
       'status',
       'usage',
+      'verify',
     ],
     logger,
+  },
+  verify: {
+    coc: cocClient,
+    links: databasePlayerLinks,
   },
 });
 

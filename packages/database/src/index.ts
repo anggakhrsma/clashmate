@@ -834,6 +834,12 @@ export interface DeletePlayerLinkInput {
   canDeleteOtherUsers: boolean;
 }
 
+export interface VerifyPlayerLinkInput {
+  guildId: string;
+  discordUserId: string;
+  playerTag: string;
+}
+
 export type LinkPlayerResult =
   | { status: 'linked'; wasDefault: boolean }
   | { status: 'already_linked_to_user' }
@@ -852,8 +858,13 @@ export type DeletePlayerLinkResult =
   | { status: 'not_found' }
   | { status: 'permission_denied'; discordUserId: string };
 
+export type VerifyPlayerLinkResult =
+  | { status: 'verified'; wasDefault: boolean; transferredFromUserId?: string }
+  | { status: 'max_accounts_reached'; maxAccounts: number };
+
 export interface DatabasePlayerLinkStore {
   linkPlayer: (input: LinkPlayerInput) => Promise<LinkPlayerResult>;
+  verifyPlayerLink: (input: VerifyPlayerLinkInput) => Promise<VerifyPlayerLinkResult>;
   listPlayerLinksByTags: (playerTags: readonly string[]) => Promise<PlayerLinkRecord[]>;
   deletePlayerLink: (input: DeletePlayerLinkInput) => Promise<DeletePlayerLinkResult>;
 }
@@ -871,6 +882,102 @@ export function createDatabase(databaseUrl: string) {
 
 export function createDatabasePlayerLinkStore(database: Database): DatabasePlayerLinkStore {
   return {
+    verifyPlayerLink: async (input) => {
+      return database.transaction(async (tx) => {
+        const existingRows = await tx
+          .select({
+            id: schema.playerLinks.id,
+            discordUserId: schema.playerLinks.discordUserId,
+            isDefault: schema.playerLinks.isDefault,
+          })
+          .from(schema.playerLinks)
+          .where(eq(schema.playerLinks.playerTag, input.playerTag));
+
+        const existingForUser = existingRows.find(
+          (row) => row.discordUserId === input.discordUserId,
+        );
+        const conflictingRows = existingRows.filter(
+          (row) => row.discordUserId !== input.discordUserId,
+        );
+        const userRows = await tx
+          .select({ id: schema.playerLinks.id, playerTag: schema.playerLinks.playerTag })
+          .from(schema.playerLinks)
+          .where(eq(schema.playerLinks.discordUserId, input.discordUserId));
+
+        const plan = buildVerifyPlayerLinkPlan({
+          existingForUser: Boolean(existingForUser),
+          userLinkCount: userRows.length,
+          conflictingUserIds: conflictingRows.map((row) => row.discordUserId),
+        });
+
+        if (plan.status === 'max_accounts_reached') return plan;
+
+        const now = new Date();
+        const shouldBeDefault = plan.shouldBeDefault;
+
+        if (conflictingRows.length > 0) {
+          await tx
+            .delete(schema.playerLinks)
+            .where(
+              and(
+                eq(schema.playerLinks.playerTag, input.playerTag),
+                ne(schema.playerLinks.discordUserId, input.discordUserId),
+              ),
+            );
+        }
+
+        if (shouldBeDefault) {
+          await tx
+            .update(schema.playerLinks)
+            .set({ isDefault: false, updatedAt: now })
+            .where(eq(schema.playerLinks.discordUserId, input.discordUserId));
+        }
+
+        if (existingForUser) {
+          await tx
+            .update(schema.playerLinks)
+            .set({
+              isVerified: true,
+              isDefault: existingForUser.isDefault || shouldBeDefault,
+              updatedAt: now,
+            })
+            .where(eq(schema.playerLinks.id, existingForUser.id));
+        } else {
+          await tx.insert(schema.playerLinks).values({
+            guildId: input.guildId,
+            discordUserId: input.discordUserId,
+            playerTag: input.playerTag,
+            isVerified: true,
+            isDefault: shouldBeDefault,
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+
+        const transferredFromUserId = plan.transferredFromUserId;
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.discordUserId,
+          action: transferredFromUserId
+            ? 'player_link_verified_transferred'
+            : 'player_link_verified',
+          targetType: 'player_link',
+          targetId: input.playerTag,
+          metadata: {
+            discordUserId: input.discordUserId,
+            transferredFromUserIds: conflictingRows.map((row) => row.discordUserId),
+            isDefault: existingForUser?.isDefault || shouldBeDefault,
+          },
+          createdAt: now,
+        });
+
+        return {
+          status: 'verified',
+          wasDefault: existingForUser?.isDefault || shouldBeDefault,
+          ...(transferredFromUserId ? { transferredFromUserId } : {}),
+        };
+      });
+    },
     deletePlayerLink: async (input) => {
       return database.transaction(async (tx) => {
         const [link] = await tx
@@ -1032,6 +1139,28 @@ export function createDatabasePlayerLinkStore(database: Database): DatabasePlaye
 export interface PlayerLinkDefaultPromotionCandidate {
   playerTag: string;
   createdAt: Date;
+}
+
+export interface VerifyPlayerLinkPlanInput {
+  existingForUser: boolean;
+  userLinkCount: number;
+  conflictingUserIds: readonly string[];
+}
+
+export type VerifyPlayerLinkPlan =
+  | { status: 'verify'; shouldBeDefault: boolean; transferredFromUserId: string | null }
+  | { status: 'max_accounts_reached'; maxAccounts: number };
+
+export function buildVerifyPlayerLinkPlan(input: VerifyPlayerLinkPlanInput): VerifyPlayerLinkPlan {
+  if (!input.existingForUser && input.userLinkCount >= MAX_PLAYER_LINKS_PER_USER) {
+    return { status: 'max_accounts_reached', maxAccounts: MAX_PLAYER_LINKS_PER_USER };
+  }
+
+  return {
+    status: 'verify',
+    shouldBeDefault: input.userLinkCount === 0,
+    transferredFromUserId: input.conflictingUserIds[0] ?? null,
+  };
 }
 
 export function selectPlayerLinkDefaultPromotion(

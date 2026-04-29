@@ -17,6 +17,7 @@ export interface ClashOfClansApiClient {
   getClan: (tag: string) => Promise<unknown>;
   getCurrentWar: (tag: string) => Promise<unknown | null>;
   getPlayer: (tag: string) => Promise<unknown>;
+  verifyPlayerToken: (tag: string, token: string) => Promise<unknown>;
 }
 
 export interface ClashApiErrorDetails {
@@ -103,6 +104,20 @@ export class ClashMateCocClient {
     }
 
     return { tag: this.normalizeTag(data.tag), name: data.name, data };
+  }
+
+  async verifyPlayerToken(tag: string, token: string): Promise<boolean> {
+    const normalizedTag = this.normalizeTag(tag);
+    const data = await this.request(() => this.client.verifyPlayerToken(normalizedTag, token));
+    if (!isVerifyTokenResponse(data)) {
+      throw new ClashApiError({
+        reason: 'invalid_response',
+        message: 'Clash API returned an invalid token verification response.',
+        retryable: false,
+      });
+    }
+
+    return data.status === 'ok';
   }
 
   private async request<T>(operation: () => Promise<T>): Promise<T> {
@@ -219,5 +234,14 @@ function isPlayerResponse(value: unknown): value is { tag: string; name: string 
     typeof value.tag === 'string' &&
     'name' in value &&
     typeof value.name === 'string'
+  );
+}
+
+function isVerifyTokenResponse(value: unknown): value is { status: 'ok' | 'invalid' } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'status' in value &&
+    (value.status === 'ok' || value.status === 'invalid')
   );
 }
