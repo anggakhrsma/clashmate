@@ -5,6 +5,7 @@ import {
   createDatabaseClanMemberNotificationConfigStore,
   createDatabaseCommandUsageRecorder,
   createDatabaseDebugReader,
+  createDatabasePlayerLinkStore,
   createDatabaseStatusMetrics,
   createDatabaseTrackedClanStore,
   createDatabaseUsageMetrics,
@@ -30,6 +31,7 @@ const databaseStatusMetrics = createDatabaseStatusMetrics(database);
 const databaseUsageMetrics = createDatabaseUsageMetrics(database);
 const databaseTrackedClans = createDatabaseTrackedClanStore(database);
 const databaseClanMemberNotifications = createDatabaseClanMemberNotificationConfigStore(database);
+const databasePlayerLinks = createDatabasePlayerLinkStore(database);
 const globalAccessBlocks = createGlobalAccessBlockStore(database);
 const cocClient = new ClashMateCocClient({ token: config.CLASH_OF_CLANS_API_TOKEN });
 
@@ -55,6 +57,10 @@ const commandRegistry = createBotCommandRegistry({
   guildBan: {
     accessBlocks: globalAccessBlocks,
   },
+  link: {
+    coc: cocClient,
+    links: databasePlayerLinks,
+  },
   setupClan: {
     clans: databaseTrackedClans,
     coc: cocClient,
@@ -69,7 +75,16 @@ const commandRegistry = createBotCommandRegistry({
   },
   usage: {
     metricReader: databaseUsageMetrics,
-    loadedCommandNames: ['blacklist', 'clans', 'debug', 'guild-ban', 'setup', 'status', 'usage'],
+    loadedCommandNames: [
+      'blacklist',
+      'clans',
+      'debug',
+      'guild-ban',
+      'link',
+      'setup',
+      'status',
+      'usage',
+    ],
     logger,
   },
 });

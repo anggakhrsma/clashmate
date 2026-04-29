@@ -710,6 +710,26 @@ export interface DatabaseClanMemberNotificationConfigStore {
   >;
 }
 
+export interface LinkPlayerInput {
+  guildId: string;
+  actorDiscordUserId: string;
+  discordUserId: string;
+  playerTag: string;
+  isDefault: boolean;
+}
+
+export type LinkPlayerResult =
+  | { status: 'linked'; wasDefault: boolean }
+  | { status: 'already_linked_to_user' }
+  | { status: 'already_linked_to_other_user'; discordUserId: string }
+  | { status: 'max_accounts_reached'; maxAccounts: number };
+
+export interface DatabasePlayerLinkStore {
+  linkPlayer: (input: LinkPlayerInput) => Promise<LinkPlayerResult>;
+}
+
+export const MAX_PLAYER_LINKS_PER_USER = 25;
+
 export function createDatabase(databaseUrl: string) {
   const client = postgres(databaseUrl, {
     max: 10,
@@ -717,6 +737,92 @@ export function createDatabase(databaseUrl: string) {
   });
 
   return drizzle(client, { schema });
+}
+
+export function createDatabasePlayerLinkStore(database: Database): DatabasePlayerLinkStore {
+  return {
+    linkPlayer: async (input) => {
+      return database.transaction(async (tx) => {
+        const [existingForTag] = await tx
+          .select({
+            discordUserId: schema.playerLinks.discordUserId,
+            isVerified: schema.playerLinks.isVerified,
+          })
+          .from(schema.playerLinks)
+          .where(eq(schema.playerLinks.playerTag, input.playerTag))
+          .limit(1);
+
+        if (existingForTag && existingForTag.discordUserId !== input.discordUserId) {
+          return {
+            status: 'already_linked_to_other_user',
+            discordUserId: existingForTag.discordUserId,
+          };
+        }
+
+        const rows = await tx
+          .select({ id: schema.playerLinks.id, playerTag: schema.playerLinks.playerTag })
+          .from(schema.playerLinks)
+          .where(eq(schema.playerLinks.discordUserId, input.discordUserId));
+
+        if (existingForTag && !input.isDefault) {
+          return { status: 'already_linked_to_user' };
+        }
+
+        if (!existingForTag && rows.length >= MAX_PLAYER_LINKS_PER_USER) {
+          return { status: 'max_accounts_reached', maxAccounts: MAX_PLAYER_LINKS_PER_USER };
+        }
+
+        const shouldBeDefault = input.isDefault || rows.length === 0;
+        const now = new Date();
+
+        if (shouldBeDefault) {
+          await tx
+            .update(schema.playerLinks)
+            .set({ isDefault: false, updatedAt: now })
+            .where(eq(schema.playerLinks.discordUserId, input.discordUserId));
+        }
+
+        if (existingForTag) {
+          await tx
+            .update(schema.playerLinks)
+            .set({ isDefault: shouldBeDefault, updatedAt: now })
+            .where(
+              and(
+                eq(schema.playerLinks.discordUserId, input.discordUserId),
+                eq(schema.playerLinks.playerTag, input.playerTag),
+              ),
+            );
+        } else {
+          await tx.insert(schema.playerLinks).values({
+            guildId: input.guildId,
+            discordUserId: input.discordUserId,
+            playerTag: input.playerTag,
+            isVerified: false,
+            isDefault: shouldBeDefault,
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+
+        if (input.actorDiscordUserId !== input.discordUserId) {
+          await tx.insert(schema.auditLogs).values({
+            guildId: input.guildId,
+            actorDiscordUserId: input.actorDiscordUserId,
+            action: existingForTag ? 'player_link_default_updated' : 'player_link_created',
+            targetType: 'player_link',
+            targetId: input.playerTag,
+            metadata: {
+              discordUserId: input.discordUserId,
+              isDefault: shouldBeDefault,
+            },
+            createdAt: now,
+          });
+        }
+
+        return { status: 'linked', wasDefault: shouldBeDefault };
+      });
+    },
+  };
 }
 
 export function createDatabaseStatusMetrics(database: Database): DatabaseStatusMetrics {
