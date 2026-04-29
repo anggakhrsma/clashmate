@@ -85,6 +85,15 @@ export const setupClanCommandData = new SlashCommandBuilder()
             { name: 'Disable', value: 'disable-logs' },
           ),
       )
+      .addStringOption((option) =>
+        option
+          .setName('log')
+          .setDescription('Which clan log to configure.')
+          .addChoices(
+            { name: 'Join/Leave Log', value: 'member_join_leave_log' },
+            { name: 'War Attack Log', value: 'war_attack_log' },
+          ),
+      )
       .addChannelOption((option) =>
         option
           .setName('channel')
@@ -194,6 +203,12 @@ export interface SetupClanMemberNotificationStore {
     input: ConfigureClanMemberNotificationsInput,
   ) => Promise<ConfigureClanMemberNotificationsResult>;
   disableJoinLeaveNotifications: (
+    input: DisableClanMemberNotificationsInput,
+  ) => Promise<DisableClanMemberNotificationsResult>;
+  configureWarAttackNotifications: (
+    input: ConfigureClanMemberNotificationsInput,
+  ) => Promise<ConfigureClanMemberNotificationsResult>;
+  disableWarAttackNotifications: (
     input: DisableClanMemberNotificationsInput,
   ) => Promise<DisableClanMemberNotificationsResult>;
 }
@@ -307,32 +322,49 @@ async function executeSetupClanLogs(
   }
 
   const action = interaction.options.getString('action') ?? 'enable-logs';
+  const logType = interaction.options.getString('log') ?? 'member_join_leave_log';
   if (action === 'disable-logs') {
-    const result = await options.memberNotifications.disableJoinLeaveNotifications({
+    const result = await (logType === 'war_attack_log'
+      ? options.memberNotifications.disableWarAttackNotifications
+      : options.memberNotifications.disableJoinLeaveNotifications)({
       guildId: interaction.guildId,
       actorDiscordUserId: interaction.user.id,
       clanTag,
     });
-    await interaction.reply({ content: formatDisableJoinLeaveMessage(result), ephemeral: true });
+    await interaction.reply({
+      content:
+        logType === 'war_attack_log'
+          ? formatDisableWarAttackMessage(result)
+          : formatDisableJoinLeaveMessage(result),
+      ephemeral: true,
+    });
     return;
   }
 
   const channel = interaction.options.getChannel('channel') ?? interaction.channel;
   if (!channel) {
     await interaction.reply({
-      content: 'Please choose a channel for the Join/Leave Log.',
+      content: `Please choose a channel for the ${logType === 'war_attack_log' ? 'War Attack Log' : 'Join/Leave Log'}.`,
       ephemeral: true,
     });
     return;
   }
 
-  const result = await options.memberNotifications.configureJoinLeaveNotifications({
+  const result = await (logType === 'war_attack_log'
+    ? options.memberNotifications.configureWarAttackNotifications
+    : options.memberNotifications.configureJoinLeaveNotifications)({
     guildId: interaction.guildId,
     actorDiscordUserId: interaction.user.id,
     clanTag,
     discordChannelId: channel.id,
   });
-  await interaction.reply({ content: formatConfigureJoinLeaveMessage(result), ephemeral: true });
+  await interaction.reply({
+    content:
+      logType === 'war_attack_log'
+        ? formatConfigureWarAttackMessage(result)
+        : formatConfigureJoinLeaveMessage(result),
+    ephemeral: true,
+  });
 }
 
 export function filterCategoryChoices(
@@ -517,4 +549,28 @@ export function formatDisableJoinLeaveMessage(
   }
 
   return `Disabled Join/Leave Log for **${result.clanName} (${result.clanTag})**.`;
+}
+
+export function formatConfigureWarAttackMessage(
+  result: ConfigureClanMemberNotificationsResult,
+): string {
+  if (result.status === 'clan_not_linked') {
+    return 'That clan is not linked to this server. Use `/setup clan` first.';
+  }
+
+  return `Enabled War Attack Log for **${result.clanName} (${result.clanTag})** in <#${result.discordChannelId}>.`;
+}
+
+export function formatDisableWarAttackMessage(
+  result: DisableClanMemberNotificationsResult,
+): string {
+  if (result.status === 'clan_not_linked') {
+    return 'That clan is not linked to this server. Use `/setup clan` first.';
+  }
+
+  if (result.status === 'not_configured') {
+    return `No War Attack Log is enabled for **${result.clanName} (${result.clanTag})**.`;
+  }
+
+  return `Disabled War Attack Log for **${result.clanName} (${result.clanTag})**.`;
 }

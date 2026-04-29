@@ -5,7 +5,9 @@ import {
   filterCategoryChoices,
   filterClanChoices,
   formatConfigureJoinLeaveMessage,
+  formatConfigureWarAttackMessage,
   formatDisableJoinLeaveMessage,
+  formatDisableWarAttackMessage,
   formatLinkClanMessage,
   formatUnlinkChannelMessage,
   formatUnlinkClanMessage,
@@ -50,6 +52,7 @@ describe('/setup clan', () => {
     expect(logsSubcommand?.options?.map((option) => option.name)).toEqual([
       'clan',
       'action',
+      'log',
       'channel',
     ]);
 
@@ -80,6 +83,30 @@ describe('/setup clan', () => {
         clanTag: '#2PP',
       }),
     ).toBe('No Join/Leave Log is enabled for **Alpha (#2PP)**.');
+  });
+
+  it('formats War Attack Log configuration messages', () => {
+    expect(
+      formatConfigureWarAttackMessage({
+        status: 'configured',
+        clanName: 'Alpha',
+        clanTag: '#2PP',
+        discordChannelId: '123',
+      }),
+    ).toBe('Enabled War Attack Log for **Alpha (#2PP)** in <#123>.');
+    expect(formatConfigureWarAttackMessage({ status: 'clan_not_linked' })).toBe(
+      'That clan is not linked to this server. Use `/setup clan` first.',
+    );
+    expect(
+      formatDisableWarAttackMessage({ status: 'disabled', clanName: 'Alpha', clanTag: '#2PP' }),
+    ).toBe('Disabled War Attack Log for **Alpha (#2PP)**.');
+    expect(
+      formatDisableWarAttackMessage({
+        status: 'not_configured',
+        clanName: 'Alpha',
+        clanTag: '#2PP',
+      }),
+    ).toBe('No War Attack Log is enabled for **Alpha (#2PP)**.');
   });
 
   it('formats link success and channel conflict messages', () => {
