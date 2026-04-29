@@ -23,16 +23,13 @@ yarn-debug.log*
 # TypeScript
 *.tsbuildinfo
 
-# Tests
-*.test.ts
-*.test.tsx
-*.spec.ts
-*.spec.tsx
-*.test.js
-*.test.jsx
-*.spec.js
-*.spec.jsx
-
+# Tests (local-only; do not commit)
+*.test.*
+*.spec.*
+test/
+tests/
+__tests__/
+__mocks__/
 
 # Database generated/local artifacts
 drizzle/
@@ -61,6 +58,9 @@ CLAUDE.md
 .cursor/
 .windsurf/
 
-# User-requested local-only Markdown/docs
+# User-requested local-only Markdown/docs (do not commit)
 *.md
-/docs/
+*.mdx
+docs/
+doc/
+documentation/
