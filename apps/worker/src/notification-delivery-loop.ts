@@ -155,6 +155,12 @@ export function formatNotificationOutboxMessage(entry: {
     return `⚔️ **${payload.attackerTag}** attacked **${payload.defenderTag}** in clan **${payload.clanTag}** for **${payload.stars}★** and **${payload.destructionPercentage}%**${fresh}${duration}.`;
   }
 
+  if (entry.sourceType === 'war_state_event') {
+    const payload = parseWarStateNotificationPayload(entry.payload);
+    const previous = payload.previousState ? ` from **${payload.previousState}**` : '';
+    return `🛡️ War state changed${previous} to **${payload.currentState}** for clan **${payload.clanTag}**.`;
+  }
+
   const payload = parseClanMemberNotificationPayload(entry.payload);
   const verb = payload.eventType === 'left' ? 'left' : 'joined';
   return `**${payload.playerName} (${payload.playerTag})** ${verb} clan **${payload.clanTag}**.`;
@@ -206,6 +212,27 @@ function parseWarAttackNotificationPayload(payload: unknown): {
   const duration = durationValue === null ? null : readPayloadNumber(record, 'duration');
   const freshAttack = readPayloadBoolean(record, 'freshAttack');
   return { clanTag, attackerTag, defenderTag, stars, destructionPercentage, duration, freshAttack };
+}
+
+function parseWarStateNotificationPayload(payload: unknown): {
+  clanTag: string;
+  previousState: string | null;
+  currentState: string;
+} {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Notification payload must be an object.');
+  }
+  const record = payload as Record<string, unknown>;
+  const clanTag = readPayloadString(record, 'clanTag');
+  const { previousState: previousStateValue } = record;
+  if (previousStateValue !== null && previousStateValue !== undefined) {
+    if (typeof previousStateValue !== 'string' || !previousStateValue.trim()) {
+      throw new Error('Notification payload requires previousState to be null or a string.');
+    }
+  }
+  const previousState = typeof previousStateValue === 'string' ? previousStateValue.trim() : null;
+  const currentState = readPayloadString(record, 'currentState');
+  return { clanTag, previousState, currentState };
 }
 
 function parseClanMemberNotificationPayload(payload: unknown): {

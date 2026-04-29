@@ -7,9 +7,11 @@ import {
   formatConfigureDonationMessage,
   formatConfigureJoinLeaveMessage,
   formatConfigureWarAttackMessage,
+  formatConfigureWarStateMessage,
   formatDisableDonationMessage,
   formatDisableJoinLeaveMessage,
   formatDisableWarAttackMessage,
+  formatDisableWarStateMessage,
   formatLinkClanMessage,
   formatUnlinkChannelMessage,
   formatUnlinkClanMessage,
@@ -62,6 +64,7 @@ describe('/setup clan', () => {
     expect(logsClanOption?.required).toBe(true);
     expect(logsClanOption?.autocomplete).toBe(true);
     expect(JSON.stringify(logsSubcommand)).toContain('continuous_donation_log');
+    expect(JSON.stringify(logsSubcommand)).toContain('war_state_log');
   });
 
   it('formats Join/Leave Log configuration messages', () => {
@@ -110,6 +113,30 @@ describe('/setup clan', () => {
         clanTag: '#2PP',
       }),
     ).toBe('No War Attack Log is enabled for **Alpha (#2PP)**.');
+  });
+
+  it('formats War State Log configuration messages', () => {
+    expect(
+      formatConfigureWarStateMessage({
+        status: 'configured',
+        clanName: 'Alpha',
+        clanTag: '#2PP',
+        discordChannelId: '123',
+      }),
+    ).toBe('Enabled War State Log for **Alpha (#2PP)** in <#123>.');
+    expect(formatConfigureWarStateMessage({ status: 'clan_not_linked' })).toBe(
+      'That clan is not linked to this server. Use `/setup clan` first.',
+    );
+    expect(
+      formatDisableWarStateMessage({ status: 'disabled', clanName: 'Alpha', clanTag: '#2PP' }),
+    ).toBe('Disabled War State Log for **Alpha (#2PP)**.');
+    expect(
+      formatDisableWarStateMessage({
+        status: 'not_configured',
+        clanName: 'Alpha',
+        clanTag: '#2PP',
+      }),
+    ).toBe('No War State Log is enabled for **Alpha (#2PP)**.');
   });
 
   it('formats Donation Log configuration messages', () => {

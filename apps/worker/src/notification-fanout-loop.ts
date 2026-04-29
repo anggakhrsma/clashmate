@@ -2,6 +2,7 @@ import type {
   FanOutClanDonationEventNotificationsInput,
   FanOutClanMemberEventNotificationsInput,
   FanOutWarAttackEventNotificationsInput,
+  FanOutWarStateEventNotificationsInput,
   NotificationFanOutStore,
 } from '@clashmate/database';
 import type { Logger } from '@clashmate/logger';
@@ -52,6 +53,10 @@ export async function runNotificationFanOutIteration(
     if (options.batchSize !== undefined) warAttackInput.limit = options.batchSize;
     const warAttackResult =
       await options.fanOutStore.fanOutWarAttackEventNotifications(warAttackInput);
+    const warStateInput: FanOutWarStateEventNotificationsInput = {};
+    if (options.batchSize !== undefined) warStateInput.limit = options.batchSize;
+    const warStateResult =
+      await options.fanOutStore.fanOutWarStateEventNotifications(warStateInput);
     const donationInput: FanOutClanDonationEventNotificationsInput = {};
     if (options.batchSize !== undefined) donationInput.limit = options.batchSize;
     const donationResult =
@@ -72,6 +77,14 @@ export async function runNotificationFanOutIteration(
         insertedOutboxEntries: warAttackResult.insertedOutboxEntries,
       },
       'War attack notification fan-out completed',
+    );
+    options.logger.info(
+      {
+        eventsScanned: warStateResult.eventsScanned,
+        matchedTargets: warStateResult.matchedTargets,
+        insertedOutboxEntries: warStateResult.insertedOutboxEntries,
+      },
+      'War state notification fan-out completed',
     );
     options.logger.info(
       {

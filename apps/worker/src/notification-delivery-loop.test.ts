@@ -79,6 +79,19 @@ describe('notification delivery loop', () => {
     );
   });
 
+  it('formats war state messages without mentions', () => {
+    expect(
+      formatNotificationOutboxMessage({
+        sourceType: 'war_state_event',
+        payload: {
+          clanTag: '#ABC123',
+          previousState: 'preparation',
+          currentState: 'inWar',
+        },
+      }),
+    ).toBe('🛡️ War state changed from **preparation** to **inWar** for clan **#ABC123**.');
+  });
+
   it('formats clan donation messages for donated-only, received-only, and both deltas', () => {
     const basePayload = {
       clanTag: '#ABC123',

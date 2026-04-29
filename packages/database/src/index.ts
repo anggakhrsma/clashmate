@@ -178,6 +178,7 @@ export interface ClanMemberEventStore {
 export type NotificationSourceType =
   | 'clan_member_event'
   | 'war_attack_event'
+  | 'war_state_event'
   | 'clan_donation_event';
 export type NotificationTargetType = 'discord_channel';
 
@@ -185,6 +186,8 @@ export const CLAN_MEMBER_NOTIFICATION_FANOUT_CURSOR_NAME = 'clan_member_event';
 export const CLAN_MEMBER_NOTIFICATION_FANOUT_SOURCE_TYPE = 'clan_member_event';
 export const WAR_ATTACK_NOTIFICATION_FANOUT_CURSOR_NAME = 'war_attack_event';
 export const WAR_ATTACK_NOTIFICATION_FANOUT_SOURCE_TYPE = 'war_attack_event';
+export const WAR_STATE_NOTIFICATION_FANOUT_CURSOR_NAME = 'war_state_event';
+export const WAR_STATE_NOTIFICATION_FANOUT_SOURCE_TYPE = 'war_state_event';
 export const CLAN_DONATION_NOTIFICATION_FANOUT_CURSOR_NAME = 'clan_donation_event';
 export const CLAN_DONATION_NOTIFICATION_FANOUT_SOURCE_TYPE = 'clan_donation_event';
 
@@ -239,6 +242,17 @@ export interface ClanDonationNotificationFanOutEvent extends NotificationFanOutE
   occurredAt: Date;
 }
 
+export interface WarStateNotificationFanOutEvent extends NotificationFanOutEventCursorPoint {
+  guildId: string;
+  trackedClanId: string | null;
+  clanTag: string;
+  warKey: string;
+  eventKey: string;
+  previousState: string | null;
+  currentState: string;
+  occurredAt: Date;
+}
+
 export interface EnsureNotificationFanOutCursorInput {
   cursorName: string;
   sourceType: NotificationSourceType;
@@ -263,6 +277,12 @@ export interface EnsureClanDonationNotificationFanOutCursorInput {
   now: Date;
 }
 
+export interface EnsureWarStateNotificationFanOutCursorInput {
+  cursorName: string;
+  sourceType: 'war_state_event';
+  now: Date;
+}
+
 export interface ListClanMemberEventsAfterFanOutCursorInput {
   cursor: NotificationFanOutCursorState;
   since?: Date;
@@ -277,6 +297,7 @@ export interface ListWarAttackEventsAfterFanOutCursorInput {
 
 export type ListClanDonationEventsAfterFanOutCursorInput =
   ListWarAttackEventsAfterFanOutCursorInput;
+export type ListWarStateEventsAfterFanOutCursorInput = ListWarAttackEventsAfterFanOutCursorInput;
 
 export interface AdvanceNotificationFanOutCursorInput {
   cursorName: string;
@@ -324,6 +345,19 @@ export interface ClanDonationNotificationFanOutRepository {
   advanceCursor: (input: AdvanceNotificationFanOutCursorInput) => Promise<void>;
 }
 
+export interface WarStateNotificationFanOutRepository {
+  ensureCursor: (input: EnsureWarStateNotificationFanOutCursorInput) => Promise<void>;
+  lockCursor: (cursorName: string) => Promise<NotificationFanOutCursorState | null>;
+  listEventsAfterCursor: (
+    input: ListWarStateEventsAfterFanOutCursorInput,
+  ) => Promise<WarStateNotificationFanOutEvent[]>;
+  listTargetsForEvents: (
+    eventIds: readonly string[],
+  ) => Promise<WarStateNotificationFanOutTarget[]>;
+  insertOutboxEntries: (values: readonly NotificationOutboxInsertValue[]) => Promise<number>;
+  advanceCursor: (input: AdvanceNotificationFanOutCursorInput) => Promise<void>;
+}
+
 export interface BuildNotificationOutboxIdempotencyKeyInput {
   guildId: string;
   sourceType: NotificationSourceType;
@@ -348,6 +382,8 @@ export type FanOutWarAttackEventNotificationsInput = FanOutClanMemberEventNotifi
 export type FanOutWarAttackEventNotificationsResult = FanOutClanMemberEventNotificationsResult;
 export type FanOutClanDonationEventNotificationsInput = FanOutClanMemberEventNotificationsInput;
 export type FanOutClanDonationEventNotificationsResult = FanOutClanMemberEventNotificationsResult;
+export type FanOutWarStateEventNotificationsInput = FanOutClanMemberEventNotificationsInput;
+export type FanOutWarStateEventNotificationsResult = FanOutClanMemberEventNotificationsResult;
 
 export interface NotificationFanOutStore {
   fanOutClanMemberEventNotifications: (
@@ -359,6 +395,9 @@ export interface NotificationFanOutStore {
   fanOutClanDonationEventNotifications: (
     input?: FanOutClanDonationEventNotificationsInput,
   ) => Promise<FanOutClanDonationEventNotificationsResult>;
+  fanOutWarStateEventNotifications: (
+    input?: FanOutWarStateEventNotificationsInput,
+  ) => Promise<FanOutWarStateEventNotificationsResult>;
 }
 
 export interface ClanMemberNotificationFanOutTarget {
@@ -409,10 +448,25 @@ export interface ClanDonationNotificationFanOutTarget {
   detectedAt: Date;
 }
 
+export interface WarStateNotificationFanOutTarget {
+  eventId: string;
+  guildId: string;
+  configId: string;
+  discordChannelId: string;
+  clanTag: string;
+  warKey: string;
+  eventKey: string;
+  previousState: string | null;
+  currentState: string;
+  occurredAt: Date;
+  detectedAt: Date;
+}
+
 export interface NotificationOutboxInsertValue {
   guildId: string;
   configId?: string | null;
   warAttackConfigId?: string | null;
+  warStateConfigId?: string | null;
   clanDonationConfigId?: string | null;
   sourceType: NotificationSourceType;
   sourceId: string;
@@ -709,6 +763,29 @@ export interface DatabaseClanMemberNotificationConfigStore {
     | { status: 'clan_not_linked' }
   >;
   disableWarAttackNotifications: (input: {
+    guildId: string;
+    actorDiscordUserId: string;
+    clanTag: string;
+  }) => Promise<
+    | { status: 'disabled'; clanName: string; clanTag: string }
+    | { status: 'not_configured'; clanName: string; clanTag: string }
+    | { status: 'clan_not_linked' }
+  >;
+  configureWarStateNotifications: (input: {
+    guildId: string;
+    actorDiscordUserId: string;
+    clanTag: string;
+    discordChannelId: string;
+  }) => Promise<
+    | {
+        status: 'configured';
+        clanName: string;
+        clanTag: string;
+        discordChannelId: string;
+      }
+    | { status: 'clan_not_linked' }
+  >;
+  disableWarStateNotifications: (input: {
     guildId: string;
     actorDiscordUserId: string;
     clanTag: string;
@@ -1403,6 +1480,14 @@ export function createNotificationFanOutStore(database: Database): NotificationF
         );
       });
     },
+    fanOutWarStateEventNotifications: async (input = {}) => {
+      return database.transaction(async (tx) => {
+        return fanOutWarStateEventNotificationsWithCursor(
+          createWarStateNotificationFanOutRepository(tx),
+          input,
+        );
+      });
+    },
     fanOutClanDonationEventNotifications: async (input = {}) => {
       return database.transaction(async (tx) => {
         return fanOutClanDonationEventNotificationsWithCursor(
@@ -1505,6 +1590,52 @@ export async function fanOutWarAttackEventNotificationsWithCursor(
 
   await repository.advanceCursor({
     cursorName: WAR_ATTACK_NOTIFICATION_FANOUT_CURSOR_NAME,
+    lastDetectedAt: lastEvent.detectedAt,
+    lastEventId: lastEvent.eventId,
+    now,
+  });
+
+  return { eventsScanned: events.length, matchedTargets: targets.length, insertedOutboxEntries };
+}
+
+export async function fanOutWarStateEventNotificationsWithCursor(
+  repository: WarStateNotificationFanOutRepository,
+  input: FanOutWarStateEventNotificationsInput = {},
+): Promise<FanOutWarStateEventNotificationsResult> {
+  const limit = input.limit ?? 100;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
+    throw new Error('War state notification fan-out limit must be between 1 and 1000.');
+  }
+  const now = input.now ?? new Date();
+
+  await repository.ensureCursor({
+    cursorName: WAR_STATE_NOTIFICATION_FANOUT_CURSOR_NAME,
+    sourceType: WAR_STATE_NOTIFICATION_FANOUT_SOURCE_TYPE,
+    now,
+  });
+
+  const cursor = await repository.lockCursor(WAR_STATE_NOTIFICATION_FANOUT_CURSOR_NAME);
+  if (!cursor) return { eventsScanned: 0, matchedTargets: 0, insertedOutboxEntries: 0 };
+
+  const listEventsInput: ListWarStateEventsAfterFanOutCursorInput = { cursor, limit };
+  if (input.since) listEventsInput.since = input.since;
+  const events = await repository.listEventsAfterCursor(listEventsInput);
+
+  if (events.length === 0) {
+    await repository.advanceCursor({ cursorName: WAR_STATE_NOTIFICATION_FANOUT_CURSOR_NAME, now });
+    return { eventsScanned: 0, matchedTargets: 0, insertedOutboxEntries: 0 };
+  }
+
+  const targets = await repository.listTargetsForEvents(events.map((event) => event.eventId));
+  const insertedOutboxEntries =
+    targets.length > 0
+      ? await repository.insertOutboxEntries(buildWarStateNotificationOutboxValues(targets, now))
+      : 0;
+  const lastEvent = events.at(-1);
+  if (!lastEvent) throw new Error('War state notification fan-out lost its event cursor.');
+
+  await repository.advanceCursor({
+    cursorName: WAR_STATE_NOTIFICATION_FANOUT_CURSOR_NAME,
     lastDetectedAt: lastEvent.detectedAt,
     lastEventId: lastEvent.eventId,
     now,
@@ -1730,6 +1861,42 @@ export function buildWarAttackNotificationOutboxValues(
       destructionPercentage: target.destructionPercentage,
       duration: target.duration,
       freshAttack: target.freshAttack,
+      occurredAt: target.occurredAt.toISOString(),
+      detectedAt: target.detectedAt.toISOString(),
+    },
+    attempts: 0,
+    nextAttemptAt: now,
+    updatedAt: now,
+  }));
+}
+
+export function buildWarStateNotificationOutboxValues(
+  targets: readonly WarStateNotificationFanOutTarget[],
+  now: Date,
+): NotificationOutboxInsertValue[] {
+  return targets.map((target) => ({
+    guildId: target.guildId,
+    configId: null,
+    warAttackConfigId: null,
+    warStateConfigId: target.configId,
+    sourceType: 'war_state_event',
+    sourceId: target.eventId,
+    idempotencyKey: buildNotificationOutboxIdempotencyKey({
+      guildId: target.guildId,
+      sourceType: 'war_state_event',
+      sourceId: target.eventId,
+      targetType: 'discord_channel',
+      targetId: target.discordChannelId,
+    }),
+    targetType: 'discord_channel',
+    targetId: target.discordChannelId,
+    status: 'pending',
+    payload: {
+      clanTag: target.clanTag,
+      warKey: target.warKey,
+      eventKey: target.eventKey,
+      previousState: target.previousState,
+      currentState: target.currentState,
       occurredAt: target.occurredAt.toISOString(),
       detectedAt: target.detectedAt.toISOString(),
     },
@@ -2056,6 +2223,138 @@ function buildWarAttackFanOutCursorPredicate(cursor: NotificationFanOutCursorSta
   );
 }
 
+function createWarStateNotificationFanOutRepository(
+  tx: DatabaseTransaction,
+): WarStateNotificationFanOutRepository {
+  return {
+    ensureCursor: async (input) => {
+      await tx
+        .insert(schema.notificationFanoutCursors)
+        .values({
+          cursorName: input.cursorName,
+          sourceType: input.sourceType,
+          createdAt: input.now,
+          updatedAt: input.now,
+        })
+        .onConflictDoNothing({ target: schema.notificationFanoutCursors.cursorName });
+    },
+    lockCursor: async (cursorName) => {
+      const rows = await tx.execute(sql<NotificationFanOutCursorState>`
+        select cursor_name as "cursorName",
+               source_type as "sourceType",
+               last_detected_at as "lastDetectedAt",
+               last_event_id as "lastEventId"
+        from notification_fanout_cursors
+        where cursor_name = ${cursorName}
+        for update skip locked
+      `);
+      return normalizeExecuteRows<NotificationFanOutCursorState>(rows)[0] ?? null;
+    },
+    listEventsAfterCursor: async (input) => {
+      const cursorPredicate = buildWarStateFanOutCursorPredicate(input.cursor);
+      const sincePredicate = input.since
+        ? gte(schema.warStateEvents.detectedAt, input.since)
+        : sql<boolean>`true`;
+
+      return tx
+        .select({
+          eventId: schema.warStateEvents.id,
+          guildId: schema.warStateEvents.guildId,
+          trackedClanId: schema.warStateEvents.trackedClanId,
+          clanTag: schema.warStateEvents.clanTag,
+          warKey: schema.warStateEvents.warKey,
+          eventKey: schema.warStateEvents.eventKey,
+          previousState: schema.warStateEvents.previousState,
+          currentState: schema.warStateEvents.currentState,
+          occurredAt: schema.warStateEvents.occurredAt,
+          detectedAt: schema.warStateEvents.detectedAt,
+        })
+        .from(schema.warStateEvents)
+        .where(and(cursorPredicate, sincePredicate))
+        .orderBy(asc(schema.warStateEvents.detectedAt), asc(schema.warStateEvents.id))
+        .limit(input.limit);
+    },
+    listTargetsForEvents: async (eventIds) => {
+      if (eventIds.length === 0) return [];
+      return tx
+        .select({
+          eventId: schema.warStateEvents.id,
+          guildId: schema.warStateEvents.guildId,
+          clanTag: schema.warStateEvents.clanTag,
+          warKey: schema.warStateEvents.warKey,
+          eventKey: schema.warStateEvents.eventKey,
+          previousState: schema.warStateEvents.previousState,
+          currentState: schema.warStateEvents.currentState,
+          occurredAt: schema.warStateEvents.occurredAt,
+          detectedAt: schema.warStateEvents.detectedAt,
+          configId: schema.warStateNotificationConfigs.id,
+          discordChannelId: schema.warStateNotificationConfigs.discordChannelId,
+        })
+        .from(schema.warStateEvents)
+        .innerJoin(
+          schema.warStateNotificationConfigs,
+          and(
+            eq(schema.warStateNotificationConfigs.guildId, schema.warStateEvents.guildId),
+            eq(
+              schema.warStateNotificationConfigs.trackedClanId,
+              schema.warStateEvents.trackedClanId,
+            ),
+            eq(schema.warStateNotificationConfigs.eventType, 'war_state'),
+            eq(schema.warStateNotificationConfigs.isEnabled, true),
+            lte(schema.warStateNotificationConfigs.createdAt, schema.warStateEvents.detectedAt),
+          ),
+        )
+        .where(inArray(schema.warStateEvents.id, [...eventIds]))
+        .orderBy(
+          asc(schema.warStateEvents.detectedAt),
+          asc(schema.warStateEvents.id),
+          asc(schema.warStateNotificationConfigs.discordChannelId),
+        );
+    },
+    insertOutboxEntries: async (values) => {
+      if (values.length === 0) return 0;
+      const rows = await tx
+        .insert(schema.notificationOutbox)
+        .values([...values])
+        .onConflictDoNothing({ target: schema.notificationOutbox.idempotencyKey })
+        .returning({ id: schema.notificationOutbox.id });
+      return rows.length;
+    },
+    advanceCursor: async (input) => {
+      if (input.lastDetectedAt && input.lastEventId) {
+        await tx
+          .update(schema.notificationFanoutCursors)
+          .set({
+            lastDetectedAt: input.lastDetectedAt,
+            lastEventId: input.lastEventId,
+            updatedAt: input.now,
+          })
+          .where(eq(schema.notificationFanoutCursors.cursorName, input.cursorName));
+        return;
+      }
+      await tx
+        .update(schema.notificationFanoutCursors)
+        .set({ updatedAt: input.now })
+        .where(eq(schema.notificationFanoutCursors.cursorName, input.cursorName));
+    },
+  };
+}
+
+function buildWarStateFanOutCursorPredicate(cursor: NotificationFanOutCursorState) {
+  if (!cursor.lastDetectedAt) return sql<boolean>`true`;
+  if (!cursor.lastEventId) return gt(schema.warStateEvents.detectedAt, cursor.lastDetectedAt);
+
+  return (
+    or(
+      gt(schema.warStateEvents.detectedAt, cursor.lastDetectedAt),
+      and(
+        eq(schema.warStateEvents.detectedAt, cursor.lastDetectedAt),
+        gt(schema.warStateEvents.id, cursor.lastEventId),
+      ),
+    ) ?? sql<boolean>`false`
+  );
+}
+
 function createClanDonationNotificationFanOutRepository(
   tx: DatabaseTransaction,
 ): ClanDonationNotificationFanOutRepository {
@@ -2221,6 +2520,13 @@ export function isClanMemberNotificationConfigEligibleForEvent(input: {
 }
 
 export function isWarAttackNotificationConfigEligibleForEvent(input: {
+  configCreatedAt: Date;
+  eventDetectedAt: Date;
+}): boolean {
+  return input.configCreatedAt.getTime() <= input.eventDetectedAt.getTime();
+}
+
+export function isWarStateNotificationConfigEligibleForEvent(input: {
   configCreatedAt: Date;
   eventDetectedAt: Date;
 }): boolean {
@@ -3385,6 +3691,161 @@ export function createDatabaseClanMemberNotificationConfigStore(
             clanTag: trackedClan.clanTag,
             clanName: trackedClan.name,
             eventTypes: ['war_attack'],
+            removedConfigs: existing,
+          },
+        });
+
+        return {
+          status: 'disabled' as const,
+          clanName: trackedClan.name ?? trackedClan.clanTag,
+          clanTag: trackedClan.clanTag,
+        };
+      });
+    },
+    configureWarStateNotifications: async (input) => {
+      const clanTag = input.clanTag.trim().toUpperCase();
+      return database.transaction(async (tx) => {
+        const [trackedClan] = await tx
+          .select({
+            id: schema.trackedClans.id,
+            clanTag: schema.trackedClans.clanTag,
+            name: schema.trackedClans.name,
+          })
+          .from(schema.trackedClans)
+          .where(
+            and(
+              eq(schema.trackedClans.guildId, input.guildId),
+              eq(schema.trackedClans.clanTag, clanTag),
+              eq(schema.trackedClans.isActive, true),
+            ),
+          )
+          .limit(1);
+
+        if (!trackedClan) return { status: 'clan_not_linked' as const };
+
+        const existing = await tx
+          .select({
+            id: schema.warStateNotificationConfigs.id,
+            discordChannelId: schema.warStateNotificationConfigs.discordChannelId,
+            eventType: schema.warStateNotificationConfigs.eventType,
+          })
+          .from(schema.warStateNotificationConfigs)
+          .where(
+            and(
+              eq(schema.warStateNotificationConfigs.guildId, input.guildId),
+              eq(schema.warStateNotificationConfigs.trackedClanId, trackedClan.id),
+              eq(schema.warStateNotificationConfigs.eventType, 'war_state'),
+            ),
+          );
+
+        await tx
+          .delete(schema.warStateNotificationConfigs)
+          .where(
+            and(
+              eq(schema.warStateNotificationConfigs.guildId, input.guildId),
+              eq(schema.warStateNotificationConfigs.trackedClanId, trackedClan.id),
+              eq(schema.warStateNotificationConfigs.eventType, 'war_state'),
+            ),
+          );
+
+        const now = new Date();
+        await tx.insert(schema.warStateNotificationConfigs).values({
+          guildId: input.guildId,
+          trackedClanId: trackedClan.id,
+          discordChannelId: input.discordChannelId,
+          eventType: 'war_state',
+          isEnabled: true,
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: 'war_state_notifications.enabled',
+          targetType: 'tracked_clan',
+          targetId: trackedClan.id,
+          metadata: {
+            clanTag: trackedClan.clanTag,
+            clanName: trackedClan.name,
+            discordChannelId: input.discordChannelId,
+            eventTypes: ['war_state'],
+            previousConfigs: existing,
+          },
+        });
+
+        return {
+          status: 'configured' as const,
+          clanName: trackedClan.name ?? trackedClan.clanTag,
+          clanTag: trackedClan.clanTag,
+          discordChannelId: input.discordChannelId,
+        };
+      });
+    },
+    disableWarStateNotifications: async (input) => {
+      const clanTag = input.clanTag.trim().toUpperCase();
+      return database.transaction(async (tx) => {
+        const [trackedClan] = await tx
+          .select({
+            id: schema.trackedClans.id,
+            clanTag: schema.trackedClans.clanTag,
+            name: schema.trackedClans.name,
+          })
+          .from(schema.trackedClans)
+          .where(
+            and(
+              eq(schema.trackedClans.guildId, input.guildId),
+              eq(schema.trackedClans.clanTag, clanTag),
+              eq(schema.trackedClans.isActive, true),
+            ),
+          )
+          .limit(1);
+
+        if (!trackedClan) return { status: 'clan_not_linked' as const };
+
+        const existing = await tx
+          .select({
+            id: schema.warStateNotificationConfigs.id,
+            discordChannelId: schema.warStateNotificationConfigs.discordChannelId,
+            eventType: schema.warStateNotificationConfigs.eventType,
+          })
+          .from(schema.warStateNotificationConfigs)
+          .where(
+            and(
+              eq(schema.warStateNotificationConfigs.guildId, input.guildId),
+              eq(schema.warStateNotificationConfigs.trackedClanId, trackedClan.id),
+              eq(schema.warStateNotificationConfigs.eventType, 'war_state'),
+            ),
+          );
+
+        if (existing.length === 0) {
+          return {
+            status: 'not_configured' as const,
+            clanName: trackedClan.name ?? trackedClan.clanTag,
+            clanTag: trackedClan.clanTag,
+          };
+        }
+
+        await tx
+          .delete(schema.warStateNotificationConfigs)
+          .where(
+            and(
+              eq(schema.warStateNotificationConfigs.guildId, input.guildId),
+              eq(schema.warStateNotificationConfigs.trackedClanId, trackedClan.id),
+              eq(schema.warStateNotificationConfigs.eventType, 'war_state'),
+            ),
+          );
+
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: 'war_state_notifications.disabled',
+          targetType: 'tracked_clan',
+          targetId: trackedClan.id,
+          metadata: {
+            clanTag: trackedClan.clanTag,
+            clanName: trackedClan.name,
+            eventTypes: ['war_state'],
             removedConfigs: existing,
           },
         });

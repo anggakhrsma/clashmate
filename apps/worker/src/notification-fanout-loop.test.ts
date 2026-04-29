@@ -19,6 +19,11 @@ function createFanOutStore(): NotificationFanOutStore {
       matchedTargets: 5,
       insertedOutboxEntries: 6,
     }),
+    fanOutWarStateEventNotifications: vi.fn().mockResolvedValue({
+      eventsScanned: 10,
+      matchedTargets: 11,
+      insertedOutboxEntries: 12,
+    }),
     fanOutClanDonationEventNotifications: vi.fn().mockResolvedValue({
       eventsScanned: 7,
       matchedTargets: 8,
@@ -53,6 +58,7 @@ describe('notification fan-out loop', () => {
 
     expect(fanOutStore.fanOutClanMemberEventNotifications).toHaveBeenCalledWith({ limit: 250 });
     expect(fanOutStore.fanOutWarAttackEventNotifications).toHaveBeenCalledWith({ limit: 250 });
+    expect(fanOutStore.fanOutWarStateEventNotifications).toHaveBeenCalledWith({ limit: 250 });
     expect(fanOutStore.fanOutClanDonationEventNotifications).toHaveBeenCalledWith({ limit: 250 });
     expect(logger.info).toHaveBeenCalledWith(
       { eventsScanned: 2, matchedTargets: 3, insertedOutboxEntries: 1 },
@@ -61,6 +67,10 @@ describe('notification fan-out loop', () => {
     expect(logger.info).toHaveBeenCalledWith(
       { eventsScanned: 4, matchedTargets: 5, insertedOutboxEntries: 6 },
       'War attack notification fan-out completed',
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      { eventsScanned: 10, matchedTargets: 11, insertedOutboxEntries: 12 },
+      'War state notification fan-out completed',
     );
     expect(logger.info).toHaveBeenCalledWith(
       { eventsScanned: 7, matchedTargets: 8, insertedOutboxEntries: 9 },
@@ -117,8 +127,10 @@ describe('notification fan-out loop', () => {
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
+    await Promise.resolve();
     expect(fanOutStore.fanOutClanMemberEventNotifications).toHaveBeenCalledTimes(1);
     expect(fanOutStore.fanOutWarAttackEventNotifications).toHaveBeenCalledTimes(1);
+    expect(fanOutStore.fanOutWarStateEventNotifications).toHaveBeenCalledTimes(1);
     expect(fanOutStore.fanOutClanDonationEventNotifications).toHaveBeenCalledTimes(1);
 
     controller.stop();
@@ -127,6 +139,7 @@ describe('notification fan-out loop', () => {
 
     await vi.advanceTimersByTimeAsync(36_000);
     expect(fanOutStore.fanOutClanMemberEventNotifications).toHaveBeenCalledTimes(1);
+    expect(fanOutStore.fanOutWarStateEventNotifications).toHaveBeenCalledTimes(1);
     expect(fanOutStore.fanOutClanDonationEventNotifications).toHaveBeenCalledTimes(1);
   });
 });
