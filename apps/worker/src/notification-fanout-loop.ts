@@ -1,4 +1,5 @@
 import type {
+  FanOutClanDonationEventNotificationsInput,
   FanOutClanMemberEventNotificationsInput,
   FanOutWarAttackEventNotificationsInput,
   NotificationFanOutStore,
@@ -51,6 +52,10 @@ export async function runNotificationFanOutIteration(
     if (options.batchSize !== undefined) warAttackInput.limit = options.batchSize;
     const warAttackResult =
       await options.fanOutStore.fanOutWarAttackEventNotifications(warAttackInput);
+    const donationInput: FanOutClanDonationEventNotificationsInput = {};
+    if (options.batchSize !== undefined) donationInput.limit = options.batchSize;
+    const donationResult =
+      await options.fanOutStore.fanOutClanDonationEventNotifications(donationInput);
 
     options.logger.info(
       {
@@ -67,6 +72,14 @@ export async function runNotificationFanOutIteration(
         insertedOutboxEntries: warAttackResult.insertedOutboxEntries,
       },
       'War attack notification fan-out completed',
+    );
+    options.logger.info(
+      {
+        eventsScanned: donationResult.eventsScanned,
+        matchedTargets: donationResult.matchedTargets,
+        insertedOutboxEntries: donationResult.insertedOutboxEntries,
+      },
+      'Clan donation notification fan-out completed',
     );
   } catch (error) {
     options.logger.error({ error }, 'Notification fan-out failed');

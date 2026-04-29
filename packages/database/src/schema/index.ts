@@ -455,6 +455,35 @@ export const warAttackNotificationConfigs = pgTable(
   }),
 );
 
+export const clanDonationNotificationConfigs = pgTable(
+  'clan_donation_notification_configs',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    guildId: text('guild_id')
+      .notNull()
+      .references(() => guilds.id, { onDelete: 'cascade' }),
+    trackedClanId: uuid('tracked_clan_id')
+      .notNull()
+      .references(() => trackedClans.id, { onDelete: 'cascade' }),
+    discordChannelId: text('discord_channel_id').notNull(),
+    eventType: text('event_type').notNull().default('instant_donation'),
+    isEnabled: boolean('is_enabled').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    clanDonationNotificationConfigUnique: uniqueIndex(
+      'clan_donation_notification_configs_guild_clan_channel_event_unique',
+    ).on(table.guildId, table.trackedClanId, table.discordChannelId, table.eventType),
+    clanDonationNotificationConfigGuildClanIndex: index(
+      'clan_donation_notification_configs_guild_clan_idx',
+    ).on(table.guildId, table.trackedClanId),
+    clanDonationNotificationConfigChannelIndex: index(
+      'clan_donation_notification_configs_guild_channel_idx',
+    ).on(table.guildId, table.discordChannelId),
+  }),
+);
+
 export const notificationOutbox = pgTable(
   'notification_outbox',
   {
@@ -470,6 +499,10 @@ export const notificationOutbox = pgTable(
       {
         onDelete: 'set null',
       },
+    ),
+    clanDonationConfigId: uuid('clan_donation_config_id').references(
+      () => clanDonationNotificationConfigs.id,
+      { onDelete: 'set null' },
     ),
     sourceType: text('source_type').notNull(),
     sourceId: uuid('source_id').notNull(),
@@ -625,6 +658,7 @@ export const guildRelations = relations(guilds, ({ many }) => ({
   clanMemberEvents: many(clanMemberEvents),
   clanDonationEvents: many(clanDonationEvents),
   clanMemberNotificationConfigs: many(clanMemberNotificationConfigs),
+  clanDonationNotificationConfigs: many(clanDonationNotificationConfigs),
   notificationOutbox: many(notificationOutbox),
 }));
 
@@ -656,6 +690,7 @@ export const trackedClanRelations = relations(trackedClans, ({ one, many }) => (
   memberEvents: many(clanMemberEvents),
   donationEvents: many(clanDonationEvents),
   clanMemberNotificationConfigs: many(clanMemberNotificationConfigs),
+  clanDonationNotificationConfigs: many(clanDonationNotificationConfigs),
 }));
 
 export const trackedClanChannelRelations = relations(trackedClanChannels, ({ one }) => ({
@@ -721,6 +756,21 @@ export const warAttackNotificationConfigRelations = relations(
   }),
 );
 
+export const clanDonationNotificationConfigRelations = relations(
+  clanDonationNotificationConfigs,
+  ({ one, many }) => ({
+    guild: one(guilds, {
+      fields: [clanDonationNotificationConfigs.guildId],
+      references: [guilds.id],
+    }),
+    trackedClan: one(trackedClans, {
+      fields: [clanDonationNotificationConfigs.trackedClanId],
+      references: [trackedClans.id],
+    }),
+    outboxEntries: many(notificationOutbox),
+  }),
+);
+
 export const notificationOutboxRelations = relations(notificationOutbox, ({ one }) => ({
   guild: one(guilds, {
     fields: [notificationOutbox.guildId],
@@ -733,5 +783,9 @@ export const notificationOutboxRelations = relations(notificationOutbox, ({ one 
   warAttackConfig: one(warAttackNotificationConfigs, {
     fields: [notificationOutbox.warAttackConfigId],
     references: [warAttackNotificationConfigs.id],
+  }),
+  clanDonationConfig: one(clanDonationNotificationConfigs, {
+    fields: [notificationOutbox.clanDonationConfigId],
+    references: [clanDonationNotificationConfigs.id],
   }),
 }));

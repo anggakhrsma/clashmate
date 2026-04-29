@@ -185,6 +185,8 @@ export const CLAN_MEMBER_NOTIFICATION_FANOUT_CURSOR_NAME = 'clan_member_event';
 export const CLAN_MEMBER_NOTIFICATION_FANOUT_SOURCE_TYPE = 'clan_member_event';
 export const WAR_ATTACK_NOTIFICATION_FANOUT_CURSOR_NAME = 'war_attack_event';
 export const WAR_ATTACK_NOTIFICATION_FANOUT_SOURCE_TYPE = 'war_attack_event';
+export const CLAN_DONATION_NOTIFICATION_FANOUT_CURSOR_NAME = 'clan_donation_event';
+export const CLAN_DONATION_NOTIFICATION_FANOUT_SOURCE_TYPE = 'clan_donation_event';
 
 export interface NotificationFanOutCursorState {
   cursorName: string;
@@ -225,6 +227,18 @@ export interface WarAttackNotificationFanOutEvent extends NotificationFanOutEven
   occurredAt: Date;
 }
 
+export interface ClanDonationNotificationFanOutEvent extends NotificationFanOutEventCursorPoint {
+  guildId: string;
+  trackedClanId: string | null;
+  clanTag: string;
+  playerTag: string;
+  playerName: string;
+  eventKey: string;
+  donationDelta: number;
+  receivedDelta: number;
+  occurredAt: Date;
+}
+
 export interface EnsureNotificationFanOutCursorInput {
   cursorName: string;
   sourceType: NotificationSourceType;
@@ -243,6 +257,12 @@ export interface EnsureWarAttackNotificationFanOutCursorInput {
   now: Date;
 }
 
+export interface EnsureClanDonationNotificationFanOutCursorInput {
+  cursorName: string;
+  sourceType: 'clan_donation_event';
+  now: Date;
+}
+
 export interface ListClanMemberEventsAfterFanOutCursorInput {
   cursor: NotificationFanOutCursorState;
   since?: Date;
@@ -254,6 +274,9 @@ export interface ListWarAttackEventsAfterFanOutCursorInput {
   since?: Date;
   limit: number;
 }
+
+export type ListClanDonationEventsAfterFanOutCursorInput =
+  ListWarAttackEventsAfterFanOutCursorInput;
 
 export interface AdvanceNotificationFanOutCursorInput {
   cursorName: string;
@@ -288,6 +311,19 @@ export interface WarAttackNotificationFanOutRepository {
   advanceCursor: (input: AdvanceNotificationFanOutCursorInput) => Promise<void>;
 }
 
+export interface ClanDonationNotificationFanOutRepository {
+  ensureCursor: (input: EnsureClanDonationNotificationFanOutCursorInput) => Promise<void>;
+  lockCursor: (cursorName: string) => Promise<NotificationFanOutCursorState | null>;
+  listEventsAfterCursor: (
+    input: ListClanDonationEventsAfterFanOutCursorInput,
+  ) => Promise<ClanDonationNotificationFanOutEvent[]>;
+  listTargetsForEvents: (
+    eventIds: readonly string[],
+  ) => Promise<ClanDonationNotificationFanOutTarget[]>;
+  insertOutboxEntries: (values: readonly NotificationOutboxInsertValue[]) => Promise<number>;
+  advanceCursor: (input: AdvanceNotificationFanOutCursorInput) => Promise<void>;
+}
+
 export interface BuildNotificationOutboxIdempotencyKeyInput {
   guildId: string;
   sourceType: NotificationSourceType;
@@ -310,6 +346,8 @@ export interface FanOutClanMemberEventNotificationsResult {
 
 export type FanOutWarAttackEventNotificationsInput = FanOutClanMemberEventNotificationsInput;
 export type FanOutWarAttackEventNotificationsResult = FanOutClanMemberEventNotificationsResult;
+export type FanOutClanDonationEventNotificationsInput = FanOutClanMemberEventNotificationsInput;
+export type FanOutClanDonationEventNotificationsResult = FanOutClanMemberEventNotificationsResult;
 
 export interface NotificationFanOutStore {
   fanOutClanMemberEventNotifications: (
@@ -318,6 +356,9 @@ export interface NotificationFanOutStore {
   fanOutWarAttackEventNotifications: (
     input?: FanOutWarAttackEventNotificationsInput,
   ) => Promise<FanOutWarAttackEventNotificationsResult>;
+  fanOutClanDonationEventNotifications: (
+    input?: FanOutClanDonationEventNotificationsInput,
+  ) => Promise<FanOutClanDonationEventNotificationsResult>;
 }
 
 export interface ClanMemberNotificationFanOutTarget {
@@ -353,10 +394,26 @@ export interface WarAttackNotificationFanOutTarget {
   detectedAt: Date;
 }
 
+export interface ClanDonationNotificationFanOutTarget {
+  eventId: string;
+  guildId: string;
+  configId: string;
+  discordChannelId: string;
+  clanTag: string;
+  playerTag: string;
+  playerName: string;
+  eventKey: string;
+  donationDelta: number;
+  receivedDelta: number;
+  occurredAt: Date;
+  detectedAt: Date;
+}
+
 export interface NotificationOutboxInsertValue {
   guildId: string;
   configId?: string | null;
   warAttackConfigId?: string | null;
+  clanDonationConfigId?: string | null;
   sourceType: NotificationSourceType;
   sourceId: string;
   idempotencyKey: string;
@@ -1161,6 +1218,14 @@ export function createNotificationFanOutStore(database: Database): NotificationF
         );
       });
     },
+    fanOutClanDonationEventNotifications: async (input = {}) => {
+      return database.transaction(async (tx) => {
+        return fanOutClanDonationEventNotificationsWithCursor(
+          createClanDonationNotificationFanOutRepository(tx),
+          input,
+        );
+      });
+    },
   };
 }
 
@@ -1255,6 +1320,57 @@ export async function fanOutWarAttackEventNotificationsWithCursor(
 
   await repository.advanceCursor({
     cursorName: WAR_ATTACK_NOTIFICATION_FANOUT_CURSOR_NAME,
+    lastDetectedAt: lastEvent.detectedAt,
+    lastEventId: lastEvent.eventId,
+    now,
+  });
+
+  return { eventsScanned: events.length, matchedTargets: targets.length, insertedOutboxEntries };
+}
+
+export async function fanOutClanDonationEventNotificationsWithCursor(
+  repository: ClanDonationNotificationFanOutRepository,
+  input: FanOutClanDonationEventNotificationsInput = {},
+): Promise<FanOutClanDonationEventNotificationsResult> {
+  const limit = input.limit ?? 100;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
+    throw new Error('Clan donation notification fan-out limit must be between 1 and 1000.');
+  }
+  const now = input.now ?? new Date();
+
+  await repository.ensureCursor({
+    cursorName: CLAN_DONATION_NOTIFICATION_FANOUT_CURSOR_NAME,
+    sourceType: CLAN_DONATION_NOTIFICATION_FANOUT_SOURCE_TYPE,
+    now,
+  });
+
+  const cursor = await repository.lockCursor(CLAN_DONATION_NOTIFICATION_FANOUT_CURSOR_NAME);
+  if (!cursor) return { eventsScanned: 0, matchedTargets: 0, insertedOutboxEntries: 0 };
+
+  const listEventsInput: ListClanDonationEventsAfterFanOutCursorInput = { cursor, limit };
+  if (input.since) listEventsInput.since = input.since;
+  const events = await repository.listEventsAfterCursor(listEventsInput);
+
+  if (events.length === 0) {
+    await repository.advanceCursor({
+      cursorName: CLAN_DONATION_NOTIFICATION_FANOUT_CURSOR_NAME,
+      now,
+    });
+    return { eventsScanned: 0, matchedTargets: 0, insertedOutboxEntries: 0 };
+  }
+
+  const targets = await repository.listTargetsForEvents(events.map((event) => event.eventId));
+  const insertedOutboxEntries =
+    targets.length > 0
+      ? await repository.insertOutboxEntries(
+          buildClanDonationNotificationOutboxValues(targets, now),
+        )
+      : 0;
+  const lastEvent = events.at(-1);
+  if (!lastEvent) throw new Error('Clan donation notification fan-out lost its event cursor.');
+
+  await repository.advanceCursor({
+    cursorName: CLAN_DONATION_NOTIFICATION_FANOUT_CURSOR_NAME,
     lastDetectedAt: lastEvent.detectedAt,
     lastEventId: lastEvent.eventId,
     now,
@@ -1429,6 +1545,43 @@ export function buildWarAttackNotificationOutboxValues(
       destructionPercentage: target.destructionPercentage,
       duration: target.duration,
       freshAttack: target.freshAttack,
+      occurredAt: target.occurredAt.toISOString(),
+      detectedAt: target.detectedAt.toISOString(),
+    },
+    attempts: 0,
+    nextAttemptAt: now,
+    updatedAt: now,
+  }));
+}
+
+export function buildClanDonationNotificationOutboxValues(
+  targets: readonly ClanDonationNotificationFanOutTarget[],
+  now: Date,
+): NotificationOutboxInsertValue[] {
+  return targets.map((target) => ({
+    guildId: target.guildId,
+    configId: null,
+    warAttackConfigId: null,
+    clanDonationConfigId: target.configId,
+    sourceType: 'clan_donation_event',
+    sourceId: target.eventId,
+    idempotencyKey: buildNotificationOutboxIdempotencyKey({
+      guildId: target.guildId,
+      sourceType: 'clan_donation_event',
+      sourceId: target.eventId,
+      targetType: 'discord_channel',
+      targetId: target.discordChannelId,
+    }),
+    targetType: 'discord_channel',
+    targetId: target.discordChannelId,
+    status: 'pending',
+    payload: {
+      clanTag: target.clanTag,
+      eventKey: target.eventKey,
+      playerTag: target.playerTag,
+      playerName: target.playerName,
+      donationDelta: target.donationDelta,
+      receivedDelta: target.receivedDelta,
       occurredAt: target.occurredAt.toISOString(),
       detectedAt: target.detectedAt.toISOString(),
     },
@@ -1718,6 +1871,143 @@ function buildWarAttackFanOutCursorPredicate(cursor: NotificationFanOutCursorSta
   );
 }
 
+function createClanDonationNotificationFanOutRepository(
+  tx: DatabaseTransaction,
+): ClanDonationNotificationFanOutRepository {
+  return {
+    ensureCursor: async (input) => {
+      await tx
+        .insert(schema.notificationFanoutCursors)
+        .values({
+          cursorName: input.cursorName,
+          sourceType: input.sourceType,
+          createdAt: input.now,
+          updatedAt: input.now,
+        })
+        .onConflictDoNothing({ target: schema.notificationFanoutCursors.cursorName });
+    },
+    lockCursor: async (cursorName) => {
+      const rows = await tx.execute(sql<NotificationFanOutCursorState>`
+        select cursor_name as "cursorName",
+               source_type as "sourceType",
+               last_detected_at as "lastDetectedAt",
+               last_event_id as "lastEventId"
+        from notification_fanout_cursors
+        where cursor_name = ${cursorName}
+        for update skip locked
+      `);
+      return normalizeExecuteRows<NotificationFanOutCursorState>(rows)[0] ?? null;
+    },
+    listEventsAfterCursor: async (input) => {
+      const cursorPredicate = buildClanDonationFanOutCursorPredicate(input.cursor);
+      const sincePredicate = input.since
+        ? gte(schema.clanDonationEvents.detectedAt, input.since)
+        : sql<boolean>`true`;
+
+      return tx
+        .select({
+          eventId: schema.clanDonationEvents.id,
+          guildId: schema.clanDonationEvents.guildId,
+          trackedClanId: schema.clanDonationEvents.trackedClanId,
+          clanTag: schema.clanDonationEvents.clanTag,
+          playerTag: schema.clanDonationEvents.playerTag,
+          playerName: schema.clanDonationEvents.playerName,
+          eventKey: schema.clanDonationEvents.eventKey,
+          donationDelta: schema.clanDonationEvents.donationDelta,
+          receivedDelta: schema.clanDonationEvents.receivedDelta,
+          occurredAt: schema.clanDonationEvents.occurredAt,
+          detectedAt: schema.clanDonationEvents.detectedAt,
+        })
+        .from(schema.clanDonationEvents)
+        .where(and(cursorPredicate, sincePredicate))
+        .orderBy(asc(schema.clanDonationEvents.detectedAt), asc(schema.clanDonationEvents.id))
+        .limit(input.limit);
+    },
+    listTargetsForEvents: async (eventIds) => {
+      if (eventIds.length === 0) return [];
+      return tx
+        .select({
+          eventId: schema.clanDonationEvents.id,
+          guildId: schema.clanDonationEvents.guildId,
+          clanTag: schema.clanDonationEvents.clanTag,
+          playerTag: schema.clanDonationEvents.playerTag,
+          playerName: schema.clanDonationEvents.playerName,
+          eventKey: schema.clanDonationEvents.eventKey,
+          donationDelta: schema.clanDonationEvents.donationDelta,
+          receivedDelta: schema.clanDonationEvents.receivedDelta,
+          occurredAt: schema.clanDonationEvents.occurredAt,
+          detectedAt: schema.clanDonationEvents.detectedAt,
+          configId: schema.clanDonationNotificationConfigs.id,
+          discordChannelId: schema.clanDonationNotificationConfigs.discordChannelId,
+        })
+        .from(schema.clanDonationEvents)
+        .innerJoin(
+          schema.clanDonationNotificationConfigs,
+          and(
+            eq(schema.clanDonationNotificationConfigs.guildId, schema.clanDonationEvents.guildId),
+            eq(
+              schema.clanDonationNotificationConfigs.trackedClanId,
+              schema.clanDonationEvents.trackedClanId,
+            ),
+            eq(schema.clanDonationNotificationConfigs.eventType, 'instant_donation'),
+            eq(schema.clanDonationNotificationConfigs.isEnabled, true),
+            lte(
+              schema.clanDonationNotificationConfigs.createdAt,
+              schema.clanDonationEvents.detectedAt,
+            ),
+          ),
+        )
+        .where(inArray(schema.clanDonationEvents.id, [...eventIds]))
+        .orderBy(
+          asc(schema.clanDonationEvents.detectedAt),
+          asc(schema.clanDonationEvents.id),
+          asc(schema.clanDonationNotificationConfigs.discordChannelId),
+        );
+    },
+    insertOutboxEntries: async (values) => {
+      if (values.length === 0) return 0;
+      const rows = await tx
+        .insert(schema.notificationOutbox)
+        .values([...values])
+        .onConflictDoNothing({ target: schema.notificationOutbox.idempotencyKey })
+        .returning({ id: schema.notificationOutbox.id });
+      return rows.length;
+    },
+    advanceCursor: async (input) => {
+      if (input.lastDetectedAt && input.lastEventId) {
+        await tx
+          .update(schema.notificationFanoutCursors)
+          .set({
+            lastDetectedAt: input.lastDetectedAt,
+            lastEventId: input.lastEventId,
+            updatedAt: input.now,
+          })
+          .where(eq(schema.notificationFanoutCursors.cursorName, input.cursorName));
+        return;
+      }
+      await tx
+        .update(schema.notificationFanoutCursors)
+        .set({ updatedAt: input.now })
+        .where(eq(schema.notificationFanoutCursors.cursorName, input.cursorName));
+    },
+  };
+}
+
+function buildClanDonationFanOutCursorPredicate(cursor: NotificationFanOutCursorState) {
+  if (!cursor.lastDetectedAt) return sql<boolean>`true`;
+  if (!cursor.lastEventId) return gt(schema.clanDonationEvents.detectedAt, cursor.lastDetectedAt);
+
+  return (
+    or(
+      gt(schema.clanDonationEvents.detectedAt, cursor.lastDetectedAt),
+      and(
+        eq(schema.clanDonationEvents.detectedAt, cursor.lastDetectedAt),
+        gt(schema.clanDonationEvents.id, cursor.lastEventId),
+      ),
+    ) ?? sql<boolean>`false`
+  );
+}
+
 export function compareNotificationFanOutEventCursorPoints(
   left: NotificationFanOutEventCursorPoint,
   right: NotificationFanOutEventCursorPoint,
@@ -1746,6 +2036,13 @@ export function isClanMemberNotificationConfigEligibleForEvent(input: {
 }
 
 export function isWarAttackNotificationConfigEligibleForEvent(input: {
+  configCreatedAt: Date;
+  eventDetectedAt: Date;
+}): boolean {
+  return input.configCreatedAt.getTime() <= input.eventDetectedAt.getTime();
+}
+
+export function isClanDonationNotificationConfigEligibleForEvent(input: {
   configCreatedAt: Date;
   eventDetectedAt: Date;
 }): boolean {
