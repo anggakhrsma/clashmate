@@ -756,8 +756,16 @@ export type LinkPlayerResult =
   | { status: 'already_linked_to_other_user'; discordUserId: string }
   | { status: 'max_accounts_reached'; maxAccounts: number };
 
+export interface PlayerLinkRecord {
+  discordUserId: string;
+  playerTag: string;
+  isVerified: boolean;
+  isDefault: boolean;
+}
+
 export interface DatabasePlayerLinkStore {
   linkPlayer: (input: LinkPlayerInput) => Promise<LinkPlayerResult>;
+  listPlayerLinksByTags: (playerTags: readonly string[]) => Promise<PlayerLinkRecord[]>;
 }
 
 export const MAX_PLAYER_LINKS_PER_USER = 25;
@@ -773,6 +781,22 @@ export function createDatabase(databaseUrl: string) {
 
 export function createDatabasePlayerLinkStore(database: Database): DatabasePlayerLinkStore {
   return {
+    listPlayerLinksByTags: async (playerTags) => {
+      const uniqueTags = [
+        ...new Set(playerTags.map((tag) => tag.trim().toUpperCase()).filter(Boolean)),
+      ];
+      if (uniqueTags.length === 0) return [];
+
+      return database
+        .select({
+          discordUserId: schema.playerLinks.discordUserId,
+          playerTag: schema.playerLinks.playerTag,
+          isVerified: schema.playerLinks.isVerified,
+          isDefault: schema.playerLinks.isDefault,
+        })
+        .from(schema.playerLinks)
+        .where(inArray(schema.playerLinks.playerTag, uniqueTags));
+    },
     linkPlayer: async (input) => {
       return database.transaction(async (tx) => {
         const [existingForTag] = await tx
