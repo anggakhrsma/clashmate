@@ -179,6 +179,7 @@ export type NotificationSourceType =
   | 'clan_member_event'
   | 'war_attack_event'
   | 'war_state_event'
+  | 'missed_war_attack_event'
   | 'clan_donation_event';
 export type NotificationTargetType = 'discord_channel';
 
@@ -188,6 +189,8 @@ export const WAR_ATTACK_NOTIFICATION_FANOUT_CURSOR_NAME = 'war_attack_event';
 export const WAR_ATTACK_NOTIFICATION_FANOUT_SOURCE_TYPE = 'war_attack_event';
 export const WAR_STATE_NOTIFICATION_FANOUT_CURSOR_NAME = 'war_state_event';
 export const WAR_STATE_NOTIFICATION_FANOUT_SOURCE_TYPE = 'war_state_event';
+export const MISSED_WAR_ATTACK_NOTIFICATION_FANOUT_CURSOR_NAME = 'missed_war_attack_event';
+export const MISSED_WAR_ATTACK_NOTIFICATION_FANOUT_SOURCE_TYPE = 'missed_war_attack_event';
 export const CLAN_DONATION_NOTIFICATION_FANOUT_CURSOR_NAME = 'clan_donation_event';
 export const CLAN_DONATION_NOTIFICATION_FANOUT_SOURCE_TYPE = 'clan_donation_event';
 
@@ -253,6 +256,19 @@ export interface WarStateNotificationFanOutEvent extends NotificationFanOutEvent
   occurredAt: Date;
 }
 
+export interface MissedWarAttackNotificationFanOutEvent extends NotificationFanOutEventCursorPoint {
+  guildId: string;
+  trackedClanId: string | null;
+  clanTag: string;
+  warKey: string;
+  playerTag: string;
+  playerName: string;
+  attacksUsed: number;
+  attacksAvailable: number;
+  eventKey: string;
+  occurredAt: Date;
+}
+
 export interface EnsureNotificationFanOutCursorInput {
   cursorName: string;
   sourceType: NotificationSourceType;
@@ -283,6 +299,12 @@ export interface EnsureWarStateNotificationFanOutCursorInput {
   now: Date;
 }
 
+export interface EnsureMissedWarAttackNotificationFanOutCursorInput {
+  cursorName: string;
+  sourceType: 'missed_war_attack_event';
+  now: Date;
+}
+
 export interface ListClanMemberEventsAfterFanOutCursorInput {
   cursor: NotificationFanOutCursorState;
   since?: Date;
@@ -298,6 +320,8 @@ export interface ListWarAttackEventsAfterFanOutCursorInput {
 export type ListClanDonationEventsAfterFanOutCursorInput =
   ListWarAttackEventsAfterFanOutCursorInput;
 export type ListWarStateEventsAfterFanOutCursorInput = ListWarAttackEventsAfterFanOutCursorInput;
+export type ListMissedWarAttackEventsAfterFanOutCursorInput =
+  ListWarAttackEventsAfterFanOutCursorInput;
 
 export interface AdvanceNotificationFanOutCursorInput {
   cursorName: string;
@@ -358,6 +382,19 @@ export interface WarStateNotificationFanOutRepository {
   advanceCursor: (input: AdvanceNotificationFanOutCursorInput) => Promise<void>;
 }
 
+export interface MissedWarAttackNotificationFanOutRepository {
+  ensureCursor: (input: EnsureMissedWarAttackNotificationFanOutCursorInput) => Promise<void>;
+  lockCursor: (cursorName: string) => Promise<NotificationFanOutCursorState | null>;
+  listEventsAfterCursor: (
+    input: ListMissedWarAttackEventsAfterFanOutCursorInput,
+  ) => Promise<MissedWarAttackNotificationFanOutEvent[]>;
+  listTargetsForEvents: (
+    eventIds: readonly string[],
+  ) => Promise<MissedWarAttackNotificationFanOutTarget[]>;
+  insertOutboxEntries: (values: readonly NotificationOutboxInsertValue[]) => Promise<number>;
+  advanceCursor: (input: AdvanceNotificationFanOutCursorInput) => Promise<void>;
+}
+
 export interface BuildNotificationOutboxIdempotencyKeyInput {
   guildId: string;
   sourceType: NotificationSourceType;
@@ -384,6 +421,9 @@ export type FanOutClanDonationEventNotificationsInput = FanOutClanMemberEventNot
 export type FanOutClanDonationEventNotificationsResult = FanOutClanMemberEventNotificationsResult;
 export type FanOutWarStateEventNotificationsInput = FanOutClanMemberEventNotificationsInput;
 export type FanOutWarStateEventNotificationsResult = FanOutClanMemberEventNotificationsResult;
+export type FanOutMissedWarAttackEventNotificationsInput = FanOutClanMemberEventNotificationsInput;
+export type FanOutMissedWarAttackEventNotificationsResult =
+  FanOutClanMemberEventNotificationsResult;
 
 export interface NotificationFanOutStore {
   fanOutClanMemberEventNotifications: (
@@ -398,6 +438,9 @@ export interface NotificationFanOutStore {
   fanOutWarStateEventNotifications: (
     input?: FanOutWarStateEventNotificationsInput,
   ) => Promise<FanOutWarStateEventNotificationsResult>;
+  fanOutMissedWarAttackEventNotifications: (
+    input?: FanOutMissedWarAttackEventNotificationsInput,
+  ) => Promise<FanOutMissedWarAttackEventNotificationsResult>;
 }
 
 export interface ClanMemberNotificationFanOutTarget {
@@ -462,11 +505,28 @@ export interface WarStateNotificationFanOutTarget {
   detectedAt: Date;
 }
 
+export interface MissedWarAttackNotificationFanOutTarget {
+  eventId: string;
+  guildId: string;
+  configId: string;
+  discordChannelId: string;
+  clanTag: string;
+  warKey: string;
+  playerTag: string;
+  playerName: string;
+  attacksUsed: number;
+  attacksAvailable: number;
+  eventKey: string;
+  occurredAt: Date;
+  detectedAt: Date;
+}
+
 export interface NotificationOutboxInsertValue {
   guildId: string;
   configId?: string | null;
   warAttackConfigId?: string | null;
   warStateConfigId?: string | null;
+  missedWarAttackConfigId?: string | null;
   clanDonationConfigId?: string | null;
   sourceType: NotificationSourceType;
   sourceId: string;
@@ -533,8 +593,18 @@ export interface NormalizedLatestWarSnapshot {
   fetchedAt: Date;
 }
 
+export interface GuildLatestWarSnapshot extends NormalizedLatestWarSnapshot {
+  trackedClan: {
+    id: string;
+    clanTag: string;
+    name: string | null;
+    alias: string | null;
+  };
+}
+
 export interface WarSnapshotStore {
   getLatestWarSnapshot: (clanTag: string) => Promise<NormalizedLatestWarSnapshot | null>;
+  getLatestWarSnapshotsForGuild: (guildId: string) => Promise<GuildLatestWarSnapshot[]>;
   upsertLatestWarSnapshot: (
     input: UpsertLatestWarSnapshotInput,
   ) => Promise<UpsertLatestWarSnapshotResult>;
@@ -632,10 +702,22 @@ export interface InsertMissedWarAttackEventsResult {
   inserted: number;
 }
 
+export interface MissedWarAttackRecord {
+  playerTag: string;
+  playerName: string;
+  attacksUsed: number;
+  attacksAvailable: number;
+}
+
 export interface MissedWarAttackEventStore {
   insertMissedWarAttackEvents: (
     input: readonly MissedWarAttackEventInput[],
   ) => Promise<InsertMissedWarAttackEventsResult>;
+  listMissedWarAttacksForWar?: (
+    guildId: string,
+    clanTag: string,
+    warKey: string,
+  ) => Promise<MissedWarAttackRecord[]>;
 }
 
 export interface UpsertLatestPlayerSnapshotInput {
@@ -834,6 +916,29 @@ export interface DatabaseClanMemberNotificationConfigStore {
     | { status: 'not_configured'; clanName: string; clanTag: string }
     | { status: 'clan_not_linked' }
   >;
+  configureMissedWarAttackNotifications: (input: {
+    guildId: string;
+    actorDiscordUserId: string;
+    clanTag: string;
+    discordChannelId: string;
+  }) => Promise<
+    | {
+        status: 'configured';
+        clanName: string;
+        clanTag: string;
+        discordChannelId: string;
+      }
+    | { status: 'clan_not_linked' }
+  >;
+  disableMissedWarAttackNotifications: (input: {
+    guildId: string;
+    actorDiscordUserId: string;
+    clanTag: string;
+  }) => Promise<
+    | { status: 'disabled'; clanName: string; clanTag: string }
+    | { status: 'not_configured'; clanName: string; clanTag: string }
+    | { status: 'clan_not_linked' }
+  >;
   configureDonationNotifications: (input: {
     guildId: string;
     actorDiscordUserId: string;
@@ -906,6 +1011,7 @@ export interface DatabasePlayerLinkStore {
   linkPlayer: (input: LinkPlayerInput) => Promise<LinkPlayerResult>;
   verifyPlayerLink: (input: VerifyPlayerLinkInput) => Promise<VerifyPlayerLinkResult>;
   listPlayerLinksByTags: (playerTags: readonly string[]) => Promise<PlayerLinkRecord[]>;
+  listPlayerTagsForUser: (guildId: string, discordUserId: string) => Promise<string[]>;
   deletePlayerLink: (input: DeletePlayerLinkInput) => Promise<DeletePlayerLinkResult>;
 }
 
@@ -1091,6 +1197,20 @@ export function createDatabasePlayerLinkStore(database: Database): DatabasePlaye
         })
         .from(schema.playerLinks)
         .where(inArray(schema.playerLinks.playerTag, uniqueTags));
+    },
+    listPlayerTagsForUser: async (guildId, discordUserId) => {
+      const rows = await database
+        .select({ playerTag: schema.playerLinks.playerTag })
+        .from(schema.playerLinks)
+        .where(
+          and(
+            eq(schema.playerLinks.discordUserId, discordUserId),
+            or(eq(schema.playerLinks.guildId, guildId), isNull(schema.playerLinks.guildId)),
+          ),
+        )
+        .orderBy(desc(schema.playerLinks.isDefault), asc(schema.playerLinks.createdAt));
+
+      return rows.map((row) => row.playerTag);
     },
     linkPlayer: async (input) => {
       return database.transaction(async (tx) => {
@@ -1745,6 +1865,14 @@ export function createNotificationFanOutStore(database: Database): NotificationF
         );
       });
     },
+    fanOutMissedWarAttackEventNotifications: async (input = {}) => {
+      return database.transaction(async (tx) => {
+        return fanOutMissedWarAttackEventNotificationsWithCursor(
+          createMissedWarAttackNotificationFanOutRepository(tx),
+          input,
+        );
+      });
+    },
     fanOutClanDonationEventNotifications: async (input = {}) => {
       return database.transaction(async (tx) => {
         return fanOutClanDonationEventNotificationsWithCursor(
@@ -1893,6 +2021,57 @@ export async function fanOutWarStateEventNotificationsWithCursor(
 
   await repository.advanceCursor({
     cursorName: WAR_STATE_NOTIFICATION_FANOUT_CURSOR_NAME,
+    lastDetectedAt: lastEvent.detectedAt,
+    lastEventId: lastEvent.eventId,
+    now,
+  });
+
+  return { eventsScanned: events.length, matchedTargets: targets.length, insertedOutboxEntries };
+}
+
+export async function fanOutMissedWarAttackEventNotificationsWithCursor(
+  repository: MissedWarAttackNotificationFanOutRepository,
+  input: FanOutMissedWarAttackEventNotificationsInput = {},
+): Promise<FanOutMissedWarAttackEventNotificationsResult> {
+  const limit = input.limit ?? 100;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
+    throw new Error('Missed war attack notification fan-out limit must be between 1 and 1000.');
+  }
+  const now = input.now ?? new Date();
+
+  await repository.ensureCursor({
+    cursorName: MISSED_WAR_ATTACK_NOTIFICATION_FANOUT_CURSOR_NAME,
+    sourceType: MISSED_WAR_ATTACK_NOTIFICATION_FANOUT_SOURCE_TYPE,
+    now,
+  });
+
+  const cursor = await repository.lockCursor(MISSED_WAR_ATTACK_NOTIFICATION_FANOUT_CURSOR_NAME);
+  if (!cursor) return { eventsScanned: 0, matchedTargets: 0, insertedOutboxEntries: 0 };
+
+  const listEventsInput: ListMissedWarAttackEventsAfterFanOutCursorInput = { cursor, limit };
+  if (input.since) listEventsInput.since = input.since;
+  const events = await repository.listEventsAfterCursor(listEventsInput);
+
+  if (events.length === 0) {
+    await repository.advanceCursor({
+      cursorName: MISSED_WAR_ATTACK_NOTIFICATION_FANOUT_CURSOR_NAME,
+      now,
+    });
+    return { eventsScanned: 0, matchedTargets: 0, insertedOutboxEntries: 0 };
+  }
+
+  const targets = await repository.listTargetsForEvents(events.map((event) => event.eventId));
+  const insertedOutboxEntries =
+    targets.length > 0
+      ? await repository.insertOutboxEntries(
+          buildMissedWarAttackNotificationOutboxValues(targets, now),
+        )
+      : 0;
+  const lastEvent = events.at(-1);
+  if (!lastEvent) throw new Error('Missed war attack notification fan-out lost its event cursor.');
+
+  await repository.advanceCursor({
+    cursorName: MISSED_WAR_ATTACK_NOTIFICATION_FANOUT_CURSOR_NAME,
     lastDetectedAt: lastEvent.detectedAt,
     lastEventId: lastEvent.eventId,
     now,
@@ -2191,6 +2370,45 @@ export function buildClanDonationNotificationOutboxValues(
       playerName: target.playerName,
       donationDelta: target.donationDelta,
       receivedDelta: target.receivedDelta,
+      occurredAt: target.occurredAt.toISOString(),
+      detectedAt: target.detectedAt.toISOString(),
+    },
+    attempts: 0,
+    nextAttemptAt: now,
+    updatedAt: now,
+  }));
+}
+
+export function buildMissedWarAttackNotificationOutboxValues(
+  targets: readonly MissedWarAttackNotificationFanOutTarget[],
+  now: Date,
+): NotificationOutboxInsertValue[] {
+  return targets.map((target) => ({
+    guildId: target.guildId,
+    configId: null,
+    warAttackConfigId: null,
+    warStateConfigId: null,
+    missedWarAttackConfigId: target.configId,
+    sourceType: 'missed_war_attack_event',
+    sourceId: target.eventId,
+    idempotencyKey: buildNotificationOutboxIdempotencyKey({
+      guildId: target.guildId,
+      sourceType: 'missed_war_attack_event',
+      sourceId: target.eventId,
+      targetType: 'discord_channel',
+      targetId: target.discordChannelId,
+    }),
+    targetType: 'discord_channel',
+    targetId: target.discordChannelId,
+    status: 'pending',
+    payload: {
+      clanTag: target.clanTag,
+      warKey: target.warKey,
+      eventKey: target.eventKey,
+      playerTag: target.playerTag,
+      playerName: target.playerName,
+      attacksUsed: target.attacksUsed,
+      attacksAvailable: target.attacksAvailable,
       occurredAt: target.occurredAt.toISOString(),
       detectedAt: target.detectedAt.toISOString(),
     },
@@ -2612,6 +2830,150 @@ function buildWarStateFanOutCursorPredicate(cursor: NotificationFanOutCursorStat
   );
 }
 
+function createMissedWarAttackNotificationFanOutRepository(
+  tx: DatabaseTransaction,
+): MissedWarAttackNotificationFanOutRepository {
+  return {
+    ensureCursor: async (input) => {
+      await tx
+        .insert(schema.notificationFanoutCursors)
+        .values({
+          cursorName: input.cursorName,
+          sourceType: input.sourceType,
+          createdAt: input.now,
+          updatedAt: input.now,
+        })
+        .onConflictDoNothing({ target: schema.notificationFanoutCursors.cursorName });
+    },
+    lockCursor: async (cursorName) => {
+      const rows = await tx.execute(sql<NotificationFanOutCursorState>`
+        select cursor_name as "cursorName",
+               source_type as "sourceType",
+               last_detected_at as "lastDetectedAt",
+               last_event_id as "lastEventId"
+        from notification_fanout_cursors
+        where cursor_name = ${cursorName}
+        for update skip locked
+      `);
+      return normalizeExecuteRows<NotificationFanOutCursorState>(rows)[0] ?? null;
+    },
+    listEventsAfterCursor: async (input) => {
+      const cursorPredicate = buildMissedWarAttackFanOutCursorPredicate(input.cursor);
+      const sincePredicate = input.since
+        ? gte(schema.missedWarAttackEvents.detectedAt, input.since)
+        : sql<boolean>`true`;
+
+      return tx
+        .select({
+          eventId: schema.missedWarAttackEvents.id,
+          guildId: schema.missedWarAttackEvents.guildId,
+          trackedClanId: schema.missedWarAttackEvents.trackedClanId,
+          clanTag: schema.missedWarAttackEvents.clanTag,
+          warKey: schema.missedWarAttackEvents.warKey,
+          playerTag: schema.missedWarAttackEvents.playerTag,
+          playerName: schema.missedWarAttackEvents.playerName,
+          attacksUsed: schema.missedWarAttackEvents.attacksUsed,
+          attacksAvailable: schema.missedWarAttackEvents.attacksAvailable,
+          eventKey: schema.missedWarAttackEvents.eventKey,
+          occurredAt: schema.missedWarAttackEvents.occurredAt,
+          detectedAt: schema.missedWarAttackEvents.detectedAt,
+        })
+        .from(schema.missedWarAttackEvents)
+        .where(and(cursorPredicate, sincePredicate))
+        .orderBy(asc(schema.missedWarAttackEvents.detectedAt), asc(schema.missedWarAttackEvents.id))
+        .limit(input.limit);
+    },
+    listTargetsForEvents: async (eventIds) => {
+      if (eventIds.length === 0) return [];
+      return tx
+        .select({
+          eventId: schema.missedWarAttackEvents.id,
+          guildId: schema.missedWarAttackEvents.guildId,
+          clanTag: schema.missedWarAttackEvents.clanTag,
+          warKey: schema.missedWarAttackEvents.warKey,
+          playerTag: schema.missedWarAttackEvents.playerTag,
+          playerName: schema.missedWarAttackEvents.playerName,
+          attacksUsed: schema.missedWarAttackEvents.attacksUsed,
+          attacksAvailable: schema.missedWarAttackEvents.attacksAvailable,
+          eventKey: schema.missedWarAttackEvents.eventKey,
+          occurredAt: schema.missedWarAttackEvents.occurredAt,
+          detectedAt: schema.missedWarAttackEvents.detectedAt,
+          configId: schema.missedWarAttackNotificationConfigs.id,
+          discordChannelId: schema.missedWarAttackNotificationConfigs.discordChannelId,
+        })
+        .from(schema.missedWarAttackEvents)
+        .innerJoin(
+          schema.missedWarAttackNotificationConfigs,
+          and(
+            eq(
+              schema.missedWarAttackNotificationConfigs.guildId,
+              schema.missedWarAttackEvents.guildId,
+            ),
+            eq(
+              schema.missedWarAttackNotificationConfigs.trackedClanId,
+              schema.missedWarAttackEvents.trackedClanId,
+            ),
+            eq(schema.missedWarAttackNotificationConfigs.eventType, 'missed_war_attack'),
+            eq(schema.missedWarAttackNotificationConfigs.isEnabled, true),
+            lte(
+              schema.missedWarAttackNotificationConfigs.createdAt,
+              schema.missedWarAttackEvents.detectedAt,
+            ),
+          ),
+        )
+        .where(inArray(schema.missedWarAttackEvents.id, [...eventIds]))
+        .orderBy(
+          asc(schema.missedWarAttackEvents.detectedAt),
+          asc(schema.missedWarAttackEvents.id),
+          asc(schema.missedWarAttackNotificationConfigs.discordChannelId),
+        );
+    },
+    insertOutboxEntries: async (values) => {
+      if (values.length === 0) return 0;
+      const rows = await tx
+        .insert(schema.notificationOutbox)
+        .values([...values])
+        .onConflictDoNothing({ target: schema.notificationOutbox.idempotencyKey })
+        .returning({ id: schema.notificationOutbox.id });
+      return rows.length;
+    },
+    advanceCursor: async (input) => {
+      if (input.lastDetectedAt && input.lastEventId) {
+        await tx
+          .update(schema.notificationFanoutCursors)
+          .set({
+            lastDetectedAt: input.lastDetectedAt,
+            lastEventId: input.lastEventId,
+            updatedAt: input.now,
+          })
+          .where(eq(schema.notificationFanoutCursors.cursorName, input.cursorName));
+        return;
+      }
+      await tx
+        .update(schema.notificationFanoutCursors)
+        .set({ updatedAt: input.now })
+        .where(eq(schema.notificationFanoutCursors.cursorName, input.cursorName));
+    },
+  };
+}
+
+function buildMissedWarAttackFanOutCursorPredicate(cursor: NotificationFanOutCursorState) {
+  if (!cursor.lastDetectedAt) return sql<boolean>`true`;
+  if (!cursor.lastEventId) {
+    return gt(schema.missedWarAttackEvents.detectedAt, cursor.lastDetectedAt);
+  }
+
+  return (
+    or(
+      gt(schema.missedWarAttackEvents.detectedAt, cursor.lastDetectedAt),
+      and(
+        eq(schema.missedWarAttackEvents.detectedAt, cursor.lastDetectedAt),
+        gt(schema.missedWarAttackEvents.id, cursor.lastEventId),
+      ),
+    ) ?? sql<boolean>`false`
+  );
+}
+
 function createClanDonationNotificationFanOutRepository(
   tx: DatabaseTransaction,
 ): ClanDonationNotificationFanOutRepository {
@@ -2790,6 +3152,13 @@ export function isWarStateNotificationConfigEligibleForEvent(input: {
   return input.configCreatedAt.getTime() <= input.eventDetectedAt.getTime();
 }
 
+export function isMissedWarAttackNotificationConfigEligibleForEvent(input: {
+  configCreatedAt: Date;
+  eventDetectedAt: Date;
+}): boolean {
+  return input.configCreatedAt.getTime() <= input.eventDetectedAt.getTime();
+}
+
 export function isClanDonationNotificationConfigEligibleForEvent(input: {
   configCreatedAt: Date;
   eventDetectedAt: Date;
@@ -2815,6 +3184,42 @@ export function createWarSnapshotStore(database: Database): WarSnapshotStore {
         .limit(1);
 
       return row ?? null;
+    },
+    getLatestWarSnapshotsForGuild: async (guildId) => {
+      const rows = await database
+        .select({
+          clanTag: schema.warLatestSnapshots.clanTag,
+          state: schema.warLatestSnapshots.state,
+          snapshot: schema.warLatestSnapshots.snapshot,
+          fetchedAt: schema.warLatestSnapshots.fetchedAt,
+          trackedClanId: schema.trackedClans.id,
+          trackedClanTag: schema.trackedClans.clanTag,
+          trackedClanName: schema.trackedClans.name,
+          trackedClanAlias: schema.trackedClans.alias,
+          sortOrder: schema.trackedClans.sortOrder,
+        })
+        .from(schema.trackedClans)
+        .innerJoin(
+          schema.warLatestSnapshots,
+          eq(schema.warLatestSnapshots.clanTag, schema.trackedClans.clanTag),
+        )
+        .where(
+          and(eq(schema.trackedClans.guildId, guildId), eq(schema.trackedClans.isActive, true)),
+        )
+        .orderBy(asc(schema.trackedClans.sortOrder), asc(schema.trackedClans.clanTag));
+
+      return rows.map((row) => ({
+        clanTag: row.clanTag,
+        state: row.state,
+        snapshot: row.snapshot,
+        fetchedAt: row.fetchedAt,
+        trackedClan: {
+          id: row.trackedClanId,
+          clanTag: row.trackedClanTag,
+          name: row.trackedClanName,
+          alias: row.trackedClanAlias,
+        },
+      }));
     },
     upsertLatestWarSnapshot: async (input) => {
       const snapshot = normalizeLatestWarSnapshotInput(input);
@@ -2967,6 +3372,30 @@ export function createWarStateEventStore(database: Database): WarStateEventStore
 
 export function createMissedWarAttackEventStore(database: Database): MissedWarAttackEventStore {
   return {
+    listMissedWarAttacksForWar: async (guildId, clanTagInput, warKey) => {
+      const clanTag = clanTagInput.trim().toUpperCase();
+      const rows = await database
+        .select({
+          playerTag: schema.missedWarAttackEvents.playerTag,
+          playerName: schema.missedWarAttackEvents.playerName,
+          attacksUsed: schema.missedWarAttackEvents.attacksUsed,
+          attacksAvailable: schema.missedWarAttackEvents.attacksAvailable,
+        })
+        .from(schema.missedWarAttackEvents)
+        .where(
+          and(
+            eq(schema.missedWarAttackEvents.guildId, guildId),
+            eq(schema.missedWarAttackEvents.clanTag, clanTag),
+            eq(schema.missedWarAttackEvents.warKey, warKey),
+          ),
+        )
+        .orderBy(
+          asc(schema.missedWarAttackEvents.playerName),
+          asc(schema.missedWarAttackEvents.playerTag),
+        );
+
+      return rows;
+    },
     insertMissedWarAttackEvents: async (input) => {
       const firstEvent = input[0];
       if (!firstEvent) return { status: 'processed', inserted: 0 };
@@ -4198,6 +4627,161 @@ export function createDatabaseClanMemberNotificationConfigStore(
             clanTag: trackedClan.clanTag,
             clanName: trackedClan.name,
             eventTypes: ['war_state'],
+            removedConfigs: existing,
+          },
+        });
+
+        return {
+          status: 'disabled' as const,
+          clanName: trackedClan.name ?? trackedClan.clanTag,
+          clanTag: trackedClan.clanTag,
+        };
+      });
+    },
+    configureMissedWarAttackNotifications: async (input) => {
+      const clanTag = input.clanTag.trim().toUpperCase();
+      return database.transaction(async (tx) => {
+        const [trackedClan] = await tx
+          .select({
+            id: schema.trackedClans.id,
+            clanTag: schema.trackedClans.clanTag,
+            name: schema.trackedClans.name,
+          })
+          .from(schema.trackedClans)
+          .where(
+            and(
+              eq(schema.trackedClans.guildId, input.guildId),
+              eq(schema.trackedClans.clanTag, clanTag),
+              eq(schema.trackedClans.isActive, true),
+            ),
+          )
+          .limit(1);
+
+        if (!trackedClan) return { status: 'clan_not_linked' as const };
+
+        const existing = await tx
+          .select({
+            id: schema.missedWarAttackNotificationConfigs.id,
+            discordChannelId: schema.missedWarAttackNotificationConfigs.discordChannelId,
+            eventType: schema.missedWarAttackNotificationConfigs.eventType,
+          })
+          .from(schema.missedWarAttackNotificationConfigs)
+          .where(
+            and(
+              eq(schema.missedWarAttackNotificationConfigs.guildId, input.guildId),
+              eq(schema.missedWarAttackNotificationConfigs.trackedClanId, trackedClan.id),
+              eq(schema.missedWarAttackNotificationConfigs.eventType, 'missed_war_attack'),
+            ),
+          );
+
+        await tx
+          .delete(schema.missedWarAttackNotificationConfigs)
+          .where(
+            and(
+              eq(schema.missedWarAttackNotificationConfigs.guildId, input.guildId),
+              eq(schema.missedWarAttackNotificationConfigs.trackedClanId, trackedClan.id),
+              eq(schema.missedWarAttackNotificationConfigs.eventType, 'missed_war_attack'),
+            ),
+          );
+
+        const now = new Date();
+        await tx.insert(schema.missedWarAttackNotificationConfigs).values({
+          guildId: input.guildId,
+          trackedClanId: trackedClan.id,
+          discordChannelId: input.discordChannelId,
+          eventType: 'missed_war_attack',
+          isEnabled: true,
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: 'missed_war_attack_notifications.enabled',
+          targetType: 'tracked_clan',
+          targetId: trackedClan.id,
+          metadata: {
+            clanTag: trackedClan.clanTag,
+            clanName: trackedClan.name,
+            discordChannelId: input.discordChannelId,
+            eventTypes: ['missed_war_attack'],
+            previousConfigs: existing,
+          },
+        });
+
+        return {
+          status: 'configured' as const,
+          clanName: trackedClan.name ?? trackedClan.clanTag,
+          clanTag: trackedClan.clanTag,
+          discordChannelId: input.discordChannelId,
+        };
+      });
+    },
+    disableMissedWarAttackNotifications: async (input) => {
+      const clanTag = input.clanTag.trim().toUpperCase();
+      return database.transaction(async (tx) => {
+        const [trackedClan] = await tx
+          .select({
+            id: schema.trackedClans.id,
+            clanTag: schema.trackedClans.clanTag,
+            name: schema.trackedClans.name,
+          })
+          .from(schema.trackedClans)
+          .where(
+            and(
+              eq(schema.trackedClans.guildId, input.guildId),
+              eq(schema.trackedClans.clanTag, clanTag),
+              eq(schema.trackedClans.isActive, true),
+            ),
+          )
+          .limit(1);
+
+        if (!trackedClan) return { status: 'clan_not_linked' as const };
+
+        const existing = await tx
+          .select({
+            id: schema.missedWarAttackNotificationConfigs.id,
+            discordChannelId: schema.missedWarAttackNotificationConfigs.discordChannelId,
+            eventType: schema.missedWarAttackNotificationConfigs.eventType,
+          })
+          .from(schema.missedWarAttackNotificationConfigs)
+          .where(
+            and(
+              eq(schema.missedWarAttackNotificationConfigs.guildId, input.guildId),
+              eq(schema.missedWarAttackNotificationConfigs.trackedClanId, trackedClan.id),
+              eq(schema.missedWarAttackNotificationConfigs.eventType, 'missed_war_attack'),
+            ),
+          );
+
+        if (existing.length === 0) {
+          return {
+            status: 'not_configured' as const,
+            clanName: trackedClan.name ?? trackedClan.clanTag,
+            clanTag: trackedClan.clanTag,
+          };
+        }
+
+        await tx
+          .delete(schema.missedWarAttackNotificationConfigs)
+          .where(
+            and(
+              eq(schema.missedWarAttackNotificationConfigs.guildId, input.guildId),
+              eq(schema.missedWarAttackNotificationConfigs.trackedClanId, trackedClan.id),
+              eq(schema.missedWarAttackNotificationConfigs.eventType, 'missed_war_attack'),
+            ),
+          );
+
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: 'missed_war_attack_notifications.disabled',
+          targetType: 'tracked_clan',
+          targetId: trackedClan.id,
+          metadata: {
+            clanTag: trackedClan.clanTag,
+            clanName: trackedClan.name,
+            eventTypes: ['missed_war_attack'],
             removedConfigs: existing,
           },
         });

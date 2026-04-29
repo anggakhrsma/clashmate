@@ -161,6 +161,12 @@ export function formatNotificationOutboxMessage(entry: {
     return `🛡️ War state changed${previous} to **${payload.currentState}** for clan **${payload.clanTag}**.`;
   }
 
+  if (entry.sourceType === 'missed_war_attack_event') {
+    const payload = parseMissedWarAttackNotificationPayload(entry.payload);
+    const missed = payload.attacksAvailable - payload.attacksUsed;
+    return `🚨 **${payload.playerName} (${payload.playerTag})** missed **${missed}** war attack${missed === 1 ? '' : 's'} in clan **${payload.clanTag}**.`;
+  }
+
   const payload = parseClanMemberNotificationPayload(entry.payload);
   const verb = payload.eventType === 'left' ? 'left' : 'joined';
   return `**${payload.playerName} (${payload.playerTag})** ${verb} clan **${payload.clanTag}**.`;
@@ -233,6 +239,28 @@ function parseWarStateNotificationPayload(payload: unknown): {
   const previousState = typeof previousStateValue === 'string' ? previousStateValue.trim() : null;
   const currentState = readPayloadString(record, 'currentState');
   return { clanTag, previousState, currentState };
+}
+
+function parseMissedWarAttackNotificationPayload(payload: unknown): {
+  clanTag: string;
+  playerTag: string;
+  playerName: string;
+  attacksUsed: number;
+  attacksAvailable: number;
+} {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Notification payload must be an object.');
+  }
+  const record = payload as Record<string, unknown>;
+  const clanTag = readPayloadString(record, 'clanTag');
+  const playerTag = readPayloadString(record, 'playerTag');
+  const playerName = readPayloadString(record, 'playerName');
+  const attacksUsed = readPayloadNumber(record, 'attacksUsed');
+  const attacksAvailable = readPayloadNumber(record, 'attacksAvailable');
+  if (attacksAvailable <= attacksUsed) {
+    throw new Error('Missed war attack notification requires missed attacks.');
+  }
+  return { clanTag, playerTag, playerName, attacksUsed, attacksAvailable };
 }
 
 function parseClanMemberNotificationPayload(payload: unknown): {

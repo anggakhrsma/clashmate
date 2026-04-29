@@ -93,6 +93,7 @@ export const setupClanCommandData = new SlashCommandBuilder()
             { name: 'Join/Leave Log', value: 'member_join_leave_log' },
             { name: 'War Attack Log', value: 'war_attack_log' },
             { name: 'War State Log', value: 'war_state_log' },
+            { name: 'Missed War Attack Log', value: 'missed_war_attack_log' },
             { name: 'Donation Log (Instant)', value: 'continuous_donation_log' },
           ),
       )
@@ -217,6 +218,12 @@ export interface SetupClanMemberNotificationStore {
     input: ConfigureClanMemberNotificationsInput,
   ) => Promise<ConfigureClanMemberNotificationsResult>;
   disableWarStateNotifications: (
+    input: DisableClanMemberNotificationsInput,
+  ) => Promise<DisableClanMemberNotificationsResult>;
+  configureMissedWarAttackNotifications: (
+    input: ConfigureClanMemberNotificationsInput,
+  ) => Promise<ConfigureClanMemberNotificationsResult>;
+  disableMissedWarAttackNotifications: (
     input: DisableClanMemberNotificationsInput,
   ) => Promise<DisableClanMemberNotificationsResult>;
   configureDonationNotifications: (
@@ -617,6 +624,30 @@ export function formatConfigureDonationMessage(
   return `Enabled Donation Log for **${result.clanName} (${result.clanTag})** in <#${result.discordChannelId}>.`;
 }
 
+export function formatConfigureMissedWarAttackMessage(
+  result: ConfigureClanMemberNotificationsResult,
+): string {
+  if (result.status === 'clan_not_linked') {
+    return 'That clan is not linked to this server. Use `/setup clan` first.';
+  }
+
+  return `Enabled Missed War Attack Log for **${result.clanName} (${result.clanTag})** in <#${result.discordChannelId}>.`;
+}
+
+export function formatDisableMissedWarAttackMessage(
+  result: DisableClanMemberNotificationsResult,
+): string {
+  if (result.status === 'clan_not_linked') {
+    return 'That clan is not linked to this server. Use `/setup clan` first.';
+  }
+
+  if (result.status === 'not_configured') {
+    return `No Missed War Attack Log is enabled for **${result.clanName} (${result.clanTag})**.`;
+  }
+
+  return `Disabled Missed War Attack Log for **${result.clanName} (${result.clanTag})**.`;
+}
+
 export function formatDisableDonationMessage(result: DisableClanMemberNotificationsResult): string {
   if (result.status === 'clan_not_linked') {
     return 'That clan is not linked to this server. Use `/setup clan` first.';
@@ -635,6 +666,7 @@ function getConfigureLogHandler(
 ): SetupClanMemberNotificationStore['configureJoinLeaveNotifications'] {
   if (logType === 'war_attack_log') return store.configureWarAttackNotifications;
   if (logType === 'war_state_log') return store.configureWarStateNotifications;
+  if (logType === 'missed_war_attack_log') return store.configureMissedWarAttackNotifications;
   if (logType === 'continuous_donation_log') return store.configureDonationNotifications;
   return store.configureJoinLeaveNotifications;
 }
@@ -645,6 +677,7 @@ function getDisableLogHandler(
 ): SetupClanMemberNotificationStore['disableJoinLeaveNotifications'] {
   if (logType === 'war_attack_log') return store.disableWarAttackNotifications;
   if (logType === 'war_state_log') return store.disableWarStateNotifications;
+  if (logType === 'missed_war_attack_log') return store.disableMissedWarAttackNotifications;
   if (logType === 'continuous_donation_log') return store.disableDonationNotifications;
   return store.disableJoinLeaveNotifications;
 }
@@ -655,6 +688,7 @@ function formatConfigureClanLogMessage(
 ): string {
   if (logType === 'war_attack_log') return formatConfigureWarAttackMessage(result);
   if (logType === 'war_state_log') return formatConfigureWarStateMessage(result);
+  if (logType === 'missed_war_attack_log') return formatConfigureMissedWarAttackMessage(result);
   if (logType === 'continuous_donation_log') return formatConfigureDonationMessage(result);
   return formatConfigureJoinLeaveMessage(result);
 }
@@ -665,6 +699,7 @@ function formatDisableClanLogMessage(
 ): string {
   if (logType === 'war_attack_log') return formatDisableWarAttackMessage(result);
   if (logType === 'war_state_log') return formatDisableWarStateMessage(result);
+  if (logType === 'missed_war_attack_log') return formatDisableMissedWarAttackMessage(result);
   if (logType === 'continuous_donation_log') return formatDisableDonationMessage(result);
   return formatDisableJoinLeaveMessage(result);
 }
@@ -672,6 +707,7 @@ function formatDisableClanLogMessage(
 function getClanLogLabel(logType: string): string {
   if (logType === 'war_attack_log') return 'War Attack Log';
   if (logType === 'war_state_log') return 'War State Log';
+  if (logType === 'missed_war_attack_log') return 'Missed War Attack Log';
   if (logType === 'continuous_donation_log') return 'Donation Log';
   return 'Join/Leave Log';
 }
