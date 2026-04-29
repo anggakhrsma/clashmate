@@ -23,7 +23,7 @@ yarn-debug.log*
 # TypeScript
 *.tsbuildinfo
 
-# Tests (local-only; never commit under any circumstances)
+# Tests (local-only)
 *.test.*
 *.spec.*
 **/*.test.*
@@ -64,7 +64,7 @@ CLAUDE.md
 .cursor/
 .windsurf/
 
-# User-requested local-only Markdown/docs (never commit under any circumstances)
+# Markdown/docs (local-only)
 *.md
 *.mdx
 **/*.md
