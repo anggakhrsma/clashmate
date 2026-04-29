@@ -4,6 +4,13 @@ import { Client, HttpError } from 'clashofclans.js';
 export interface ClashMateCocClientOptions {
   readonly token: string;
   readonly client?: ClashOfClansApiClient;
+  readonly retry?: ClashApiRetryOptions;
+}
+
+export interface ClashApiRetryOptions {
+  readonly maxAttempts?: number;
+  readonly baseDelayMs?: number;
+  readonly sleep?: (delayMs: number) => Promise<void>;
 }
 
 export interface ClashOfClansApiClient {
@@ -16,6 +23,8 @@ export interface ClashApiErrorDetails {
   readonly status?: number;
   readonly reason: string;
   readonly message: string;
+  readonly attempts?: number;
+  readonly retryable?: boolean;
 }
 
 export class ClashApiError extends Error {
@@ -28,13 +37,21 @@ export class ClashApiError extends Error {
   }
 }
 
+interface ResolvedRetryOptions {
+  readonly maxAttempts: number;
+  readonly baseDelayMs: number;
+  readonly sleep: (delayMs: number) => Promise<void>;
+}
+
 export class ClashMateCocClient {
   readonly token: string;
   private readonly client: ClashOfClansApiClient;
+  private readonly retry: ResolvedRetryOptions;
 
   constructor(options: ClashMateCocClientOptions) {
     this.token = options.token;
     this.client = options.client ?? new Client({ keys: [options.token] });
+    this.retry = resolveRetryOptions(options.retry);
   }
 
   normalizeTag(tag: string): string {
@@ -52,6 +69,7 @@ export class ClashMateCocClient {
       throw new ClashApiError({
         reason: 'invalid_response',
         message: 'Clash API returned an invalid clan response.',
+        retryable: false,
       });
     }
 
@@ -66,6 +84,7 @@ export class ClashMateCocClient {
       throw new ClashApiError({
         reason: 'invalid_response',
         message: 'Clash API returned an invalid current war response.',
+        retryable: false,
       });
     }
 
@@ -79,6 +98,7 @@ export class ClashMateCocClient {
       throw new ClashApiError({
         reason: 'invalid_response',
         message: 'Clash API returned an invalid player response.',
+        retryable: false,
       });
     }
 
@@ -86,23 +106,32 @@ export class ClashMateCocClient {
   }
 
   private async request<T>(operation: () => Promise<T>): Promise<T> {
-    try {
-      return await operation();
-    } catch (error) {
-      if (error instanceof ClashApiError) throw error;
-      if (error instanceof HttpError) {
-        throw new ClashApiError({
-          status: error.status,
-          reason: error.reason,
-          message: error.message || `Clash API request failed with status ${error.status}`,
-        });
-      }
+    let lastError: ClashApiError | undefined;
 
-      throw new ClashApiError({
-        reason: 'request_failed',
-        message: error instanceof Error ? error.message : 'Clash API request failed.',
-      });
+    for (let attempt = 1; attempt <= this.retry.maxAttempts; attempt += 1) {
+      try {
+        return await operation();
+      } catch (error) {
+        const mappedError = mapClashApiError(error, attempt);
+        lastError = mappedError;
+
+        if (!mappedError.details.retryable || attempt >= this.retry.maxAttempts) {
+          throw mappedError;
+        }
+
+        await this.retry.sleep(this.retry.baseDelayMs * 2 ** (attempt - 1));
+      }
     }
+
+    throw (
+      lastError ??
+      new ClashApiError({
+        reason: 'request_failed',
+        message: 'Clash API request failed.',
+        attempts: this.retry.maxAttempts,
+        retryable: false,
+      })
+    );
   }
 }
 
@@ -122,6 +151,44 @@ export interface ClashPlayer {
   readonly tag: string;
   readonly name: string;
   readonly data: unknown;
+}
+
+function resolveRetryOptions(options?: ClashApiRetryOptions): ResolvedRetryOptions {
+  return {
+    maxAttempts: Math.max(1, Math.floor(options?.maxAttempts ?? 3)),
+    baseDelayMs: Math.max(0, Math.floor(options?.baseDelayMs ?? 250)),
+    sleep: options?.sleep ?? defaultSleep,
+  };
+}
+
+function defaultSleep(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+function mapClashApiError(error: unknown, attempts: number): ClashApiError {
+  if (error instanceof ClashApiError) return error;
+
+  if (error instanceof HttpError) {
+    const retryable = isRetryableStatus(error.status);
+    return new ClashApiError({
+      status: error.status,
+      reason: error.reason,
+      message: error.message || `Clash API request failed with status ${error.status}`,
+      attempts,
+      retryable,
+    });
+  }
+
+  return new ClashApiError({
+    reason: 'request_failed',
+    message: error instanceof Error ? error.message : 'Clash API request failed.',
+    attempts,
+    retryable: false,
+  });
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || (status >= 500 && status <= 599);
 }
 
 function isClanResponse(value: unknown): value is { tag: string; name: string } {
