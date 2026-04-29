@@ -133,6 +133,21 @@ export function formatNotificationOutboxMessage(entry: {
   sourceType?: string;
   payload: unknown;
 }): string {
+  if (entry.sourceType === 'clan_donation_event') {
+    const payload = parseClanDonationNotificationPayload(entry.payload);
+    const donated = payload.donationDelta > 0;
+    const received = payload.receivedDelta > 0;
+    const identity = `**${payload.playerName} (${payload.playerTag})**`;
+
+    if (donated && received) {
+      return `🎁 ${identity} donated **${payload.donationDelta}** troops and received **${payload.receivedDelta}** troops in clan **${payload.clanTag}**.`;
+    }
+    if (donated) {
+      return `🎁 ${identity} donated **${payload.donationDelta}** troops in clan **${payload.clanTag}**.`;
+    }
+    return `🎁 ${identity} received **${payload.receivedDelta}** troops in clan **${payload.clanTag}**.`;
+  }
+
   if (entry.sourceType === 'war_attack_event') {
     const payload = parseWarAttackNotificationPayload(entry.payload);
     const fresh = payload.freshAttack ? ' fresh' : '';
@@ -143,6 +158,30 @@ export function formatNotificationOutboxMessage(entry: {
   const payload = parseClanMemberNotificationPayload(entry.payload);
   const verb = payload.eventType === 'left' ? 'left' : 'joined';
   return `**${payload.playerName} (${payload.playerTag})** ${verb} clan **${payload.clanTag}**.`;
+}
+
+function parseClanDonationNotificationPayload(payload: unknown): {
+  clanTag: string;
+  playerTag: string;
+  playerName: string;
+  donationDelta: number;
+  receivedDelta: number;
+} {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Notification payload must be an object.');
+  }
+
+  const record = payload as Record<string, unknown>;
+  const clanTag = readPayloadString(record, 'clanTag');
+  const playerTag = readPayloadString(record, 'playerTag');
+  const playerName = readPayloadString(record, 'playerName');
+  const donationDelta = readPayloadNumber(record, 'donationDelta');
+  const receivedDelta = readPayloadNumber(record, 'receivedDelta');
+  if (donationDelta <= 0 && receivedDelta <= 0) {
+    throw new Error('Clan donation notification payload requires a positive donation delta.');
+  }
+
+  return { clanTag, playerTag, playerName, donationDelta, receivedDelta };
 }
 
 function parseWarAttackNotificationPayload(payload: unknown): {

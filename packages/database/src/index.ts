@@ -685,6 +685,29 @@ export interface DatabaseClanMemberNotificationConfigStore {
     | { status: 'not_configured'; clanName: string; clanTag: string }
     | { status: 'clan_not_linked' }
   >;
+  configureDonationNotifications: (input: {
+    guildId: string;
+    actorDiscordUserId: string;
+    clanTag: string;
+    discordChannelId: string;
+  }) => Promise<
+    | {
+        status: 'configured';
+        clanName: string;
+        clanTag: string;
+        discordChannelId: string;
+      }
+    | { status: 'clan_not_linked' }
+  >;
+  disableDonationNotifications: (input: {
+    guildId: string;
+    actorDiscordUserId: string;
+    clanTag: string;
+  }) => Promise<
+    | { status: 'disabled'; clanName: string; clanTag: string }
+    | { status: 'not_configured'; clanName: string; clanTag: string }
+    | { status: 'clan_not_linked' }
+  >;
 }
 
 export function createDatabase(databaseUrl: string) {
@@ -3098,6 +3121,161 @@ export function createDatabaseClanMemberNotificationConfigStore(
             clanTag: trackedClan.clanTag,
             clanName: trackedClan.name,
             eventTypes: ['war_attack'],
+            removedConfigs: existing,
+          },
+        });
+
+        return {
+          status: 'disabled' as const,
+          clanName: trackedClan.name ?? trackedClan.clanTag,
+          clanTag: trackedClan.clanTag,
+        };
+      });
+    },
+    configureDonationNotifications: async (input) => {
+      const clanTag = input.clanTag.trim().toUpperCase();
+      return database.transaction(async (tx) => {
+        const [trackedClan] = await tx
+          .select({
+            id: schema.trackedClans.id,
+            clanTag: schema.trackedClans.clanTag,
+            name: schema.trackedClans.name,
+          })
+          .from(schema.trackedClans)
+          .where(
+            and(
+              eq(schema.trackedClans.guildId, input.guildId),
+              eq(schema.trackedClans.clanTag, clanTag),
+              eq(schema.trackedClans.isActive, true),
+            ),
+          )
+          .limit(1);
+
+        if (!trackedClan) return { status: 'clan_not_linked' as const };
+
+        const existing = await tx
+          .select({
+            id: schema.clanDonationNotificationConfigs.id,
+            discordChannelId: schema.clanDonationNotificationConfigs.discordChannelId,
+            eventType: schema.clanDonationNotificationConfigs.eventType,
+          })
+          .from(schema.clanDonationNotificationConfigs)
+          .where(
+            and(
+              eq(schema.clanDonationNotificationConfigs.guildId, input.guildId),
+              eq(schema.clanDonationNotificationConfigs.trackedClanId, trackedClan.id),
+              eq(schema.clanDonationNotificationConfigs.eventType, 'instant_donation'),
+            ),
+          );
+
+        await tx
+          .delete(schema.clanDonationNotificationConfigs)
+          .where(
+            and(
+              eq(schema.clanDonationNotificationConfigs.guildId, input.guildId),
+              eq(schema.clanDonationNotificationConfigs.trackedClanId, trackedClan.id),
+              eq(schema.clanDonationNotificationConfigs.eventType, 'instant_donation'),
+            ),
+          );
+
+        const now = new Date();
+        await tx.insert(schema.clanDonationNotificationConfigs).values({
+          guildId: input.guildId,
+          trackedClanId: trackedClan.id,
+          discordChannelId: input.discordChannelId,
+          eventType: 'instant_donation',
+          isEnabled: true,
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: 'clan_donation_notifications.enabled',
+          targetType: 'tracked_clan',
+          targetId: trackedClan.id,
+          metadata: {
+            clanTag: trackedClan.clanTag,
+            clanName: trackedClan.name,
+            discordChannelId: input.discordChannelId,
+            eventTypes: ['instant_donation'],
+            previousConfigs: existing,
+          },
+        });
+
+        return {
+          status: 'configured' as const,
+          clanName: trackedClan.name ?? trackedClan.clanTag,
+          clanTag: trackedClan.clanTag,
+          discordChannelId: input.discordChannelId,
+        };
+      });
+    },
+    disableDonationNotifications: async (input) => {
+      const clanTag = input.clanTag.trim().toUpperCase();
+      return database.transaction(async (tx) => {
+        const [trackedClan] = await tx
+          .select({
+            id: schema.trackedClans.id,
+            clanTag: schema.trackedClans.clanTag,
+            name: schema.trackedClans.name,
+          })
+          .from(schema.trackedClans)
+          .where(
+            and(
+              eq(schema.trackedClans.guildId, input.guildId),
+              eq(schema.trackedClans.clanTag, clanTag),
+              eq(schema.trackedClans.isActive, true),
+            ),
+          )
+          .limit(1);
+
+        if (!trackedClan) return { status: 'clan_not_linked' as const };
+
+        const existing = await tx
+          .select({
+            id: schema.clanDonationNotificationConfigs.id,
+            discordChannelId: schema.clanDonationNotificationConfigs.discordChannelId,
+            eventType: schema.clanDonationNotificationConfigs.eventType,
+          })
+          .from(schema.clanDonationNotificationConfigs)
+          .where(
+            and(
+              eq(schema.clanDonationNotificationConfigs.guildId, input.guildId),
+              eq(schema.clanDonationNotificationConfigs.trackedClanId, trackedClan.id),
+              eq(schema.clanDonationNotificationConfigs.eventType, 'instant_donation'),
+            ),
+          );
+
+        if (existing.length === 0) {
+          return {
+            status: 'not_configured' as const,
+            clanName: trackedClan.name ?? trackedClan.clanTag,
+            clanTag: trackedClan.clanTag,
+          };
+        }
+
+        await tx
+          .delete(schema.clanDonationNotificationConfigs)
+          .where(
+            and(
+              eq(schema.clanDonationNotificationConfigs.guildId, input.guildId),
+              eq(schema.clanDonationNotificationConfigs.trackedClanId, trackedClan.id),
+              eq(schema.clanDonationNotificationConfigs.eventType, 'instant_donation'),
+            ),
+          );
+
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: 'clan_donation_notifications.disabled',
+          targetType: 'tracked_clan',
+          targetId: trackedClan.id,
+          metadata: {
+            clanTag: trackedClan.clanTag,
+            clanName: trackedClan.name,
+            eventTypes: ['instant_donation'],
             removedConfigs: existing,
           },
         });

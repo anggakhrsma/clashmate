@@ -79,6 +79,35 @@ describe('notification delivery loop', () => {
     );
   });
 
+  it('formats clan donation messages for donated-only, received-only, and both deltas', () => {
+    const basePayload = {
+      clanTag: '#ABC123',
+      playerTag: '#PLAYER',
+      playerName: 'Chief',
+    };
+
+    expect(
+      formatNotificationOutboxMessage({
+        sourceType: 'clan_donation_event',
+        payload: { ...basePayload, donationDelta: 10, receivedDelta: 0 },
+      }),
+    ).toBe('🎁 **Chief (#PLAYER)** donated **10** troops in clan **#ABC123**.');
+    expect(
+      formatNotificationOutboxMessage({
+        sourceType: 'clan_donation_event',
+        payload: { ...basePayload, donationDelta: 0, receivedDelta: 6 },
+      }),
+    ).toBe('🎁 **Chief (#PLAYER)** received **6** troops in clan **#ABC123**.');
+    expect(
+      formatNotificationOutboxMessage({
+        sourceType: 'clan_donation_event',
+        payload: { ...basePayload, donationDelta: 10, receivedDelta: 6 },
+      }),
+    ).toBe(
+      '🎁 **Chief (#PLAYER)** donated **10** troops and received **6** troops in clan **#ABC123**.',
+    );
+  });
+
   it('claims due rows, sends Discord messages, and marks success', async () => {
     const deliveryStore = createDeliveryStore();
     vi.mocked(deliveryStore.claimDueNotificationOutboxEntries).mockResolvedValue([
@@ -123,6 +152,46 @@ describe('notification delivery loop', () => {
       expect.any(Date),
     );
     expect(deliveryStore.markNotificationOutboxFailed).not.toHaveBeenCalled();
+  });
+
+  it('delivers clan donation notifications from outbox payloads', async () => {
+    const deliveryStore = createDeliveryStore();
+    vi.mocked(deliveryStore.claimDueNotificationOutboxEntries).mockResolvedValue([
+      {
+        id: 'outbox-1',
+        guildId: 'guild-1',
+        sourceType: 'clan_donation_event',
+        sourceId: 'event-1',
+        targetType: 'discord_channel',
+        targetId: 'channel-1',
+        attempts: 0,
+        payload: {
+          clanTag: '#ABC123',
+          playerTag: '#PLAYER',
+          playerName: 'Chief',
+          donationDelta: 10,
+          receivedDelta: 6,
+        },
+      },
+    ]);
+    const sender = { sendChannelMessage: vi.fn().mockResolvedValue(undefined) };
+
+    await runNotificationDeliveryIteration({
+      deliveryStore,
+      sender,
+      ownerId: 'worker-1',
+      interval: { baseSeconds: 1, jitterSeconds: 0 },
+    });
+
+    expect(sender.sendChannelMessage).toHaveBeenCalledWith(
+      'channel-1',
+      '🎁 **Chief (#PLAYER)** donated **10** troops and received **6** troops in clan **#ABC123**.',
+    );
+    expect(deliveryStore.markNotificationOutboxSent).toHaveBeenCalledWith(
+      'outbox-1',
+      'worker-1',
+      expect.any(Date),
+    );
   });
 
   it('marks failed sends retryable without throwing the whole iteration', async () => {

@@ -92,6 +92,7 @@ export const setupClanCommandData = new SlashCommandBuilder()
           .addChoices(
             { name: 'Join/Leave Log', value: 'member_join_leave_log' },
             { name: 'War Attack Log', value: 'war_attack_log' },
+            { name: 'Donation Log (Instant)', value: 'continuous_donation_log' },
           ),
       )
       .addChannelOption((option) =>
@@ -211,6 +212,12 @@ export interface SetupClanMemberNotificationStore {
   disableWarAttackNotifications: (
     input: DisableClanMemberNotificationsInput,
   ) => Promise<DisableClanMemberNotificationsResult>;
+  configureDonationNotifications: (
+    input: ConfigureClanMemberNotificationsInput,
+  ) => Promise<ConfigureClanMemberNotificationsResult>;
+  disableDonationNotifications: (
+    input: DisableClanMemberNotificationsInput,
+  ) => Promise<DisableClanMemberNotificationsResult>;
 }
 
 export interface SetupClanApi {
@@ -324,18 +331,16 @@ async function executeSetupClanLogs(
   const action = interaction.options.getString('action') ?? 'enable-logs';
   const logType = interaction.options.getString('log') ?? 'member_join_leave_log';
   if (action === 'disable-logs') {
-    const result = await (logType === 'war_attack_log'
-      ? options.memberNotifications.disableWarAttackNotifications
-      : options.memberNotifications.disableJoinLeaveNotifications)({
+    const result = await getDisableLogHandler(
+      options.memberNotifications,
+      logType,
+    )({
       guildId: interaction.guildId,
       actorDiscordUserId: interaction.user.id,
       clanTag,
     });
     await interaction.reply({
-      content:
-        logType === 'war_attack_log'
-          ? formatDisableWarAttackMessage(result)
-          : formatDisableJoinLeaveMessage(result),
+      content: formatDisableClanLogMessage(logType, result),
       ephemeral: true,
     });
     return;
@@ -344,25 +349,23 @@ async function executeSetupClanLogs(
   const channel = interaction.options.getChannel('channel') ?? interaction.channel;
   if (!channel) {
     await interaction.reply({
-      content: `Please choose a channel for the ${logType === 'war_attack_log' ? 'War Attack Log' : 'Join/Leave Log'}.`,
+      content: `Please choose a channel for the ${getClanLogLabel(logType)}.`,
       ephemeral: true,
     });
     return;
   }
 
-  const result = await (logType === 'war_attack_log'
-    ? options.memberNotifications.configureWarAttackNotifications
-    : options.memberNotifications.configureJoinLeaveNotifications)({
+  const result = await getConfigureLogHandler(
+    options.memberNotifications,
+    logType,
+  )({
     guildId: interaction.guildId,
     actorDiscordUserId: interaction.user.id,
     clanTag,
     discordChannelId: channel.id,
   });
   await interaction.reply({
-    content:
-      logType === 'war_attack_log'
-        ? formatConfigureWarAttackMessage(result)
-        : formatConfigureJoinLeaveMessage(result),
+    content: formatConfigureClanLogMessage(logType, result),
     ephemeral: true,
   });
 }
@@ -573,4 +576,68 @@ export function formatDisableWarAttackMessage(
   }
 
   return `Disabled War Attack Log for **${result.clanName} (${result.clanTag})**.`;
+}
+
+export function formatConfigureDonationMessage(
+  result: ConfigureClanMemberNotificationsResult,
+): string {
+  if (result.status === 'clan_not_linked') {
+    return 'That clan is not linked to this server. Use `/setup clan` first.';
+  }
+
+  return `Enabled Donation Log for **${result.clanName} (${result.clanTag})** in <#${result.discordChannelId}>.`;
+}
+
+export function formatDisableDonationMessage(result: DisableClanMemberNotificationsResult): string {
+  if (result.status === 'clan_not_linked') {
+    return 'That clan is not linked to this server. Use `/setup clan` first.';
+  }
+
+  if (result.status === 'not_configured') {
+    return `No Donation Log is enabled for **${result.clanName} (${result.clanTag})**.`;
+  }
+
+  return `Disabled Donation Log for **${result.clanName} (${result.clanTag})**.`;
+}
+
+function getConfigureLogHandler(
+  store: SetupClanMemberNotificationStore,
+  logType: string,
+): SetupClanMemberNotificationStore['configureJoinLeaveNotifications'] {
+  if (logType === 'war_attack_log') return store.configureWarAttackNotifications;
+  if (logType === 'continuous_donation_log') return store.configureDonationNotifications;
+  return store.configureJoinLeaveNotifications;
+}
+
+function getDisableLogHandler(
+  store: SetupClanMemberNotificationStore,
+  logType: string,
+): SetupClanMemberNotificationStore['disableJoinLeaveNotifications'] {
+  if (logType === 'war_attack_log') return store.disableWarAttackNotifications;
+  if (logType === 'continuous_donation_log') return store.disableDonationNotifications;
+  return store.disableJoinLeaveNotifications;
+}
+
+function formatConfigureClanLogMessage(
+  logType: string,
+  result: ConfigureClanMemberNotificationsResult,
+): string {
+  if (logType === 'war_attack_log') return formatConfigureWarAttackMessage(result);
+  if (logType === 'continuous_donation_log') return formatConfigureDonationMessage(result);
+  return formatConfigureJoinLeaveMessage(result);
+}
+
+function formatDisableClanLogMessage(
+  logType: string,
+  result: DisableClanMemberNotificationsResult,
+): string {
+  if (logType === 'war_attack_log') return formatDisableWarAttackMessage(result);
+  if (logType === 'continuous_donation_log') return formatDisableDonationMessage(result);
+  return formatDisableJoinLeaveMessage(result);
+}
+
+function getClanLogLabel(logType: string): string {
+  if (logType === 'war_attack_log') return 'War Attack Log';
+  if (logType === 'continuous_donation_log') return 'Donation Log';
+  return 'Join/Leave Log';
 }
