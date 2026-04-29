@@ -147,6 +147,15 @@ export interface ClanMemberSnapshotInput {
   rawMember: unknown;
 }
 
+export interface ClanDonationDeltaEvent {
+  previousDonations: number;
+  currentDonations: number;
+  donationDelta: number;
+  previousDonationsReceived: number;
+  currentDonationsReceived: number;
+  receivedDelta: number;
+}
+
 export interface ProcessClanMemberSnapshotsInput {
   clanTag: string;
   fetchedAt: Date;
@@ -157,6 +166,7 @@ export interface ProcessClanMemberSnapshotsResult {
   status: 'processed' | 'not_linked';
   joined: number;
   left: number;
+  donationEvents: number;
 }
 
 export interface ClanMemberEventStore {
@@ -928,22 +938,30 @@ export function createClanMemberEventStore(database: Database): ClanMemberEventS
             and(eq(schema.trackedClans.clanTag, clanTag), eq(schema.trackedClans.isActive, true)),
           );
 
-        if (linkedClans.length === 0) return { status: 'not_linked', joined: 0, left: 0 };
+        if (linkedClans.length === 0) {
+          return { status: 'not_linked', joined: 0, left: 0, donationEvents: 0 };
+        }
 
         const previousMembers = await tx
           .select({
             playerTag: schema.clanMemberSnapshots.playerTag,
             name: schema.clanMemberSnapshots.name,
+            donations: schema.clanMemberSnapshots.donations,
+            donationsReceived: schema.clanMemberSnapshots.donationsReceived,
             rawMember: schema.clanMemberSnapshots.rawMember,
             lastSeenAt: schema.clanMemberSnapshots.lastSeenAt,
           })
           .from(schema.clanMemberSnapshots)
           .where(eq(schema.clanMemberSnapshots.clanTag, clanTag));
         const previousMemberTags = new Set(previousMembers.map((member) => member.playerTag));
+        const previousMembersByTag = new Map(
+          previousMembers.map((member) => [member.playerTag, member]),
+        );
         const isInitialSnapshot = previousMembers.length === 0;
 
         let joined = 0;
         let left = 0;
+        let donationEvents = 0;
 
         const insertEvents = async (event: {
           playerTag: string;
@@ -980,7 +998,54 @@ export function createClanMemberEventStore(database: Database): ClanMemberEventS
           return rows.length;
         };
 
+        const insertDonationEvents = async (event: {
+          playerTag: string;
+          playerName: string;
+          previousDonations: number;
+          currentDonations: number;
+          donationDelta: number;
+          previousDonationsReceived: number;
+          currentDonationsReceived: number;
+          receivedDelta: number;
+          previousSnapshot: unknown;
+          currentSnapshot: unknown;
+        }) => {
+          const rows = await tx
+            .insert(schema.clanDonationEvents)
+            .values(
+              linkedClans.map((linkedClan) => ({
+                guildId: linkedClan.guildId,
+                trackedClanId: linkedClan.id,
+                clanTag,
+                playerTag: event.playerTag,
+                playerName: event.playerName,
+                eventKey: buildClanDonationEventKey({
+                  clanTag,
+                  playerTag: event.playerTag,
+                  eventAt: fetchedAt,
+                  donationDelta: event.donationDelta,
+                  receivedDelta: event.receivedDelta,
+                }),
+                previousDonations: event.previousDonations,
+                currentDonations: event.currentDonations,
+                donationDelta: event.donationDelta,
+                previousDonationsReceived: event.previousDonationsReceived,
+                currentDonationsReceived: event.currentDonationsReceived,
+                receivedDelta: event.receivedDelta,
+                previousSnapshot: event.previousSnapshot,
+                currentSnapshot: event.currentSnapshot,
+                sourceFetchedAt: fetchedAt,
+                occurredAt: fetchedAt,
+                detectedAt: fetchedAt,
+              })),
+            )
+            .onConflictDoNothing()
+            .returning({ id: schema.clanDonationEvents.id });
+          return rows.length;
+        };
+
         for (const member of members) {
+          const previousMember = previousMembersByTag.get(member.playerTag);
           if (!isInitialSnapshot && !previousMemberTags.has(member.playerTag)) {
             joined += await insertEvents({
               playerTag: member.playerTag,
@@ -989,6 +1054,33 @@ export function createClanMemberEventStore(database: Database): ClanMemberEventS
               previousSnapshot: null,
               currentSnapshot: member.rawMember,
             });
+          }
+
+          if (previousMember) {
+            const previousDonations = previousMember.donations;
+            const currentDonations = member.donations;
+            const previousDonationsReceived = previousMember.donationsReceived;
+            const currentDonationsReceived = member.donationsReceived;
+            const donationDeltaEvent = computeClanDonationDeltaEvent({
+              previousDonations,
+              currentDonations,
+              previousDonationsReceived,
+              currentDonationsReceived,
+            });
+            if (donationDeltaEvent) {
+              donationEvents += await insertDonationEvents({
+                playerTag: member.playerTag,
+                playerName: member.name,
+                previousDonations: donationDeltaEvent.previousDonations,
+                currentDonations: donationDeltaEvent.currentDonations,
+                donationDelta: donationDeltaEvent.donationDelta,
+                previousDonationsReceived: donationDeltaEvent.previousDonationsReceived,
+                currentDonationsReceived: donationDeltaEvent.currentDonationsReceived,
+                receivedDelta: donationDeltaEvent.receivedDelta,
+                previousSnapshot: previousMember.rawMember,
+                currentSnapshot: member.rawMember,
+              });
+            }
           }
 
           await tx
@@ -1045,7 +1137,7 @@ export function createClanMemberEventStore(database: Database): ClanMemberEventS
           });
         }
 
-        return { status: 'processed', joined, left };
+        return { status: 'processed', joined, left, donationEvents };
       });
     },
   };
@@ -1925,6 +2017,42 @@ export function buildClanDonationEventKey(input: {
     `donated:${input.donationDelta}`,
     `received:${input.receivedDelta}`,
   ].join(':');
+}
+
+export function computeClanDonationDeltaEvent(input: {
+  previousDonations: number | null | undefined;
+  currentDonations: number | null | undefined;
+  previousDonationsReceived: number | null | undefined;
+  currentDonationsReceived: number | null | undefined;
+}): ClanDonationDeltaEvent | null {
+  if (
+    input.previousDonations === null ||
+    input.previousDonations === undefined ||
+    input.currentDonations === null ||
+    input.currentDonations === undefined ||
+    input.previousDonationsReceived === null ||
+    input.previousDonationsReceived === undefined ||
+    input.currentDonationsReceived === null ||
+    input.currentDonationsReceived === undefined
+  ) {
+    return null;
+  }
+
+  const donationDelta = Math.max(0, input.currentDonations - input.previousDonations);
+  const receivedDelta = Math.max(
+    0,
+    input.currentDonationsReceived - input.previousDonationsReceived,
+  );
+  if (donationDelta === 0 && receivedDelta === 0) return null;
+
+  return {
+    previousDonations: input.previousDonations,
+    currentDonations: input.currentDonations,
+    donationDelta,
+    previousDonationsReceived: input.previousDonationsReceived,
+    currentDonationsReceived: input.currentDonationsReceived,
+    receivedDelta,
+  };
 }
 
 export function buildNotificationOutboxIdempotencyKey(

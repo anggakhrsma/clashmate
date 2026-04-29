@@ -36,6 +36,7 @@ describe('clan poller handler', () => {
         status: 'processed',
         joined: 1,
         left: 0,
+        donationEvents: 0,
       }),
     };
     const handler = createClanPollerHandler({ coc, snapshots, memberEvents, now: () => fetchedAt });
@@ -99,6 +100,7 @@ describe('clan poller handler', () => {
         status: 'processed',
         joined: 1,
         left: 0,
+        donationEvents: 0,
       }),
     };
     const handler = createClanPollerHandler({ coc, snapshots, memberEvents, now: () => fetchedAt });
