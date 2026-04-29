@@ -379,6 +379,35 @@ export const clanMemberNotificationConfigs = pgTable(
   }),
 );
 
+export const warAttackNotificationConfigs = pgTable(
+  'war_attack_notification_configs',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    guildId: text('guild_id')
+      .notNull()
+      .references(() => guilds.id, { onDelete: 'cascade' }),
+    trackedClanId: uuid('tracked_clan_id')
+      .notNull()
+      .references(() => trackedClans.id, { onDelete: 'cascade' }),
+    discordChannelId: text('discord_channel_id').notNull(),
+    eventType: text('event_type').notNull().default('war_attack'),
+    isEnabled: boolean('is_enabled').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    warAttackNotificationConfigUnique: uniqueIndex(
+      'war_attack_notification_configs_guild_clan_channel_event_unique',
+    ).on(table.guildId, table.trackedClanId, table.discordChannelId, table.eventType),
+    warAttackNotificationConfigGuildClanIndex: index(
+      'war_attack_notification_configs_guild_clan_idx',
+    ).on(table.guildId, table.trackedClanId),
+    warAttackNotificationConfigChannelIndex: index(
+      'war_attack_notification_configs_guild_channel_idx',
+    ).on(table.guildId, table.discordChannelId),
+  }),
+);
+
 export const notificationOutbox = pgTable(
   'notification_outbox',
   {
@@ -389,6 +418,12 @@ export const notificationOutbox = pgTable(
     configId: uuid('config_id').references(() => clanMemberNotificationConfigs.id, {
       onDelete: 'set null',
     }),
+    warAttackConfigId: uuid('war_attack_config_id').references(
+      () => warAttackNotificationConfigs.id,
+      {
+        onDelete: 'set null',
+      },
+    ),
     sourceType: text('source_type').notNull(),
     sourceId: uuid('source_id').notNull(),
     idempotencyKey: text('idempotency_key').notNull(),
@@ -607,6 +642,21 @@ export const clanMemberNotificationConfigRelations = relations(
   }),
 );
 
+export const warAttackNotificationConfigRelations = relations(
+  warAttackNotificationConfigs,
+  ({ one, many }) => ({
+    guild: one(guilds, {
+      fields: [warAttackNotificationConfigs.guildId],
+      references: [guilds.id],
+    }),
+    trackedClan: one(trackedClans, {
+      fields: [warAttackNotificationConfigs.trackedClanId],
+      references: [trackedClans.id],
+    }),
+    outboxEntries: many(notificationOutbox),
+  }),
+);
+
 export const notificationOutboxRelations = relations(notificationOutbox, ({ one }) => ({
   guild: one(guilds, {
     fields: [notificationOutbox.guildId],
@@ -615,5 +665,9 @@ export const notificationOutboxRelations = relations(notificationOutbox, ({ one 
   config: one(clanMemberNotificationConfigs, {
     fields: [notificationOutbox.configId],
     references: [clanMemberNotificationConfigs.id],
+  }),
+  warAttackConfig: one(warAttackNotificationConfigs, {
+    fields: [notificationOutbox.warAttackConfigId],
+    references: [warAttackNotificationConfigs.id],
   }),
 }));

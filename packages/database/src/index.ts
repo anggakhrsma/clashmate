@@ -165,12 +165,13 @@ export interface ClanMemberEventStore {
   ) => Promise<ProcessClanMemberSnapshotsResult>;
 }
 
-export type NotificationSourceType = 'clan_member_event';
+export type NotificationSourceType = 'clan_member_event' | 'war_attack_event';
 export type NotificationTargetType = 'discord_channel';
 
 export const CLAN_MEMBER_NOTIFICATION_FANOUT_CURSOR_NAME = 'clan_member_event';
-export const CLAN_MEMBER_NOTIFICATION_FANOUT_SOURCE_TYPE: NotificationSourceType =
-  'clan_member_event';
+export const CLAN_MEMBER_NOTIFICATION_FANOUT_SOURCE_TYPE = 'clan_member_event';
+export const WAR_ATTACK_NOTIFICATION_FANOUT_CURSOR_NAME = 'war_attack_event';
+export const WAR_ATTACK_NOTIFICATION_FANOUT_SOURCE_TYPE = 'war_attack_event';
 
 export interface NotificationFanOutCursorState {
   cursorName: string;
@@ -201,6 +202,12 @@ export interface EnsureNotificationFanOutCursorInput {
   now: Date;
 }
 
+export interface EnsureClanMemberNotificationFanOutCursorInput {
+  cursorName: string;
+  sourceType: 'clan_member_event';
+  now: Date;
+}
+
 export interface ListClanMemberEventsAfterFanOutCursorInput {
   cursor: NotificationFanOutCursorState;
   since?: Date;
@@ -215,7 +222,7 @@ export interface AdvanceNotificationFanOutCursorInput {
 }
 
 export interface ClanMemberNotificationFanOutRepository {
-  ensureCursor: (input: EnsureNotificationFanOutCursorInput) => Promise<void>;
+  ensureCursor: (input: EnsureClanMemberNotificationFanOutCursorInput) => Promise<void>;
   lockCursor: (cursorName: string) => Promise<NotificationFanOutCursorState | null>;
   listEventsAfterCursor: (
     input: ListClanMemberEventsAfterFanOutCursorInput,
@@ -267,9 +274,29 @@ export interface ClanMemberNotificationFanOutTarget {
   detectedAt: Date;
 }
 
-export interface NotificationOutboxInsertValue {
+export interface WarAttackNotificationFanOutTarget {
+  eventId: string;
   guildId: string;
   configId: string;
+  discordChannelId: string;
+  clanTag: string;
+  warKey: string;
+  eventKey: string;
+  attackerTag: string;
+  defenderTag: string;
+  attackOrder: number;
+  stars: number;
+  destructionPercentage: number;
+  duration: number | null;
+  freshAttack: boolean;
+  occurredAt: Date;
+  detectedAt: Date;
+}
+
+export interface NotificationOutboxInsertValue {
+  guildId: string;
+  configId?: string | null;
+  warAttackConfigId?: string | null;
   sourceType: NotificationSourceType;
   sourceId: string;
   idempotencyKey: string;
@@ -1152,6 +1179,46 @@ export function buildClanMemberNotificationOutboxValues(
   }));
 }
 
+export function buildWarAttackNotificationOutboxValues(
+  targets: readonly WarAttackNotificationFanOutTarget[],
+  now: Date,
+): NotificationOutboxInsertValue[] {
+  return targets.map((target) => ({
+    guildId: target.guildId,
+    configId: null,
+    warAttackConfigId: target.configId,
+    sourceType: 'war_attack_event',
+    sourceId: target.eventId,
+    idempotencyKey: buildNotificationOutboxIdempotencyKey({
+      guildId: target.guildId,
+      sourceType: 'war_attack_event',
+      sourceId: target.eventId,
+      targetType: 'discord_channel',
+      targetId: target.discordChannelId,
+    }),
+    targetType: 'discord_channel',
+    targetId: target.discordChannelId,
+    status: 'pending',
+    payload: {
+      clanTag: target.clanTag,
+      warKey: target.warKey,
+      eventKey: target.eventKey,
+      attackerTag: target.attackerTag,
+      defenderTag: target.defenderTag,
+      attackOrder: target.attackOrder,
+      stars: target.stars,
+      destructionPercentage: target.destructionPercentage,
+      duration: target.duration,
+      freshAttack: target.freshAttack,
+      occurredAt: target.occurredAt.toISOString(),
+      detectedAt: target.detectedAt.toISOString(),
+    },
+    attempts: 0,
+    nextAttemptAt: now,
+    updatedAt: now,
+  }));
+}
+
 function createClanMemberNotificationFanOutRepository(
   tx: DatabaseTransaction,
 ): ClanMemberNotificationFanOutRepository {
@@ -1311,6 +1378,13 @@ export function isNotificationFanOutEventAfterCursor(
 }
 
 export function isClanMemberNotificationConfigEligibleForEvent(input: {
+  configCreatedAt: Date;
+  eventDetectedAt: Date;
+}): boolean {
+  return input.configCreatedAt.getTime() <= input.eventDetectedAt.getTime();
+}
+
+export function isWarAttackNotificationConfigEligibleForEvent(input: {
   configCreatedAt: Date;
   eventDetectedAt: Date;
 }): boolean {
