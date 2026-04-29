@@ -16,6 +16,10 @@ export interface ClanPollerHandlerOptions {
 export interface ClanPollerResult {
   readonly status: 'snapshot_updated' | 'not_linked';
   readonly clanTag: string;
+  readonly joined?: number;
+  readonly left?: number;
+  readonly donationEvents?: number;
+  readonly roleChangeEvents?: number;
 }
 
 export function createClanPollerHandler(options: ClanPollerHandlerOptions) {
@@ -34,15 +38,27 @@ export function createClanPollerHandler(options: ClanPollerHandlerOptions) {
       fetchedAt,
     });
 
-    if (result.status === 'upserted' && options.memberEvents) {
-      await options.memberEvents.processClanMemberSnapshots({
-        clanTag: clan.tag,
-        fetchedAt,
-        members: extractClanMemberSnapshots(clan),
-      });
-    }
+    const memberResult =
+      result.status === 'upserted' && options.memberEvents
+        ? await options.memberEvents.processClanMemberSnapshots({
+            clanTag: clan.tag,
+            fetchedAt,
+            members: extractClanMemberSnapshots(clan),
+          })
+        : null;
 
-    return { status: result.status === 'upserted' ? 'snapshot_updated' : 'not_linked', clanTag };
+    return {
+      status: result.status === 'upserted' ? 'snapshot_updated' : 'not_linked',
+      clanTag,
+      ...(memberResult?.status === 'processed'
+        ? {
+            joined: memberResult.joined,
+            left: memberResult.left,
+            donationEvents: memberResult.donationEvents,
+            roleChangeEvents: memberResult.roleChangeEvents,
+          }
+        : {}),
+    };
   };
 }
 

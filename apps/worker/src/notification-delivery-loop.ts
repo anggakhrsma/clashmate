@@ -148,6 +148,13 @@ export function formatNotificationOutboxMessage(entry: {
     return `🎁 ${identity} received **${payload.receivedDelta}** troops in clan **${payload.clanTag}**.`;
   }
 
+  if (entry.sourceType === 'clan_role_change_event') {
+    const payload = parseClanRoleChangeNotificationPayload(entry.payload);
+    const previous = payload.previousRole ? ` from **${payload.previousRole}**` : '';
+    const current = payload.currentRole ?? 'no role';
+    return `👑 **${payload.playerName} (${payload.playerTag})** changed role${previous} to **${current}** in clan **${payload.clanTag}**.`;
+  }
+
   if (entry.sourceType === 'war_attack_event') {
     const payload = parseWarAttackNotificationPayload(entry.payload);
     const fresh = payload.freshAttack ? ' fresh' : '';
@@ -194,6 +201,28 @@ function parseClanDonationNotificationPayload(payload: unknown): {
   }
 
   return { clanTag, playerTag, playerName, donationDelta, receivedDelta };
+}
+
+function parseClanRoleChangeNotificationPayload(payload: unknown): {
+  clanTag: string;
+  playerTag: string;
+  playerName: string;
+  previousRole: string | null;
+  currentRole: string | null;
+} {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Notification payload must be an object.');
+  }
+  const record = payload as Record<string, unknown>;
+  const clanTag = readPayloadString(record, 'clanTag');
+  const playerTag = readPayloadString(record, 'playerTag');
+  const playerName = readPayloadString(record, 'playerName');
+  const previousRole = readOptionalPayloadString(record, 'previousRole');
+  const currentRole = readOptionalPayloadString(record, 'currentRole');
+  if (previousRole === currentRole) {
+    throw new Error('Clan role change notification requires different roles.');
+  }
+  return { clanTag, playerTag, playerName, previousRole, currentRole };
 }
 
 function parseWarAttackNotificationPayload(payload: unknown): {
@@ -289,6 +318,15 @@ function readPayloadString(record: Record<string, unknown>, key: string): string
   const value = record[key];
   if (typeof value !== 'string' || !value.trim()) {
     throw new Error(`Notification payload requires ${key}.`);
+  }
+  return value.trim();
+}
+
+function readOptionalPayloadString(record: Record<string, unknown>, key: string): string | null {
+  const value = record[key];
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(`Notification payload requires ${key} to be null or a string.`);
   }
   return value.trim();
 }

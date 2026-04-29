@@ -156,6 +156,11 @@ export interface ClanDonationDeltaEvent {
   receivedDelta: number;
 }
 
+export interface ClanRoleChangeDeltaEvent {
+  previousRole: string | null;
+  currentRole: string | null;
+}
+
 export interface ProcessClanMemberSnapshotsInput {
   clanTag: string;
   fetchedAt: Date;
@@ -167,6 +172,7 @@ export interface ProcessClanMemberSnapshotsResult {
   joined: number;
   left: number;
   donationEvents: number;
+  roleChangeEvents: number;
 }
 
 export interface ClanMemberEventStore {
@@ -180,7 +186,8 @@ export type NotificationSourceType =
   | 'war_attack_event'
   | 'war_state_event'
   | 'missed_war_attack_event'
-  | 'clan_donation_event';
+  | 'clan_donation_event'
+  | 'clan_role_change_event';
 export type NotificationTargetType = 'discord_channel';
 
 export const CLAN_MEMBER_NOTIFICATION_FANOUT_CURSOR_NAME = 'clan_member_event';
@@ -193,6 +200,8 @@ export const MISSED_WAR_ATTACK_NOTIFICATION_FANOUT_CURSOR_NAME = 'missed_war_att
 export const MISSED_WAR_ATTACK_NOTIFICATION_FANOUT_SOURCE_TYPE = 'missed_war_attack_event';
 export const CLAN_DONATION_NOTIFICATION_FANOUT_CURSOR_NAME = 'clan_donation_event';
 export const CLAN_DONATION_NOTIFICATION_FANOUT_SOURCE_TYPE = 'clan_donation_event';
+export const CLAN_ROLE_CHANGE_NOTIFICATION_FANOUT_CURSOR_NAME = 'clan_role_change_event';
+export const CLAN_ROLE_CHANGE_NOTIFICATION_FANOUT_SOURCE_TYPE = 'clan_role_change_event';
 
 export interface NotificationFanOutCursorState {
   cursorName: string;
@@ -245,6 +254,18 @@ export interface ClanDonationNotificationFanOutEvent extends NotificationFanOutE
   occurredAt: Date;
 }
 
+export interface ClanRoleChangeNotificationFanOutEvent extends NotificationFanOutEventCursorPoint {
+  guildId: string;
+  trackedClanId: string | null;
+  clanTag: string;
+  playerTag: string;
+  playerName: string;
+  eventKey: string;
+  previousRole: string | null;
+  currentRole: string | null;
+  occurredAt: Date;
+}
+
 export interface WarStateNotificationFanOutEvent extends NotificationFanOutEventCursorPoint {
   guildId: string;
   trackedClanId: string | null;
@@ -293,6 +314,12 @@ export interface EnsureClanDonationNotificationFanOutCursorInput {
   now: Date;
 }
 
+export interface EnsureClanRoleChangeNotificationFanOutCursorInput {
+  cursorName: string;
+  sourceType: 'clan_role_change_event';
+  now: Date;
+}
+
 export interface EnsureWarStateNotificationFanOutCursorInput {
   cursorName: string;
   sourceType: 'war_state_event';
@@ -318,6 +345,8 @@ export interface ListWarAttackEventsAfterFanOutCursorInput {
 }
 
 export type ListClanDonationEventsAfterFanOutCursorInput =
+  ListWarAttackEventsAfterFanOutCursorInput;
+export type ListClanRoleChangeEventsAfterFanOutCursorInput =
   ListWarAttackEventsAfterFanOutCursorInput;
 export type ListWarStateEventsAfterFanOutCursorInput = ListWarAttackEventsAfterFanOutCursorInput;
 export type ListMissedWarAttackEventsAfterFanOutCursorInput =
@@ -365,6 +394,19 @@ export interface ClanDonationNotificationFanOutRepository {
   listTargetsForEvents: (
     eventIds: readonly string[],
   ) => Promise<ClanDonationNotificationFanOutTarget[]>;
+  insertOutboxEntries: (values: readonly NotificationOutboxInsertValue[]) => Promise<number>;
+  advanceCursor: (input: AdvanceNotificationFanOutCursorInput) => Promise<void>;
+}
+
+export interface ClanRoleChangeNotificationFanOutRepository {
+  ensureCursor: (input: EnsureClanRoleChangeNotificationFanOutCursorInput) => Promise<void>;
+  lockCursor: (cursorName: string) => Promise<NotificationFanOutCursorState | null>;
+  listEventsAfterCursor: (
+    input: ListClanRoleChangeEventsAfterFanOutCursorInput,
+  ) => Promise<ClanRoleChangeNotificationFanOutEvent[]>;
+  listTargetsForEvents: (
+    eventIds: readonly string[],
+  ) => Promise<ClanRoleChangeNotificationFanOutTarget[]>;
   insertOutboxEntries: (values: readonly NotificationOutboxInsertValue[]) => Promise<number>;
   advanceCursor: (input: AdvanceNotificationFanOutCursorInput) => Promise<void>;
 }
@@ -419,6 +461,8 @@ export type FanOutWarAttackEventNotificationsInput = FanOutClanMemberEventNotifi
 export type FanOutWarAttackEventNotificationsResult = FanOutClanMemberEventNotificationsResult;
 export type FanOutClanDonationEventNotificationsInput = FanOutClanMemberEventNotificationsInput;
 export type FanOutClanDonationEventNotificationsResult = FanOutClanMemberEventNotificationsResult;
+export type FanOutClanRoleChangeEventNotificationsInput = FanOutClanMemberEventNotificationsInput;
+export type FanOutClanRoleChangeEventNotificationsResult = FanOutClanMemberEventNotificationsResult;
 export type FanOutWarStateEventNotificationsInput = FanOutClanMemberEventNotificationsInput;
 export type FanOutWarStateEventNotificationsResult = FanOutClanMemberEventNotificationsResult;
 export type FanOutMissedWarAttackEventNotificationsInput = FanOutClanMemberEventNotificationsInput;
@@ -435,6 +479,9 @@ export interface NotificationFanOutStore {
   fanOutClanDonationEventNotifications: (
     input?: FanOutClanDonationEventNotificationsInput,
   ) => Promise<FanOutClanDonationEventNotificationsResult>;
+  fanOutClanRoleChangeEventNotifications: (
+    input?: FanOutClanRoleChangeEventNotificationsInput,
+  ) => Promise<FanOutClanRoleChangeEventNotificationsResult>;
   fanOutWarStateEventNotifications: (
     input?: FanOutWarStateEventNotificationsInput,
   ) => Promise<FanOutWarStateEventNotificationsResult>;
@@ -491,6 +538,21 @@ export interface ClanDonationNotificationFanOutTarget {
   detectedAt: Date;
 }
 
+export interface ClanRoleChangeNotificationFanOutTarget {
+  eventId: string;
+  guildId: string;
+  configId: string;
+  discordChannelId: string;
+  clanTag: string;
+  playerTag: string;
+  playerName: string;
+  eventKey: string;
+  previousRole: string | null;
+  currentRole: string | null;
+  occurredAt: Date;
+  detectedAt: Date;
+}
+
 export interface WarStateNotificationFanOutTarget {
   eventId: string;
   guildId: string;
@@ -528,6 +590,7 @@ export interface NotificationOutboxInsertValue {
   warStateConfigId?: string | null;
   missedWarAttackConfigId?: string | null;
   clanDonationConfigId?: string | null;
+  clanRoleChangeConfigId?: string | null;
   sourceType: NotificationSourceType;
   sourceId: string;
   idempotencyKey: string;
@@ -1635,13 +1698,20 @@ export function createClanMemberEventStore(database: Database): ClanMemberEventS
           );
 
         if (linkedClans.length === 0) {
-          return { status: 'not_linked', joined: 0, left: 0, donationEvents: 0 };
+          return {
+            status: 'not_linked',
+            joined: 0,
+            left: 0,
+            donationEvents: 0,
+            roleChangeEvents: 0,
+          };
         }
 
         const previousMembers = await tx
           .select({
             playerTag: schema.clanMemberSnapshots.playerTag,
             name: schema.clanMemberSnapshots.name,
+            role: schema.clanMemberSnapshots.role,
             donations: schema.clanMemberSnapshots.donations,
             donationsReceived: schema.clanMemberSnapshots.donationsReceived,
             rawMember: schema.clanMemberSnapshots.rawMember,
@@ -1658,6 +1728,7 @@ export function createClanMemberEventStore(database: Database): ClanMemberEventS
         let joined = 0;
         let left = 0;
         let donationEvents = 0;
+        let roleChangeEvents = 0;
 
         const insertEvents = async (event: {
           playerTag: string;
@@ -1740,6 +1811,44 @@ export function createClanMemberEventStore(database: Database): ClanMemberEventS
           return rows.length;
         };
 
+        const insertRoleChangeEvents = async (event: {
+          playerTag: string;
+          playerName: string;
+          previousRole: string | null;
+          currentRole: string | null;
+          previousSnapshot: unknown;
+          currentSnapshot: unknown;
+        }) => {
+          const rows = await tx
+            .insert(schema.clanRoleChangeEvents)
+            .values(
+              linkedClans.map((linkedClan) => ({
+                guildId: linkedClan.guildId,
+                trackedClanId: linkedClan.id,
+                clanTag,
+                playerTag: event.playerTag,
+                playerName: event.playerName,
+                eventKey: buildClanRoleChangeEventKey({
+                  clanTag,
+                  playerTag: event.playerTag,
+                  previousRole: event.previousRole,
+                  currentRole: event.currentRole,
+                  eventAt: fetchedAt,
+                }),
+                previousRole: event.previousRole,
+                currentRole: event.currentRole,
+                previousSnapshot: event.previousSnapshot,
+                currentSnapshot: event.currentSnapshot,
+                sourceFetchedAt: fetchedAt,
+                occurredAt: fetchedAt,
+                detectedAt: fetchedAt,
+              })),
+            )
+            .onConflictDoNothing()
+            .returning({ id: schema.clanRoleChangeEvents.id });
+          return rows.length;
+        };
+
         for (const member of members) {
           const previousMember = previousMembersByTag.get(member.playerTag);
           if (!isInitialSnapshot && !previousMemberTags.has(member.playerTag)) {
@@ -1753,6 +1862,21 @@ export function createClanMemberEventStore(database: Database): ClanMemberEventS
           }
 
           if (previousMember) {
+            const roleChangeEvent = computeClanRoleChangeDeltaEvent({
+              previousRole: previousMember.role,
+              currentRole: member.role,
+            });
+            if (roleChangeEvent) {
+              roleChangeEvents += await insertRoleChangeEvents({
+                playerTag: member.playerTag,
+                playerName: member.name,
+                previousRole: roleChangeEvent.previousRole,
+                currentRole: roleChangeEvent.currentRole,
+                previousSnapshot: previousMember.rawMember,
+                currentSnapshot: member.rawMember,
+              });
+            }
+
             const previousDonations = previousMember.donations;
             const currentDonations = member.donations;
             const previousDonationsReceived = previousMember.donationsReceived;
@@ -1833,7 +1957,7 @@ export function createClanMemberEventStore(database: Database): ClanMemberEventS
           });
         }
 
-        return { status: 'processed', joined, left, donationEvents };
+        return { status: 'processed', joined, left, donationEvents, roleChangeEvents };
       });
     },
   };
@@ -1877,6 +2001,14 @@ export function createNotificationFanOutStore(database: Database): NotificationF
       return database.transaction(async (tx) => {
         return fanOutClanDonationEventNotificationsWithCursor(
           createClanDonationNotificationFanOutRepository(tx),
+          input,
+        );
+      });
+    },
+    fanOutClanRoleChangeEventNotifications: async (input = {}) => {
+      return database.transaction(async (tx) => {
+        return fanOutClanRoleChangeEventNotificationsWithCursor(
+          createClanRoleChangeNotificationFanOutRepository(tx),
           input,
         );
       });
@@ -2131,6 +2263,57 @@ export async function fanOutClanDonationEventNotificationsWithCursor(
   return { eventsScanned: events.length, matchedTargets: targets.length, insertedOutboxEntries };
 }
 
+export async function fanOutClanRoleChangeEventNotificationsWithCursor(
+  repository: ClanRoleChangeNotificationFanOutRepository,
+  input: FanOutClanRoleChangeEventNotificationsInput = {},
+): Promise<FanOutClanRoleChangeEventNotificationsResult> {
+  const limit = input.limit ?? 100;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
+    throw new Error('Clan role change notification fan-out limit must be between 1 and 1000.');
+  }
+  const now = input.now ?? new Date();
+
+  await repository.ensureCursor({
+    cursorName: CLAN_ROLE_CHANGE_NOTIFICATION_FANOUT_CURSOR_NAME,
+    sourceType: CLAN_ROLE_CHANGE_NOTIFICATION_FANOUT_SOURCE_TYPE,
+    now,
+  });
+
+  const cursor = await repository.lockCursor(CLAN_ROLE_CHANGE_NOTIFICATION_FANOUT_CURSOR_NAME);
+  if (!cursor) return { eventsScanned: 0, matchedTargets: 0, insertedOutboxEntries: 0 };
+
+  const listEventsInput: ListClanRoleChangeEventsAfterFanOutCursorInput = { cursor, limit };
+  if (input.since) listEventsInput.since = input.since;
+  const events = await repository.listEventsAfterCursor(listEventsInput);
+
+  if (events.length === 0) {
+    await repository.advanceCursor({
+      cursorName: CLAN_ROLE_CHANGE_NOTIFICATION_FANOUT_CURSOR_NAME,
+      now,
+    });
+    return { eventsScanned: 0, matchedTargets: 0, insertedOutboxEntries: 0 };
+  }
+
+  const targets = await repository.listTargetsForEvents(events.map((event) => event.eventId));
+  const insertedOutboxEntries =
+    targets.length > 0
+      ? await repository.insertOutboxEntries(
+          buildClanRoleChangeNotificationOutboxValues(targets, now),
+        )
+      : 0;
+  const lastEvent = events.at(-1);
+  if (!lastEvent) throw new Error('Clan role change notification fan-out lost its event cursor.');
+
+  await repository.advanceCursor({
+    cursorName: CLAN_ROLE_CHANGE_NOTIFICATION_FANOUT_CURSOR_NAME,
+    lastDetectedAt: lastEvent.detectedAt,
+    lastEventId: lastEvent.eventId,
+    now,
+  });
+
+  return { eventsScanned: events.length, matchedTargets: targets.length, insertedOutboxEntries };
+}
+
 export function createNotificationOutboxDeliveryStore(
   database: Database,
 ): NotificationOutboxDeliveryStore {
@@ -2370,6 +2553,46 @@ export function buildClanDonationNotificationOutboxValues(
       playerName: target.playerName,
       donationDelta: target.donationDelta,
       receivedDelta: target.receivedDelta,
+      occurredAt: target.occurredAt.toISOString(),
+      detectedAt: target.detectedAt.toISOString(),
+    },
+    attempts: 0,
+    nextAttemptAt: now,
+    updatedAt: now,
+  }));
+}
+
+export function buildClanRoleChangeNotificationOutboxValues(
+  targets: readonly ClanRoleChangeNotificationFanOutTarget[],
+  now: Date,
+): NotificationOutboxInsertValue[] {
+  return targets.map((target) => ({
+    guildId: target.guildId,
+    configId: null,
+    warAttackConfigId: null,
+    warStateConfigId: null,
+    missedWarAttackConfigId: null,
+    clanDonationConfigId: null,
+    clanRoleChangeConfigId: target.configId,
+    sourceType: 'clan_role_change_event',
+    sourceId: target.eventId,
+    idempotencyKey: buildNotificationOutboxIdempotencyKey({
+      guildId: target.guildId,
+      sourceType: 'clan_role_change_event',
+      sourceId: target.eventId,
+      targetType: 'discord_channel',
+      targetId: target.discordChannelId,
+    }),
+    targetType: 'discord_channel',
+    targetId: target.discordChannelId,
+    status: 'pending',
+    payload: {
+      clanTag: target.clanTag,
+      eventKey: target.eventKey,
+      playerTag: target.playerTag,
+      playerName: target.playerName,
+      previousRole: target.previousRole,
+      currentRole: target.currentRole,
       occurredAt: target.occurredAt.toISOString(),
       detectedAt: target.detectedAt.toISOString(),
     },
@@ -3111,6 +3334,148 @@ function buildClanDonationFanOutCursorPredicate(cursor: NotificationFanOutCursor
   );
 }
 
+function createClanRoleChangeNotificationFanOutRepository(
+  tx: DatabaseTransaction,
+): ClanRoleChangeNotificationFanOutRepository {
+  return {
+    ensureCursor: async (input) => {
+      await tx
+        .insert(schema.notificationFanoutCursors)
+        .values({
+          cursorName: input.cursorName,
+          sourceType: input.sourceType,
+          createdAt: input.now,
+          updatedAt: input.now,
+        })
+        .onConflictDoNothing({ target: schema.notificationFanoutCursors.cursorName });
+    },
+    lockCursor: async (cursorName) => {
+      const rows = await tx.execute(sql<NotificationFanOutCursorState>`
+        select cursor_name as "cursorName",
+               source_type as "sourceType",
+               last_detected_at as "lastDetectedAt",
+               last_event_id as "lastEventId"
+        from notification_fanout_cursors
+        where cursor_name = ${cursorName}
+        for update skip locked
+      `);
+      return normalizeExecuteRows<NotificationFanOutCursorState>(rows)[0] ?? null;
+    },
+    listEventsAfterCursor: async (input) => {
+      const cursorPredicate = buildClanRoleChangeFanOutCursorPredicate(input.cursor);
+      const sincePredicate = input.since
+        ? gte(schema.clanRoleChangeEvents.detectedAt, input.since)
+        : sql<boolean>`true`;
+
+      return tx
+        .select({
+          eventId: schema.clanRoleChangeEvents.id,
+          guildId: schema.clanRoleChangeEvents.guildId,
+          trackedClanId: schema.clanRoleChangeEvents.trackedClanId,
+          clanTag: schema.clanRoleChangeEvents.clanTag,
+          playerTag: schema.clanRoleChangeEvents.playerTag,
+          playerName: schema.clanRoleChangeEvents.playerName,
+          eventKey: schema.clanRoleChangeEvents.eventKey,
+          previousRole: schema.clanRoleChangeEvents.previousRole,
+          currentRole: schema.clanRoleChangeEvents.currentRole,
+          occurredAt: schema.clanRoleChangeEvents.occurredAt,
+          detectedAt: schema.clanRoleChangeEvents.detectedAt,
+        })
+        .from(schema.clanRoleChangeEvents)
+        .where(and(cursorPredicate, sincePredicate))
+        .orderBy(asc(schema.clanRoleChangeEvents.detectedAt), asc(schema.clanRoleChangeEvents.id))
+        .limit(input.limit);
+    },
+    listTargetsForEvents: async (eventIds) => {
+      if (eventIds.length === 0) return [];
+      return tx
+        .select({
+          eventId: schema.clanRoleChangeEvents.id,
+          guildId: schema.clanRoleChangeEvents.guildId,
+          clanTag: schema.clanRoleChangeEvents.clanTag,
+          playerTag: schema.clanRoleChangeEvents.playerTag,
+          playerName: schema.clanRoleChangeEvents.playerName,
+          eventKey: schema.clanRoleChangeEvents.eventKey,
+          previousRole: schema.clanRoleChangeEvents.previousRole,
+          currentRole: schema.clanRoleChangeEvents.currentRole,
+          occurredAt: schema.clanRoleChangeEvents.occurredAt,
+          detectedAt: schema.clanRoleChangeEvents.detectedAt,
+          configId: schema.clanRoleChangeNotificationConfigs.id,
+          discordChannelId: schema.clanRoleChangeNotificationConfigs.discordChannelId,
+        })
+        .from(schema.clanRoleChangeEvents)
+        .innerJoin(
+          schema.clanRoleChangeNotificationConfigs,
+          and(
+            eq(
+              schema.clanRoleChangeNotificationConfigs.guildId,
+              schema.clanRoleChangeEvents.guildId,
+            ),
+            eq(
+              schema.clanRoleChangeNotificationConfigs.trackedClanId,
+              schema.clanRoleChangeEvents.trackedClanId,
+            ),
+            eq(schema.clanRoleChangeNotificationConfigs.eventType, 'role_change'),
+            eq(schema.clanRoleChangeNotificationConfigs.isEnabled, true),
+            lte(
+              schema.clanRoleChangeNotificationConfigs.createdAt,
+              schema.clanRoleChangeEvents.detectedAt,
+            ),
+          ),
+        )
+        .where(inArray(schema.clanRoleChangeEvents.id, [...eventIds]))
+        .orderBy(
+          asc(schema.clanRoleChangeEvents.detectedAt),
+          asc(schema.clanRoleChangeEvents.id),
+          asc(schema.clanRoleChangeNotificationConfigs.discordChannelId),
+        );
+    },
+    insertOutboxEntries: async (values) => {
+      if (values.length === 0) return 0;
+      const rows = await tx
+        .insert(schema.notificationOutbox)
+        .values([...values])
+        .onConflictDoNothing({ target: schema.notificationOutbox.idempotencyKey })
+        .returning({ id: schema.notificationOutbox.id });
+      return rows.length;
+    },
+    advanceCursor: async (input) => {
+      if (input.lastDetectedAt && input.lastEventId) {
+        await tx
+          .update(schema.notificationFanoutCursors)
+          .set({
+            lastDetectedAt: input.lastDetectedAt,
+            lastEventId: input.lastEventId,
+            updatedAt: input.now,
+          })
+          .where(eq(schema.notificationFanoutCursors.cursorName, input.cursorName));
+        return;
+      }
+      await tx
+        .update(schema.notificationFanoutCursors)
+        .set({ updatedAt: input.now })
+        .where(eq(schema.notificationFanoutCursors.cursorName, input.cursorName));
+    },
+  };
+}
+
+function buildClanRoleChangeFanOutCursorPredicate(cursor: NotificationFanOutCursorState) {
+  if (!cursor.lastDetectedAt) return sql<boolean>`true`;
+  if (!cursor.lastEventId) {
+    return gt(schema.clanRoleChangeEvents.detectedAt, cursor.lastDetectedAt);
+  }
+
+  return (
+    or(
+      gt(schema.clanRoleChangeEvents.detectedAt, cursor.lastDetectedAt),
+      and(
+        eq(schema.clanRoleChangeEvents.detectedAt, cursor.lastDetectedAt),
+        gt(schema.clanRoleChangeEvents.id, cursor.lastEventId),
+      ),
+    ) ?? sql<boolean>`false`
+  );
+}
+
 export function compareNotificationFanOutEventCursorPoints(
   left: NotificationFanOutEventCursorPoint,
   right: NotificationFanOutEventCursorPoint,
@@ -3160,6 +3525,13 @@ export function isMissedWarAttackNotificationConfigEligibleForEvent(input: {
 }
 
 export function isClanDonationNotificationConfigEligibleForEvent(input: {
+  configCreatedAt: Date;
+  eventDetectedAt: Date;
+}): boolean {
+  return input.configCreatedAt.getTime() <= input.eventDetectedAt.getTime();
+}
+
+export function isClanRoleChangeNotificationConfigEligibleForEvent(input: {
   configCreatedAt: Date;
   eventDetectedAt: Date;
 }): boolean {
@@ -3619,6 +3991,51 @@ export function buildClanDonationEventKey(input: {
     `donated:${input.donationDelta}`,
     `received:${input.receivedDelta}`,
   ].join(':');
+}
+
+export function buildClanRoleChangeEventKey(input: {
+  clanTag: string;
+  playerTag: string;
+  previousRole: string | null | undefined;
+  currentRole: string | null | undefined;
+  eventAt: Date;
+}): string {
+  const clanTag = input.clanTag.trim().toUpperCase();
+  const playerTag = input.playerTag.trim().toUpperCase();
+  if (!clanTag || !playerTag) throw new Error('Clan role change event keys require tags.');
+
+  const previousRole = normalizeClanRoleForEventKey(input.previousRole);
+  const currentRole = normalizeClanRoleForEventKey(input.currentRole);
+  if (previousRole === currentRole) {
+    throw new Error('Clan role change event keys require different roles.');
+  }
+
+  return [
+    `clan:${clanTag}`,
+    `role-change:${playerTag}`,
+    `${previousRole}->${currentRole}`,
+    input.eventAt.toISOString(),
+  ].join(':');
+}
+
+function normalizeClanRoleForEventKey(role: string | null | undefined): string {
+  const normalized = role?.trim().toLowerCase();
+  return normalized || 'none';
+}
+
+export function computeClanRoleChangeDeltaEvent(input: {
+  previousRole: string | null | undefined;
+  currentRole: string | null | undefined;
+}): ClanRoleChangeDeltaEvent | null {
+  const previousRole = normalizeClanRoleValue(input.previousRole);
+  const currentRole = normalizeClanRoleValue(input.currentRole);
+  if (previousRole === currentRole) return null;
+  return { previousRole, currentRole };
+}
+
+function normalizeClanRoleValue(role: string | null | undefined): string | null {
+  const normalized = role?.trim();
+  return normalized ? normalized : null;
 }
 
 export function computeClanDonationDeltaEvent(input: {

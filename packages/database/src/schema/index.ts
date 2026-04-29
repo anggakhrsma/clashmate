@@ -377,6 +377,52 @@ export const clanDonationEvents = pgTable(
   }),
 );
 
+export const clanRoleChangeEvents = pgTable(
+  'clan_role_change_events',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    guildId: text('guild_id')
+      .notNull()
+      .references(() => guilds.id, { onDelete: 'cascade' }),
+    trackedClanId: uuid('tracked_clan_id').references(() => trackedClans.id, {
+      onDelete: 'set null',
+    }),
+    clanTag: text('clan_tag').notNull(),
+    playerTag: text('player_tag').notNull(),
+    playerName: text('player_name').notNull(),
+    eventKey: text('event_key').notNull(),
+    previousRole: text('previous_role'),
+    currentRole: text('current_role'),
+    previousSnapshot: jsonb('previous_snapshot'),
+    currentSnapshot: jsonb('current_snapshot').notNull(),
+    sourceFetchedAt: timestamp('source_fetched_at', { withTimezone: true }).notNull(),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+    detectedAt: timestamp('detected_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    clanRoleChangeEventGuildKeyUnique: uniqueIndex(
+      'clan_role_change_events_guild_id_event_key_unique',
+    ).on(table.guildId, table.eventKey),
+    clanRoleChangeEventDetectedIdIndex: index('clan_role_change_events_detected_at_id_idx').on(
+      table.detectedAt,
+      table.id,
+    ),
+    clanRoleChangeEventGuildClanDetectedIndex: index(
+      'clan_role_change_events_guild_id_clan_tag_detected_at_idx',
+    ).on(table.guildId, table.clanTag, table.detectedAt),
+    clanRoleChangeEventGuildPlayerDetectedIndex: index(
+      'clan_role_change_events_guild_id_player_tag_detected_at_idx',
+    ).on(table.guildId, table.playerTag, table.detectedAt),
+    clanRoleChangeEventPlayerDetectedIndex: index(
+      'clan_role_change_events_player_tag_detected_at_idx',
+    ).on(table.playerTag, table.detectedAt),
+    clanRoleChangeEventTrackedClanDetectedIndex: index(
+      'clan_role_change_events_tracked_clan_id_detected_at_idx',
+    ).on(table.trackedClanId, table.detectedAt),
+  }),
+);
+
 export const notificationFanoutCursors = pgTable(
   'notification_fanout_cursors',
   {
@@ -542,6 +588,35 @@ export const clanDonationNotificationConfigs = pgTable(
   }),
 );
 
+export const clanRoleChangeNotificationConfigs = pgTable(
+  'clan_role_change_notification_configs',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    guildId: text('guild_id')
+      .notNull()
+      .references(() => guilds.id, { onDelete: 'cascade' }),
+    trackedClanId: uuid('tracked_clan_id')
+      .notNull()
+      .references(() => trackedClans.id, { onDelete: 'cascade' }),
+    discordChannelId: text('discord_channel_id').notNull(),
+    eventType: text('event_type').notNull().default('role_change'),
+    isEnabled: boolean('is_enabled').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    clanRoleChangeNotificationConfigUnique: uniqueIndex(
+      'clan_role_change_notification_configs_guild_clan_channel_event_unique',
+    ).on(table.guildId, table.trackedClanId, table.discordChannelId, table.eventType),
+    clanRoleChangeNotificationConfigGuildClanIndex: index(
+      'clan_role_change_notification_configs_guild_clan_idx',
+    ).on(table.guildId, table.trackedClanId),
+    clanRoleChangeNotificationConfigChannelIndex: index(
+      'clan_role_change_notification_configs_guild_channel_idx',
+    ).on(table.guildId, table.discordChannelId),
+  }),
+);
+
 export const notificationOutbox = pgTable(
   'notification_outbox',
   {
@@ -567,6 +642,10 @@ export const notificationOutbox = pgTable(
     ),
     clanDonationConfigId: uuid('clan_donation_config_id').references(
       () => clanDonationNotificationConfigs.id,
+      { onDelete: 'set null' },
+    ),
+    clanRoleChangeConfigId: uuid('clan_role_change_config_id').references(
+      () => clanRoleChangeNotificationConfigs.id,
       { onDelete: 'set null' },
     ),
     sourceType: text('source_type').notNull(),
@@ -815,11 +894,13 @@ export const guildRelations = relations(guilds, ({ many }) => ({
   clanChannels: many(trackedClanChannels),
   clanMemberEvents: many(clanMemberEvents),
   clanDonationEvents: many(clanDonationEvents),
+  clanRoleChangeEvents: many(clanRoleChangeEvents),
   missedWarAttackEvents: many(missedWarAttackEvents),
   clanMemberNotificationConfigs: many(clanMemberNotificationConfigs),
   warStateNotificationConfigs: many(warStateNotificationConfigs),
   missedWarAttackNotificationConfigs: many(missedWarAttackNotificationConfigs),
   clanDonationNotificationConfigs: many(clanDonationNotificationConfigs),
+  clanRoleChangeNotificationConfigs: many(clanRoleChangeNotificationConfigs),
   notificationOutbox: many(notificationOutbox),
 }));
 
@@ -850,11 +931,13 @@ export const trackedClanRelations = relations(trackedClans, ({ one, many }) => (
   channels: many(trackedClanChannels),
   memberEvents: many(clanMemberEvents),
   donationEvents: many(clanDonationEvents),
+  roleChangeEvents: many(clanRoleChangeEvents),
   missedWarAttackEvents: many(missedWarAttackEvents),
   clanMemberNotificationConfigs: many(clanMemberNotificationConfigs),
   warStateNotificationConfigs: many(warStateNotificationConfigs),
   missedWarAttackNotificationConfigs: many(missedWarAttackNotificationConfigs),
   clanDonationNotificationConfigs: many(clanDonationNotificationConfigs),
+  clanRoleChangeNotificationConfigs: many(clanRoleChangeNotificationConfigs),
 }));
 
 export const trackedClanChannelRelations = relations(trackedClanChannels, ({ one }) => ({
@@ -886,6 +969,17 @@ export const clanDonationEventRelations = relations(clanDonationEvents, ({ one }
   }),
   trackedClan: one(trackedClans, {
     fields: [clanDonationEvents.trackedClanId],
+    references: [trackedClans.id],
+  }),
+}));
+
+export const clanRoleChangeEventRelations = relations(clanRoleChangeEvents, ({ one }) => ({
+  guild: one(guilds, {
+    fields: [clanRoleChangeEvents.guildId],
+    references: [guilds.id],
+  }),
+  trackedClan: one(trackedClans, {
+    fields: [clanRoleChangeEvents.trackedClanId],
     references: [trackedClans.id],
   }),
 }));
@@ -992,6 +1086,21 @@ export const clanDonationNotificationConfigRelations = relations(
   }),
 );
 
+export const clanRoleChangeNotificationConfigRelations = relations(
+  clanRoleChangeNotificationConfigs,
+  ({ one, many }) => ({
+    guild: one(guilds, {
+      fields: [clanRoleChangeNotificationConfigs.guildId],
+      references: [guilds.id],
+    }),
+    trackedClan: one(trackedClans, {
+      fields: [clanRoleChangeNotificationConfigs.trackedClanId],
+      references: [trackedClans.id],
+    }),
+    outboxEntries: many(notificationOutbox),
+  }),
+);
+
 export const notificationOutboxRelations = relations(notificationOutbox, ({ one }) => ({
   guild: one(guilds, {
     fields: [notificationOutbox.guildId],
@@ -1016,5 +1125,9 @@ export const notificationOutboxRelations = relations(notificationOutbox, ({ one 
   clanDonationConfig: one(clanDonationNotificationConfigs, {
     fields: [notificationOutbox.clanDonationConfigId],
     references: [clanDonationNotificationConfigs.id],
+  }),
+  clanRoleChangeConfig: one(clanRoleChangeNotificationConfigs, {
+    fields: [notificationOutbox.clanRoleChangeConfigId],
+    references: [clanRoleChangeNotificationConfigs.id],
   }),
 }));

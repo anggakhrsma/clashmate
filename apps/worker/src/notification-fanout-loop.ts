@@ -1,6 +1,7 @@
 import type {
   FanOutClanDonationEventNotificationsInput,
   FanOutClanMemberEventNotificationsInput,
+  FanOutClanRoleChangeEventNotificationsInput,
   FanOutMissedWarAttackEventNotificationsInput,
   FanOutWarAttackEventNotificationsInput,
   FanOutWarStateEventNotificationsInput,
@@ -66,6 +67,10 @@ export async function runNotificationFanOutIteration(
     if (options.batchSize !== undefined) donationInput.limit = options.batchSize;
     const donationResult =
       await options.fanOutStore.fanOutClanDonationEventNotifications(donationInput);
+    const roleChangeInput: FanOutClanRoleChangeEventNotificationsInput = {};
+    if (options.batchSize !== undefined) roleChangeInput.limit = options.batchSize;
+    const roleChangeResult =
+      await options.fanOutStore.fanOutClanRoleChangeEventNotifications(roleChangeInput);
 
     options.logger.info(
       {
@@ -106,6 +111,14 @@ export async function runNotificationFanOutIteration(
         insertedOutboxEntries: donationResult.insertedOutboxEntries,
       },
       'Clan donation notification fan-out completed',
+    );
+    options.logger.info(
+      {
+        eventsScanned: roleChangeResult.eventsScanned,
+        matchedTargets: roleChangeResult.matchedTargets,
+        insertedOutboxEntries: roleChangeResult.insertedOutboxEntries,
+      },
+      'Clan role change notification fan-out completed',
     );
   } catch (error) {
     options.logger.error({ error }, 'Notification fan-out failed');
