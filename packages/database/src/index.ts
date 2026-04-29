@@ -827,6 +827,13 @@ export interface LinkPlayerInput {
   isDefault: boolean;
 }
 
+export interface DeletePlayerLinkInput {
+  guildId: string;
+  actorDiscordUserId: string;
+  playerTag: string;
+  canDeleteOtherUsers: boolean;
+}
+
 export type LinkPlayerResult =
   | { status: 'linked'; wasDefault: boolean }
   | { status: 'already_linked_to_user' }
@@ -840,9 +847,15 @@ export interface PlayerLinkRecord {
   isDefault: boolean;
 }
 
+export type DeletePlayerLinkResult =
+  | { status: 'deleted'; discordUserId: string; promotedDefaultTag: string | null }
+  | { status: 'not_found' }
+  | { status: 'permission_denied'; discordUserId: string };
+
 export interface DatabasePlayerLinkStore {
   linkPlayer: (input: LinkPlayerInput) => Promise<LinkPlayerResult>;
   listPlayerLinksByTags: (playerTags: readonly string[]) => Promise<PlayerLinkRecord[]>;
+  deletePlayerLink: (input: DeletePlayerLinkInput) => Promise<DeletePlayerLinkResult>;
 }
 
 export const MAX_PLAYER_LINKS_PER_USER = 25;
@@ -858,6 +871,64 @@ export function createDatabase(databaseUrl: string) {
 
 export function createDatabasePlayerLinkStore(database: Database): DatabasePlayerLinkStore {
   return {
+    deletePlayerLink: async (input) => {
+      return database.transaction(async (tx) => {
+        const [link] = await tx
+          .select({
+            id: schema.playerLinks.id,
+            discordUserId: schema.playerLinks.discordUserId,
+            playerTag: schema.playerLinks.playerTag,
+            isDefault: schema.playerLinks.isDefault,
+          })
+          .from(schema.playerLinks)
+          .where(eq(schema.playerLinks.playerTag, input.playerTag))
+          .limit(1);
+
+        if (!link) return { status: 'not_found' };
+        const deletingOtherUser = link.discordUserId !== input.actorDiscordUserId;
+        if (deletingOtherUser && !input.canDeleteOtherUsers) {
+          return { status: 'permission_denied', discordUserId: link.discordUserId };
+        }
+
+        const now = new Date();
+        await tx.delete(schema.playerLinks).where(eq(schema.playerLinks.id, link.id));
+
+        let promotedDefaultTag: string | null = null;
+        if (link.isDefault) {
+          const [replacement] = await tx
+            .select({ id: schema.playerLinks.id, playerTag: schema.playerLinks.playerTag })
+            .from(schema.playerLinks)
+            .where(eq(schema.playerLinks.discordUserId, link.discordUserId))
+            .orderBy(asc(schema.playerLinks.createdAt), asc(schema.playerLinks.playerTag))
+            .limit(1);
+
+          if (replacement) {
+            promotedDefaultTag = replacement.playerTag;
+            await tx
+              .update(schema.playerLinks)
+              .set({ isDefault: true, updatedAt: now })
+              .where(eq(schema.playerLinks.id, replacement.id));
+          }
+        }
+
+        if (deletingOtherUser) {
+          await tx.insert(schema.auditLogs).values({
+            guildId: input.guildId,
+            actorDiscordUserId: input.actorDiscordUserId,
+            action: 'player_link_deleted',
+            targetType: 'player_link',
+            targetId: link.playerTag,
+            metadata: {
+              discordUserId: link.discordUserId,
+              promotedDefaultTag,
+            },
+            createdAt: now,
+          });
+        }
+
+        return { status: 'deleted', discordUserId: link.discordUserId, promotedDefaultTag };
+      });
+    },
     listPlayerLinksByTags: async (playerTags) => {
       const uniqueTags = [
         ...new Set(playerTags.map((tag) => tag.trim().toUpperCase()).filter(Boolean)),
@@ -956,6 +1027,23 @@ export function createDatabasePlayerLinkStore(database: Database): DatabasePlaye
       });
     },
   };
+}
+
+export interface PlayerLinkDefaultPromotionCandidate {
+  playerTag: string;
+  createdAt: Date;
+}
+
+export function selectPlayerLinkDefaultPromotion(
+  candidates: readonly PlayerLinkDefaultPromotionCandidate[],
+): string | null {
+  const [selected] = [...candidates].sort((left, right) => {
+    const createdAtComparison = left.createdAt.getTime() - right.createdAt.getTime();
+    if (createdAtComparison !== 0) return createdAtComparison;
+    return left.playerTag.localeCompare(right.playerTag);
+  });
+
+  return selected?.playerTag ?? null;
 }
 
 export function createDatabaseStatusMetrics(database: Database): DatabaseStatusMetrics {

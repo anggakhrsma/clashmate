@@ -43,6 +43,20 @@ export const linkCommandData = new SlashCommandBuilder()
       .addStringOption((option) =>
         option.setName('clan').setDescription('Clan tag or name or alias.').setAutocomplete(true),
       ),
+  )
+  .addSubcommand((subcommand) =>
+    subcommand
+      .setName('delete')
+      .setDescription('Deletes a player account/clan from a Discord account.')
+      .addStringOption((option) =>
+        option
+          .setName('player_tag')
+          .setDescription('The player tag to unlink.')
+          .setAutocomplete(true),
+      )
+      .addStringOption((option) =>
+        option.setName('clan_tag').setDescription('The clan tag to unlink.').setAutocomplete(true),
+      ),
   );
 
 export interface LinkCreatePlayer {
@@ -70,7 +84,24 @@ export interface LinkCreateStore {
     isDefault: boolean;
   }) => Promise<LinkCreateStoreResult>;
   listPlayerLinksByTags: (playerTags: readonly string[]) => Promise<LinkListPlayerLink[]>;
+  deletePlayerLink: (input: LinkDeleteStoreInput) => Promise<LinkDeleteStoreResult>;
 }
+
+export interface LinkDeleteStoreInput {
+  readonly guildId: string;
+  readonly actorDiscordUserId: string;
+  readonly playerTag: string;
+  readonly canDeleteOtherUsers: boolean;
+}
+
+export type LinkDeleteStoreResult =
+  | {
+      readonly status: 'deleted';
+      readonly discordUserId: string;
+      readonly promotedDefaultTag: string | null;
+    }
+  | { readonly status: 'not_found' }
+  | { readonly status: 'permission_denied'; readonly discordUserId: string };
 
 export interface LinkListPlayerLink {
   readonly discordUserId: string;
@@ -114,9 +145,63 @@ export function createLinkSlashCommand(options: LinkCommandOptions): SlashComman
       }
       if (subcommand === 'list') {
         await executeLinkList(interaction, options);
+        return;
+      }
+      if (subcommand === 'delete') {
+        await executeLinkDelete(interaction, options);
       }
     },
   };
+}
+
+export async function executeLinkDelete(
+  interaction: ChatInputCommandInteraction,
+  options: LinkCommandOptions,
+): Promise<void> {
+  if (!interaction.inCachedGuild()) {
+    await interaction.reply({
+      content: '`/link delete` can only be used in a server.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const clanTag = interaction.options.getString('clan_tag');
+  if (clanTag) {
+    await interaction.reply({
+      content:
+        '`clan_tag` support for `/link delete` is deferred until ClashMate has user default-clan storage.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const playerTagOption = interaction.options.getString('player_tag');
+  if (!playerTagOption) {
+    await interaction.reply({
+      content: 'You must specify a player/clan tag to execute this command.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  let playerTag: string;
+  try {
+    playerTag = normalizeClashTag(playerTagOption);
+  } catch {
+    await interaction.reply({ content: 'This player or clan tag is not valid.', ephemeral: true });
+    return;
+  }
+
+  await interaction.deferReply({ ephemeral: true });
+  const result = await options.links.deletePlayerLink({
+    guildId: interaction.guildId,
+    actorDiscordUserId: interaction.user.id,
+    playerTag,
+    canDeleteOtherUsers: canManageLinks(interaction),
+  });
+
+  await interaction.editReply(formatLinkDeleteResult(result, playerTag));
 }
 
 export async function executeLinkCreate(
@@ -389,6 +474,14 @@ export function formatLinkCreateResult(
     case 'max_accounts_reached':
       return `The maximum account limit has been reached. (${result.maxAccounts} accounts/user)`;
   }
+}
+
+export function formatLinkDeleteResult(result: LinkDeleteStoreResult, playerTag: string): string {
+  if (result.status === 'deleted') {
+    return `Successfully deleted the link with the tag **${playerTag}**.`;
+  }
+  if (result.status === 'not_found') return `No matches were found with the tag **${playerTag}**`;
+  return 'You need the Manage Server permission to delete links for another user.';
 }
 
 export function canManageLinks(interaction: ChatInputCommandInteraction<'cached'>): boolean {
