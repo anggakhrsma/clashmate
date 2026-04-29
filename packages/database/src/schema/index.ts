@@ -523,6 +523,10 @@ export const warAttackEvents = pgTable(
       'war_attack_events_guild_id_clan_tag_detected_at_idx',
     ).on(table.guildId, table.clanTag, table.detectedAt),
     warAttackEventAttackerIndex: index('war_attack_events_attacker_tag_idx').on(table.attackerTag),
+    warAttackEventDetectedIdIndex: index('war_attack_events_detected_at_id_idx').on(
+      table.detectedAt,
+      table.id,
+    ),
   }),
 );
 

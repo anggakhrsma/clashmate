@@ -129,10 +129,44 @@ export function startNotificationDeliveryLoop(
   };
 }
 
-export function formatNotificationOutboxMessage(entry: { payload: unknown }): string {
+export function formatNotificationOutboxMessage(entry: {
+  sourceType?: string;
+  payload: unknown;
+}): string {
+  if (entry.sourceType === 'war_attack_event') {
+    const payload = parseWarAttackNotificationPayload(entry.payload);
+    const fresh = payload.freshAttack ? ' fresh' : '';
+    const duration = payload.duration === null ? '' : ` in ${payload.duration}s`;
+    return `⚔️ **${payload.attackerTag}** attacked **${payload.defenderTag}** in clan **${payload.clanTag}** for **${payload.stars}★** and **${payload.destructionPercentage}%**${fresh}${duration}.`;
+  }
+
   const payload = parseClanMemberNotificationPayload(entry.payload);
   const verb = payload.eventType === 'left' ? 'left' : 'joined';
   return `**${payload.playerName} (${payload.playerTag})** ${verb} clan **${payload.clanTag}**.`;
+}
+
+function parseWarAttackNotificationPayload(payload: unknown): {
+  clanTag: string;
+  attackerTag: string;
+  defenderTag: string;
+  stars: number;
+  destructionPercentage: number;
+  duration: number | null;
+  freshAttack: boolean;
+} {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Notification payload must be an object.');
+  }
+  const record = payload as Record<string, unknown>;
+  const clanTag = readPayloadString(record, 'clanTag');
+  const attackerTag = readPayloadString(record, 'attackerTag');
+  const defenderTag = readPayloadString(record, 'defenderTag');
+  const stars = readPayloadNumber(record, 'stars');
+  const destructionPercentage = readPayloadNumber(record, 'destructionPercentage');
+  const { duration: durationValue } = record;
+  const duration = durationValue === null ? null : readPayloadNumber(record, 'duration');
+  const freshAttack = readPayloadBoolean(record, 'freshAttack');
+  return { clanTag, attackerTag, defenderTag, stars, destructionPercentage, duration, freshAttack };
 }
 
 function parseClanMemberNotificationPayload(payload: unknown): {
@@ -163,4 +197,20 @@ function readPayloadString(record: Record<string, unknown>, key: string): string
     throw new Error(`Notification payload requires ${key}.`);
   }
   return value.trim();
+}
+
+function readPayloadNumber(record: Record<string, unknown>, key: string): number {
+  const value = record[key];
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`Notification payload requires ${key}.`);
+  }
+  return value;
+}
+
+function readPayloadBoolean(record: Record<string, unknown>, key: string): boolean {
+  const value = record[key];
+  if (typeof value !== 'boolean') {
+    throw new Error(`Notification payload requires ${key}.`);
+  }
+  return value;
 }

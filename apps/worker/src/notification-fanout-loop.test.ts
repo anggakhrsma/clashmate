@@ -14,6 +14,11 @@ function createFanOutStore(): NotificationFanOutStore {
       matchedTargets: 3,
       insertedOutboxEntries: 1,
     }),
+    fanOutWarAttackEventNotifications: vi.fn().mockResolvedValue({
+      eventsScanned: 4,
+      matchedTargets: 5,
+      insertedOutboxEntries: 6,
+    }),
   };
 }
 
@@ -30,7 +35,7 @@ describe('notification fan-out loop', () => {
     vi.useRealTimers();
   });
 
-  it('runs clan member notification fan-out and logs the result counts', async () => {
+  it('runs clan member and war attack notification fan-out and logs the result counts', async () => {
     const fanOutStore = createFanOutStore();
     const logger = createLogger();
 
@@ -42,9 +47,14 @@ describe('notification fan-out loop', () => {
     });
 
     expect(fanOutStore.fanOutClanMemberEventNotifications).toHaveBeenCalledWith({ limit: 250 });
+    expect(fanOutStore.fanOutWarAttackEventNotifications).toHaveBeenCalledWith({ limit: 250 });
     expect(logger.info).toHaveBeenCalledWith(
       { eventsScanned: 2, matchedTargets: 3, insertedOutboxEntries: 1 },
       'Clan member notification fan-out completed',
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      { eventsScanned: 4, matchedTargets: 5, insertedOutboxEntries: 6 },
+      'War attack notification fan-out completed',
     );
   });
 
@@ -74,7 +84,7 @@ describe('notification fan-out loop', () => {
 
     expect(logger.error).toHaveBeenCalledWith(
       { error: expect.any(Error) },
-      'Clan member notification fan-out failed',
+      'Notification fan-out failed',
     );
   });
 
@@ -95,7 +105,9 @@ describe('notification fan-out loop', () => {
 
     await Promise.resolve();
     await Promise.resolve();
+    await Promise.resolve();
     expect(fanOutStore.fanOutClanMemberEventNotifications).toHaveBeenCalledTimes(1);
+    expect(fanOutStore.fanOutWarAttackEventNotifications).toHaveBeenCalledTimes(1);
 
     controller.stop();
 

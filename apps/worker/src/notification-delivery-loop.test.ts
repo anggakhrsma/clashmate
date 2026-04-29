@@ -60,6 +60,25 @@ describe('notification delivery loop', () => {
     ).toBe('**Chief (#PLAYER)** left clan **#ABC123**.');
   });
 
+  it('formats war attack messages without mentions', () => {
+    expect(
+      formatNotificationOutboxMessage({
+        sourceType: 'war_attack_event',
+        payload: {
+          clanTag: '#ABC123',
+          attackerTag: '#ATTACKER',
+          defenderTag: '#DEFENDER',
+          stars: 3,
+          destructionPercentage: 100,
+          duration: 72,
+          freshAttack: true,
+        },
+      }),
+    ).toBe(
+      '⚔️ **#ATTACKER** attacked **#DEFENDER** in clan **#ABC123** for **3★** and **100%** fresh in 72s.',
+    );
+  });
+
   it('claims due rows, sends Discord messages, and marks success', async () => {
     const deliveryStore = createDeliveryStore();
     vi.mocked(deliveryStore.claimDueNotificationOutboxEntries).mockResolvedValue([
