@@ -423,6 +423,118 @@ export const clanRoleChangeEvents = pgTable(
   }),
 );
 
+export const clanGamesSeasonSnapshots = pgTable(
+  'clan_games_season_snapshots',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    seasonId: text('season_id').notNull(),
+    playerTag: text('player_tag').notNull(),
+    playerName: text('player_name').notNull(),
+    initialPoints: integer('initial_points').notNull(),
+    currentPoints: integer('current_points').notNull(),
+    pointsDelta: integer('points_delta').notNull().default(0),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull(),
+    lastFetchedAt: timestamp('last_fetched_at', { withTimezone: true }).notNull(),
+    rawPlayer: jsonb('raw_player').notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    clanGamesSeasonSnapshotUnique: uniqueIndex(
+      'clan_games_season_snapshots_season_id_player_tag_unique',
+    ).on(table.seasonId, table.playerTag),
+    clanGamesSeasonSnapshotPointsIndex: index(
+      'clan_games_season_snapshots_season_id_points_delta_idx',
+    ).on(table.seasonId, table.pointsDelta),
+    clanGamesSeasonSnapshotPlayerIndex: index(
+      'clan_games_season_snapshots_player_tag_season_id_idx',
+    ).on(table.playerTag, table.seasonId),
+    clanGamesSeasonSnapshotFetchedIndex: index(
+      'clan_games_season_snapshots_last_fetched_at_idx',
+    ).on(table.lastFetchedAt),
+  }),
+);
+
+export const clanGamesClanSnapshots = pgTable(
+  'clan_games_clan_snapshots',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    guildId: text('guild_id')
+      .notNull()
+      .references(() => guilds.id, { onDelete: 'cascade' }),
+    trackedClanId: uuid('tracked_clan_id').references(() => trackedClans.id, {
+      onDelete: 'set null',
+    }),
+    clanTag: text('clan_tag').notNull(),
+    seasonId: text('season_id').notNull(),
+    snapshot: jsonb('snapshot').notNull().default(sql`'{}'::jsonb`),
+    sourceFetchedAt: timestamp('source_fetched_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    clanGamesClanSnapshotUnique: uniqueIndex(
+      'clan_games_clan_snapshots_guild_clan_season_unique',
+    ).on(table.guildId, table.clanTag, table.seasonId),
+    clanGamesClanSnapshotTrackedClanIndex: index(
+      'clan_games_clan_snapshots_tracked_clan_season_idx',
+    ).on(table.trackedClanId, table.seasonId),
+    clanGamesClanSnapshotGuildSeasonUpdatedIndex: index(
+      'clan_games_clan_snapshots_guild_season_updated_idx',
+    ).on(table.guildId, table.seasonId, table.updatedAt),
+  }),
+);
+
+export const clanGamesEvents = pgTable(
+  'clan_games_events',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    guildId: text('guild_id')
+      .notNull()
+      .references(() => guilds.id, { onDelete: 'cascade' }),
+    trackedClanId: uuid('tracked_clan_id').references(() => trackedClans.id, {
+      onDelete: 'set null',
+    }),
+    clanTag: text('clan_tag').notNull(),
+    seasonId: text('season_id').notNull(),
+    eventType: text('event_type').notNull(),
+    eventKey: text('event_key').notNull(),
+    playerTag: text('player_tag').notNull(),
+    playerName: text('player_name').notNull(),
+    previousPoints: integer('previous_points'),
+    currentPoints: integer('current_points').notNull(),
+    pointsDelta: integer('points_delta').notNull().default(0),
+    eventMaxPoints: integer('event_max_points').notNull(),
+    previousSnapshot: jsonb('previous_snapshot'),
+    currentSnapshot: jsonb('current_snapshot').notNull(),
+    sourceFetchedAt: timestamp('source_fetched_at', { withTimezone: true }).notNull(),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+    detectedAt: timestamp('detected_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    clanGamesEventGuildKeyUnique: uniqueIndex('clan_games_events_guild_id_event_key_unique').on(
+      table.guildId,
+      table.eventKey,
+    ),
+    clanGamesEventDetectedIdIndex: index('clan_games_events_detected_at_id_idx').on(
+      table.detectedAt,
+      table.id,
+    ),
+    clanGamesEventGuildClanSeasonDetectedIndex: index(
+      'clan_games_events_guild_clan_season_detected_idx',
+    ).on(table.guildId, table.clanTag, table.seasonId, table.detectedAt),
+    clanGamesEventTrackedClanSeasonDetectedIndex: index(
+      'clan_games_events_tracked_clan_season_detected_idx',
+    ).on(table.trackedClanId, table.seasonId, table.detectedAt),
+    clanGamesEventPlayerSeasonDetectedIndex: index(
+      'clan_games_events_player_tag_season_detected_idx',
+    ).on(table.playerTag, table.seasonId, table.detectedAt),
+  }),
+);
+
 export const notificationFanoutCursors = pgTable(
   'notification_fanout_cursors',
   {
@@ -617,6 +729,36 @@ export const clanRoleChangeNotificationConfigs = pgTable(
   }),
 );
 
+export const clanGamesNotificationConfigs = pgTable(
+  'clan_games_notification_configs',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    guildId: text('guild_id')
+      .notNull()
+      .references(() => guilds.id, { onDelete: 'cascade' }),
+    trackedClanId: uuid('tracked_clan_id')
+      .notNull()
+      .references(() => trackedClans.id, { onDelete: 'cascade' }),
+    discordChannelId: text('discord_channel_id').notNull(),
+    eventType: text('event_type').notNull(),
+    isEnabled: boolean('is_enabled').notNull().default(true),
+    minPoints: integer('min_points'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    clanGamesNotificationConfigUnique: uniqueIndex(
+      'clan_games_notification_configs_guild_clan_channel_event_unique',
+    ).on(table.guildId, table.trackedClanId, table.discordChannelId, table.eventType),
+    clanGamesNotificationConfigGuildClanIndex: index(
+      'clan_games_notification_configs_guild_clan_idx',
+    ).on(table.guildId, table.trackedClanId),
+    clanGamesNotificationConfigChannelIndex: index(
+      'clan_games_notification_configs_guild_channel_idx',
+    ).on(table.guildId, table.discordChannelId),
+  }),
+);
+
 export const notificationOutbox = pgTable(
   'notification_outbox',
   {
@@ -646,6 +788,10 @@ export const notificationOutbox = pgTable(
     ),
     clanRoleChangeConfigId: uuid('clan_role_change_config_id').references(
       () => clanRoleChangeNotificationConfigs.id,
+      { onDelete: 'set null' },
+    ),
+    clanGamesConfigId: uuid('clan_games_config_id').references(
+      () => clanGamesNotificationConfigs.id,
       { onDelete: 'set null' },
     ),
     sourceType: text('source_type').notNull(),
@@ -895,12 +1041,15 @@ export const guildRelations = relations(guilds, ({ many }) => ({
   clanMemberEvents: many(clanMemberEvents),
   clanDonationEvents: many(clanDonationEvents),
   clanRoleChangeEvents: many(clanRoleChangeEvents),
+  clanGamesClanSnapshots: many(clanGamesClanSnapshots),
+  clanGamesEvents: many(clanGamesEvents),
   missedWarAttackEvents: many(missedWarAttackEvents),
   clanMemberNotificationConfigs: many(clanMemberNotificationConfigs),
   warStateNotificationConfigs: many(warStateNotificationConfigs),
   missedWarAttackNotificationConfigs: many(missedWarAttackNotificationConfigs),
   clanDonationNotificationConfigs: many(clanDonationNotificationConfigs),
   clanRoleChangeNotificationConfigs: many(clanRoleChangeNotificationConfigs),
+  clanGamesNotificationConfigs: many(clanGamesNotificationConfigs),
   notificationOutbox: many(notificationOutbox),
 }));
 
@@ -932,12 +1081,15 @@ export const trackedClanRelations = relations(trackedClans, ({ one, many }) => (
   memberEvents: many(clanMemberEvents),
   donationEvents: many(clanDonationEvents),
   roleChangeEvents: many(clanRoleChangeEvents),
+  clanGamesClanSnapshots: many(clanGamesClanSnapshots),
+  clanGamesEvents: many(clanGamesEvents),
   missedWarAttackEvents: many(missedWarAttackEvents),
   clanMemberNotificationConfigs: many(clanMemberNotificationConfigs),
   warStateNotificationConfigs: many(warStateNotificationConfigs),
   missedWarAttackNotificationConfigs: many(missedWarAttackNotificationConfigs),
   clanDonationNotificationConfigs: many(clanDonationNotificationConfigs),
   clanRoleChangeNotificationConfigs: many(clanRoleChangeNotificationConfigs),
+  clanGamesNotificationConfigs: many(clanGamesNotificationConfigs),
 }));
 
 export const trackedClanChannelRelations = relations(trackedClanChannels, ({ one }) => ({
@@ -980,6 +1132,28 @@ export const clanRoleChangeEventRelations = relations(clanRoleChangeEvents, ({ o
   }),
   trackedClan: one(trackedClans, {
     fields: [clanRoleChangeEvents.trackedClanId],
+    references: [trackedClans.id],
+  }),
+}));
+
+export const clanGamesClanSnapshotRelations = relations(clanGamesClanSnapshots, ({ one }) => ({
+  guild: one(guilds, {
+    fields: [clanGamesClanSnapshots.guildId],
+    references: [guilds.id],
+  }),
+  trackedClan: one(trackedClans, {
+    fields: [clanGamesClanSnapshots.trackedClanId],
+    references: [trackedClans.id],
+  }),
+}));
+
+export const clanGamesEventRelations = relations(clanGamesEvents, ({ one }) => ({
+  guild: one(guilds, {
+    fields: [clanGamesEvents.guildId],
+    references: [guilds.id],
+  }),
+  trackedClan: one(trackedClans, {
+    fields: [clanGamesEvents.trackedClanId],
     references: [trackedClans.id],
   }),
 }));
@@ -1101,6 +1275,21 @@ export const clanRoleChangeNotificationConfigRelations = relations(
   }),
 );
 
+export const clanGamesNotificationConfigRelations = relations(
+  clanGamesNotificationConfigs,
+  ({ one, many }) => ({
+    guild: one(guilds, {
+      fields: [clanGamesNotificationConfigs.guildId],
+      references: [guilds.id],
+    }),
+    trackedClan: one(trackedClans, {
+      fields: [clanGamesNotificationConfigs.trackedClanId],
+      references: [trackedClans.id],
+    }),
+    outboxEntries: many(notificationOutbox),
+  }),
+);
+
 export const notificationOutboxRelations = relations(notificationOutbox, ({ one }) => ({
   guild: one(guilds, {
     fields: [notificationOutbox.guildId],
@@ -1129,5 +1318,9 @@ export const notificationOutboxRelations = relations(notificationOutbox, ({ one 
   clanRoleChangeConfig: one(clanRoleChangeNotificationConfigs, {
     fields: [notificationOutbox.clanRoleChangeConfigId],
     references: [clanRoleChangeNotificationConfigs.id],
+  }),
+  clanGamesConfig: one(clanGamesNotificationConfigs, {
+    fields: [notificationOutbox.clanGamesConfigId],
+    references: [clanGamesNotificationConfigs.id],
   }),
 }));
