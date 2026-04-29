@@ -10,6 +10,8 @@ import {
   createDatabaseTrackedClanStore,
   createDatabaseUsageMetrics,
   createGlobalAccessBlockStore,
+  createMissedWarAttackEventStore,
+  createWarSnapshotStore,
 } from '@clashmate/database';
 import {
   isOwner,
@@ -32,6 +34,8 @@ const databaseUsageMetrics = createDatabaseUsageMetrics(database);
 const databaseTrackedClans = createDatabaseTrackedClanStore(database);
 const databaseClanMemberNotifications = createDatabaseClanMemberNotificationConfigStore(database);
 const databasePlayerLinks = createDatabasePlayerLinkStore(database);
+const databaseWarSnapshots = createWarSnapshotStore(database);
+const databaseMissedWarAttacks = createMissedWarAttackEventStore(database);
 const globalAccessBlocks = createGlobalAccessBlockStore(database);
 const cocClient = new ClashMateCocClient({ token: config.CLASH_OF_CLANS_API_TOKEN });
 
@@ -61,6 +65,17 @@ const commandRegistry = createBotCommandRegistry({
     coc: cocClient,
     links: databasePlayerLinks,
   },
+  remaining: {
+    store: {
+      listLinkedClans: databaseTrackedClans.listLinkedClans,
+      getLatestWarSnapshot: databaseWarSnapshots.getLatestWarSnapshot,
+      getLatestWarSnapshotsForGuild: databaseWarSnapshots.getLatestWarSnapshotsForGuild,
+      getLinkedPlayerTags: databasePlayerLinks.listPlayerTagsForUser,
+      listMissedWarAttacksForWar: (guildId, clanTag, warKey) =>
+        databaseMissedWarAttacks.listMissedWarAttacksForWar?.(guildId, clanTag, warKey) ??
+        Promise.resolve([]),
+    },
+  },
   setupClan: {
     clans: databaseTrackedClans,
     coc: cocClient,
@@ -81,6 +96,7 @@ const commandRegistry = createBotCommandRegistry({
       'debug',
       'guild-ban',
       'link',
+      'remaining',
       'setup',
       'status',
       'usage',
