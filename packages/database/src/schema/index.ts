@@ -330,6 +330,53 @@ export const clanMemberEvents = pgTable(
   }),
 );
 
+export const clanDonationEvents = pgTable(
+  'clan_donation_events',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    guildId: text('guild_id')
+      .notNull()
+      .references(() => guilds.id, { onDelete: 'cascade' }),
+    trackedClanId: uuid('tracked_clan_id').references(() => trackedClans.id, {
+      onDelete: 'set null',
+    }),
+    clanTag: text('clan_tag').notNull(),
+    playerTag: text('player_tag').notNull(),
+    playerName: text('player_name').notNull(),
+    eventKey: text('event_key').notNull(),
+    previousDonations: integer('previous_donations'),
+    currentDonations: integer('current_donations').notNull(),
+    donationDelta: integer('donation_delta').notNull().default(0),
+    previousDonationsReceived: integer('previous_donations_received'),
+    currentDonationsReceived: integer('current_donations_received').notNull(),
+    receivedDelta: integer('received_delta').notNull().default(0),
+    previousSnapshot: jsonb('previous_snapshot'),
+    currentSnapshot: jsonb('current_snapshot').notNull(),
+    sourceFetchedAt: timestamp('source_fetched_at', { withTimezone: true }).notNull(),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+    detectedAt: timestamp('detected_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    clanDonationEventGuildKeyUnique: uniqueIndex(
+      'clan_donation_events_guild_id_event_key_unique',
+    ).on(table.guildId, table.eventKey),
+    clanDonationEventGuildClanDetectedIndex: index(
+      'clan_donation_events_guild_id_clan_tag_detected_at_idx',
+    ).on(table.guildId, table.clanTag, table.detectedAt),
+    clanDonationEventClanPlayerDetectedIndex: index(
+      'clan_donation_events_clan_tag_player_tag_detected_at_idx',
+    ).on(table.clanTag, table.playerTag, table.detectedAt),
+    clanDonationEventTrackedClanDetectedIndex: index(
+      'clan_donation_events_tracked_clan_id_detected_at_idx',
+    ).on(table.trackedClanId, table.detectedAt),
+    clanDonationEventDetectedIdIndex: index('clan_donation_events_detected_at_id_idx').on(
+      table.detectedAt,
+      table.id,
+    ),
+  }),
+);
+
 export const notificationFanoutCursors = pgTable(
   'notification_fanout_cursors',
   {
@@ -576,6 +623,7 @@ export const guildRelations = relations(guilds, ({ many }) => ({
   clans: many(trackedClans),
   clanChannels: many(trackedClanChannels),
   clanMemberEvents: many(clanMemberEvents),
+  clanDonationEvents: many(clanDonationEvents),
   clanMemberNotificationConfigs: many(clanMemberNotificationConfigs),
   notificationOutbox: many(notificationOutbox),
 }));
@@ -606,6 +654,7 @@ export const trackedClanRelations = relations(trackedClans, ({ one, many }) => (
   }),
   channels: many(trackedClanChannels),
   memberEvents: many(clanMemberEvents),
+  donationEvents: many(clanDonationEvents),
   clanMemberNotificationConfigs: many(clanMemberNotificationConfigs),
 }));
 
@@ -627,6 +676,17 @@ export const clanMemberEventRelations = relations(clanMemberEvents, ({ one }) =>
   }),
   trackedClan: one(trackedClans, {
     fields: [clanMemberEvents.trackedClanId],
+    references: [trackedClans.id],
+  }),
+}));
+
+export const clanDonationEventRelations = relations(clanDonationEvents, ({ one }) => ({
+  guild: one(guilds, {
+    fields: [clanDonationEvents.guildId],
+    references: [guilds.id],
+  }),
+  trackedClan: one(trackedClans, {
+    fields: [clanDonationEvents.trackedClanId],
     references: [trackedClans.id],
   }),
 }));

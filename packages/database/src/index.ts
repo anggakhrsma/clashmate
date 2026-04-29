@@ -165,7 +165,10 @@ export interface ClanMemberEventStore {
   ) => Promise<ProcessClanMemberSnapshotsResult>;
 }
 
-export type NotificationSourceType = 'clan_member_event' | 'war_attack_event';
+export type NotificationSourceType =
+  | 'clan_member_event'
+  | 'war_attack_event'
+  | 'clan_donation_event';
 export type NotificationTargetType = 'discord_channel';
 
 export const CLAN_MEMBER_NOTIFICATION_FANOUT_CURSOR_NAME = 'clan_member_event';
@@ -1896,6 +1899,32 @@ export function buildClanMemberEventKey(input: {
   const playerTag = input.playerTag.trim().toUpperCase();
   if (!clanTag || !playerTag) throw new Error('Clan member event keys require tags.');
   return `clan:${clanTag}:member:${playerTag}:${input.eventType}:${input.eventAt.toISOString()}`;
+}
+
+export function buildClanDonationEventKey(input: {
+  clanTag: string;
+  playerTag: string;
+  eventAt: Date;
+  donationDelta: number;
+  receivedDelta: number;
+}): string {
+  const clanTag = input.clanTag.trim().toUpperCase();
+  const playerTag = input.playerTag.trim().toUpperCase();
+  if (!clanTag || !playerTag) throw new Error('Clan donation event keys require tags.');
+  if (!Number.isInteger(input.donationDelta) || !Number.isInteger(input.receivedDelta)) {
+    throw new Error('Clan donation event keys require integer deltas.');
+  }
+  if (input.donationDelta <= 0 && input.receivedDelta <= 0) {
+    throw new Error('Clan donation event keys require at least one positive delta.');
+  }
+
+  return [
+    `clan:${clanTag}`,
+    `donations:${playerTag}`,
+    input.eventAt.toISOString(),
+    `donated:${input.donationDelta}`,
+    `received:${input.receivedDelta}`,
+  ].join(':');
 }
 
 export function buildNotificationOutboxIdempotencyKey(
