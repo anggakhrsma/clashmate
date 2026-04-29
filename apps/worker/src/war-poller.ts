@@ -1,6 +1,8 @@
 import type { ClashMateCocClient } from '@clashmate/coc';
 import type {
   ClaimedPollingLease,
+  MissedWarAttackEventInput,
+  MissedWarAttackEventStore,
   NormalizedLatestWarSnapshot,
   WarAttackEventInput,
   WarAttackEventStore,
@@ -16,6 +18,7 @@ export interface WarPollerHandlerOptions {
   readonly snapshots: WarSnapshotStore;
   readonly attackEvents?: WarAttackEventStore;
   readonly stateEvents?: WarStateEventStore;
+  readonly missedAttackEvents?: MissedWarAttackEventStore;
   readonly now?: () => Date;
 }
 
@@ -25,6 +28,7 @@ export interface WarPollerResult {
   readonly state: string;
   readonly attackEventsInserted: number;
   readonly stateEventsInserted: number;
+  readonly missedAttackEventsInserted: number;
 }
 
 export function createWarPollerHandler(options: WarPollerHandlerOptions) {
@@ -54,6 +58,11 @@ export function createWarPollerHandler(options: WarPollerHandlerOptions) {
       result.status === 'upserted' && stateEvent && options.stateEvents
         ? await options.stateEvents.insertWarStateEvents([stateEvent])
         : { inserted: 0 };
+    const missedAttacks = detectMissedWarAttackEvents(war, fetchedAt);
+    const missedAttackResult =
+      result.status === 'upserted' && options.missedAttackEvents
+        ? await options.missedAttackEvents.insertMissedWarAttackEvents(missedAttacks)
+        : { inserted: 0 };
 
     return {
       status: result.status === 'upserted' ? 'snapshot_updated' : 'not_linked',
@@ -61,6 +70,7 @@ export function createWarPollerHandler(options: WarPollerHandlerOptions) {
       state: war.state,
       attackEventsInserted: attackResult.inserted,
       stateEventsInserted: stateResult.inserted,
+      missedAttackEventsInserted: missedAttackResult.inserted,
     };
   };
 }
@@ -124,6 +134,52 @@ export function detectWarAttackEvents(
   );
 }
 
+export function detectMissedWarAttackEvents(
+  war: { clanTag: string; state: string; data?: unknown },
+  fetchedAt: Date,
+): MissedWarAttackEventInput[] {
+  const data = war.data;
+  if (war.state.trim().toLowerCase() !== 'warended' || !isWarData(data)) return [];
+
+  const clanTag = war.clanTag.trim().toUpperCase();
+  const perspectiveClan = choosePerspectiveWarClan(clanTag, data);
+  if (!perspectiveClan?.members?.length) return [];
+
+  const attacksAvailable = Number.isInteger(data.attacksPerMember)
+    ? Number(data.attacksPerMember)
+    : 2;
+  if (attacksAvailable <= 0) return [];
+
+  const warKey = buildWarKey(clanTag, data);
+  const warStartedAt = parseWarTimestamp(data.startTime);
+  const warEndedAt = parseWarTimestamp(data.endTime);
+  const occurredAt = warEndedAt ?? fetchedAt;
+
+  return perspectiveClan.members.flatMap((member) => {
+    if (typeof member.tag !== 'string' || typeof member.name !== 'string') return [];
+    const attacksUsed = member.attacks?.length ?? 0;
+    if (attacksUsed >= attacksAvailable) return [];
+
+    return [
+      {
+        clanTag,
+        warKey,
+        playerTag: member.tag,
+        playerName: member.name,
+        attacksUsed,
+        attacksAvailable,
+        warSnapshot: war,
+        memberSnapshot: member,
+        sourceFetchedAt: fetchedAt,
+        warStartedAt,
+        warEndedAt,
+        occurredAt,
+        detectedAt: fetchedAt,
+      },
+    ];
+  });
+}
+
 function buildWarKey(clanTag: string, data: WarData): string {
   const start = data.startTime ?? 'unknown-start';
   const opponentTag = data.opponent?.tag ?? 'unknown-opponent';
@@ -153,12 +209,19 @@ interface WarData {
   readonly preparationStartTime?: string;
   readonly startTime?: string;
   readonly endTime?: string;
-  readonly clan?: { readonly members?: readonly WarMember[] };
-  readonly opponent?: { readonly tag?: string; readonly members?: readonly WarMember[] };
+  readonly attacksPerMember?: number;
+  readonly clan?: WarClan;
+  readonly opponent?: WarClan;
+}
+
+interface WarClan {
+  readonly tag?: string;
+  readonly members?: readonly WarMember[];
 }
 
 interface WarMember {
   readonly tag?: string;
+  readonly name?: string;
   readonly attacks?: readonly WarAttack[];
   readonly bestOpponentAttack?: { readonly order?: number };
 }
@@ -174,6 +237,18 @@ interface WarAttack {
 
 function isWarData(value: unknown): value is WarData {
   return typeof value === 'object' && value !== null && 'clan' in value;
+}
+
+function choosePerspectiveWarClan(clanTag: string, data: WarData): WarClan | undefined {
+  if (data.clan?.tag?.trim().toUpperCase() === clanTag) return data.clan;
+  if (data.opponent?.tag?.trim().toUpperCase() === clanTag) return data.opponent;
+  return data.clan;
+}
+
+function parseWarTimestamp(timestamp: string | undefined): Date | null {
+  if (!timestamp) return null;
+  const parsed = new Date(timestamp);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 export function parseCurrentWarResourceId(resourceId: string): string {

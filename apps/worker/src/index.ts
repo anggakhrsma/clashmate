@@ -4,6 +4,7 @@ import {
   createClanMemberEventStore,
   createClanSnapshotStore,
   createDatabase,
+  createMissedWarAttackEventStore,
   createNotificationFanOutStore,
   createNotificationOutboxDeliveryStore,
   createPlayerSnapshotStore,
@@ -35,6 +36,7 @@ const playerSnapshots = createPlayerSnapshotStore(database);
 const warSnapshots = createWarSnapshotStore(database);
 const warAttackEvents = createWarAttackEventStore(database);
 const warStateEvents = createWarStateEventStore(database);
+const missedWarAttackEvents = createMissedWarAttackEventStore(database);
 const notificationFanOut = createNotificationFanOutStore(database);
 const notificationDelivery = createNotificationOutboxDeliveryStore(database);
 const notificationSender = createDiscordRestNotificationSender(config.DISCORD_TOKEN);
@@ -50,6 +52,7 @@ const warPollerHandler = createWarPollerHandler({
   snapshots: warSnapshots,
   attackEvents: warAttackEvents,
   stateEvents: warStateEvents,
+  missedAttackEvents: missedWarAttackEvents,
 });
 const workerOwnerId = createWorkerOwnerId();
 const pollingEnrollmentResult = await syncPollingLeases(pollingEnrollment);

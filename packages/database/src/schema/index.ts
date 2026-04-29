@@ -682,6 +682,59 @@ export const warStateEvents = pgTable(
   }),
 );
 
+export const missedWarAttackEvents = pgTable(
+  'missed_war_attack_events',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    guildId: text('guild_id')
+      .notNull()
+      .references(() => guilds.id, { onDelete: 'cascade' }),
+    trackedClanId: uuid('tracked_clan_id').references(() => trackedClans.id, {
+      onDelete: 'set null',
+    }),
+    clanTag: text('clan_tag').notNull(),
+    warKey: text('war_key').notNull(),
+    playerTag: text('player_tag').notNull(),
+    playerName: text('player_name').notNull(),
+    attacksUsed: integer('attacks_used').notNull(),
+    attacksAvailable: integer('attacks_available').notNull(),
+    eventKey: text('event_key').notNull(),
+    warSnapshot: jsonb('war_snapshot').notNull(),
+    memberSnapshot: jsonb('member_snapshot').notNull(),
+    stateEventId: uuid('state_event_id').references(() => warStateEvents.id, {
+      onDelete: 'set null',
+    }),
+    sourceFetchedAt: timestamp('source_fetched_at', { withTimezone: true }).notNull(),
+    warStartedAt: timestamp('war_started_at', { withTimezone: true }),
+    warEndedAt: timestamp('war_ended_at', { withTimezone: true }),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+    detectedAt: timestamp('detected_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    missedWarAttackEventGuildKeyUnique: uniqueIndex(
+      'missed_war_attack_events_guild_id_event_key_unique',
+    ).on(table.guildId, table.eventKey),
+    missedWarAttackEventDetectedIdIndex: index('missed_war_attack_events_detected_at_id_idx').on(
+      table.detectedAt,
+      table.id,
+    ),
+    missedWarAttackEventGuildClanDetectedIndex: index(
+      'missed_war_attack_events_guild_id_clan_tag_detected_at_idx',
+    ).on(table.guildId, table.clanTag, table.detectedAt),
+    missedWarAttackEventGuildPlayerDetectedIndex: index(
+      'missed_war_attack_events_guild_id_player_tag_detected_at_idx',
+    ).on(table.guildId, table.playerTag, table.detectedAt),
+    missedWarAttackEventTrackedClanDetectedIndex: index(
+      'missed_war_attack_events_tracked_clan_id_detected_at_idx',
+    ).on(table.trackedClanId, table.detectedAt),
+    missedWarAttackEventWarClanIndex: index('missed_war_attack_events_war_key_clan_tag_idx').on(
+      table.warKey,
+      table.clanTag,
+    ),
+  }),
+);
+
 export const playerLatestSnapshots = pgTable(
   'player_latest_snapshots',
   {
@@ -729,6 +782,7 @@ export const guildRelations = relations(guilds, ({ many }) => ({
   clanChannels: many(trackedClanChannels),
   clanMemberEvents: many(clanMemberEvents),
   clanDonationEvents: many(clanDonationEvents),
+  missedWarAttackEvents: many(missedWarAttackEvents),
   clanMemberNotificationConfigs: many(clanMemberNotificationConfigs),
   warStateNotificationConfigs: many(warStateNotificationConfigs),
   clanDonationNotificationConfigs: many(clanDonationNotificationConfigs),
@@ -762,6 +816,7 @@ export const trackedClanRelations = relations(trackedClans, ({ one, many }) => (
   channels: many(trackedClanChannels),
   memberEvents: many(clanMemberEvents),
   donationEvents: many(clanDonationEvents),
+  missedWarAttackEvents: many(missedWarAttackEvents),
   clanMemberNotificationConfigs: many(clanMemberNotificationConfigs),
   warStateNotificationConfigs: many(warStateNotificationConfigs),
   clanDonationNotificationConfigs: many(clanDonationNotificationConfigs),
@@ -798,6 +853,33 @@ export const clanDonationEventRelations = relations(clanDonationEvents, ({ one }
     fields: [clanDonationEvents.trackedClanId],
     references: [trackedClans.id],
   }),
+}));
+
+export const missedWarAttackEventRelations = relations(missedWarAttackEvents, ({ one }) => ({
+  guild: one(guilds, {
+    fields: [missedWarAttackEvents.guildId],
+    references: [guilds.id],
+  }),
+  trackedClan: one(trackedClans, {
+    fields: [missedWarAttackEvents.trackedClanId],
+    references: [trackedClans.id],
+  }),
+  stateEvent: one(warStateEvents, {
+    fields: [missedWarAttackEvents.stateEventId],
+    references: [warStateEvents.id],
+  }),
+}));
+
+export const warStateEventRelations = relations(warStateEvents, ({ one, many }) => ({
+  guild: one(guilds, {
+    fields: [warStateEvents.guildId],
+    references: [guilds.id],
+  }),
+  trackedClan: one(trackedClans, {
+    fields: [warStateEvents.trackedClanId],
+    references: [trackedClans.id],
+  }),
+  missedWarAttackEvents: many(missedWarAttackEvents),
 }));
 
 export const clanMemberNotificationConfigRelations = relations(

@@ -598,6 +598,46 @@ export interface WarStateEventStore {
   ) => Promise<InsertWarStateEventsResult>;
 }
 
+export interface MissedWarAttackEventInput {
+  clanTag: string;
+  warKey: string;
+  playerTag: string;
+  playerName: string;
+  attacksUsed: number;
+  attacksAvailable: number;
+  warSnapshot: unknown;
+  memberSnapshot: unknown;
+  stateEventId?: string | null;
+  sourceFetchedAt: Date;
+  warStartedAt?: Date | null;
+  warEndedAt?: Date | null;
+  occurredAt: Date;
+  detectedAt?: Date;
+}
+
+export interface NormalizedMissedWarAttackEventInput extends MissedWarAttackEventInput {
+  clanTag: string;
+  warKey: string;
+  playerTag: string;
+  playerName: string;
+  attacksUsed: number;
+  attacksAvailable: number;
+  stateEventId: string | null;
+  warStartedAt: Date | null;
+  warEndedAt: Date | null;
+}
+
+export interface InsertMissedWarAttackEventsResult {
+  status: 'processed' | 'not_linked';
+  inserted: number;
+}
+
+export interface MissedWarAttackEventStore {
+  insertMissedWarAttackEvents: (
+    input: readonly MissedWarAttackEventInput[],
+  ) => Promise<InsertMissedWarAttackEventsResult>;
+}
+
 export interface UpsertLatestPlayerSnapshotInput {
   playerTag: string;
   name: string;
@@ -2925,6 +2965,64 @@ export function createWarStateEventStore(database: Database): WarStateEventStore
   };
 }
 
+export function createMissedWarAttackEventStore(database: Database): MissedWarAttackEventStore {
+  return {
+    insertMissedWarAttackEvents: async (input) => {
+      const firstEvent = input[0];
+      if (!firstEvent) return { status: 'processed', inserted: 0 };
+
+      const clanTag = normalizeMissedWarAttackEventInput(firstEvent).clanTag;
+      const linkedClans = await database
+        .select({
+          id: schema.trackedClans.id,
+          guildId: schema.trackedClans.guildId,
+          clanTag: schema.trackedClans.clanTag,
+        })
+        .from(schema.trackedClans)
+        .where(
+          and(eq(schema.trackedClans.clanTag, clanTag), eq(schema.trackedClans.isActive, true)),
+        );
+
+      if (linkedClans.length === 0) return { status: 'not_linked', inserted: 0 };
+
+      const values = linkedClans.flatMap((linkedClan) =>
+        input.map((event) => {
+          const normalizedEvent = normalizeMissedWarAttackEventInput(event);
+          return {
+            guildId: linkedClan.guildId,
+            trackedClanId: linkedClan.id,
+            clanTag: normalizedEvent.clanTag,
+            warKey: normalizedEvent.warKey,
+            playerTag: normalizedEvent.playerTag,
+            playerName: normalizedEvent.playerName,
+            attacksUsed: normalizedEvent.attacksUsed,
+            attacksAvailable: normalizedEvent.attacksAvailable,
+            eventKey: buildMissedWarAttackEventKey(normalizedEvent),
+            warSnapshot: normalizedEvent.warSnapshot,
+            memberSnapshot: normalizedEvent.memberSnapshot,
+            stateEventId: normalizedEvent.stateEventId,
+            sourceFetchedAt: normalizedEvent.sourceFetchedAt,
+            warStartedAt: normalizedEvent.warStartedAt,
+            warEndedAt: normalizedEvent.warEndedAt,
+            occurredAt: normalizedEvent.occurredAt,
+            detectedAt: normalizedEvent.detectedAt ?? new Date(),
+          };
+        }),
+      );
+
+      const inserted = await database
+        .insert(schema.missedWarAttackEvents)
+        .values(values)
+        .onConflictDoNothing({
+          target: [schema.missedWarAttackEvents.guildId, schema.missedWarAttackEvents.eventKey],
+        })
+        .returning({ id: schema.missedWarAttackEvents.id });
+
+      return { status: 'processed', inserted: inserted.length };
+    },
+  };
+}
+
 export function createPlayerSnapshotStore(database: Database): PlayerSnapshotStore {
   return {
     upsertLatestPlayerSnapshot: async (input) => {
@@ -3214,6 +3312,43 @@ export function buildWarStateEventKey(input: WarStateEventInput): string {
     `state:${previousState}->${event.currentState}`,
     event.occurredAt.toISOString(),
   ].join(':');
+}
+
+export function normalizeMissedWarAttackEventInput(
+  input: MissedWarAttackEventInput,
+): NormalizedMissedWarAttackEventInput {
+  const clanTag = input.clanTag.trim().toUpperCase();
+  const warKey = input.warKey.trim().toLowerCase();
+  const playerTag = input.playerTag.trim().toUpperCase();
+  const playerName = input.playerName.trim();
+  if (!clanTag || !warKey || !playerTag || !playerName) {
+    throw new Error('Missed war attack events require clan, war, player, and name identifiers.');
+  }
+  if (!Number.isInteger(input.attacksUsed) || input.attacksUsed < 0) {
+    throw new Error('Missed war attack events require a non-negative used attack count.');
+  }
+  if (!Number.isInteger(input.attacksAvailable) || input.attacksAvailable <= 0) {
+    throw new Error('Missed war attack events require a positive available attack count.');
+  }
+  if (input.attacksUsed >= input.attacksAvailable) {
+    throw new Error('Missed war attack events require fewer used attacks than available attacks.');
+  }
+
+  return {
+    ...input,
+    clanTag,
+    warKey,
+    playerTag,
+    playerName,
+    stateEventId: input.stateEventId ?? null,
+    warStartedAt: input.warStartedAt ?? null,
+    warEndedAt: input.warEndedAt ?? null,
+  };
+}
+
+export function buildMissedWarAttackEventKey(input: MissedWarAttackEventInput): string {
+  const event = normalizeMissedWarAttackEventInput(input);
+  return `war-missed:${event.warKey}:${event.clanTag}:${event.playerTag}`;
 }
 
 export function normalizeLatestPlayerSnapshotInput(
