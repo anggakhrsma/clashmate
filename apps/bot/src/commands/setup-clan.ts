@@ -95,6 +95,7 @@ export const setupClanCommandData = new SlashCommandBuilder()
             { name: 'War State Log', value: 'war_state_log' },
             { name: 'Missed War Attack Log', value: 'missed_war_attack_log' },
             { name: 'Donation Log (Instant)', value: 'continuous_donation_log' },
+            { name: 'Role Change Log', value: 'role_change_log' },
           ),
       )
       .addChannelOption((option) =>
@@ -230,6 +231,12 @@ export interface SetupClanMemberNotificationStore {
     input: ConfigureClanMemberNotificationsInput,
   ) => Promise<ConfigureClanMemberNotificationsResult>;
   disableDonationNotifications: (
+    input: DisableClanMemberNotificationsInput,
+  ) => Promise<DisableClanMemberNotificationsResult>;
+  configureRoleChangeNotifications: (
+    input: ConfigureClanMemberNotificationsInput,
+  ) => Promise<ConfigureClanMemberNotificationsResult>;
+  disableRoleChangeNotifications: (
     input: DisableClanMemberNotificationsInput,
   ) => Promise<DisableClanMemberNotificationsResult>;
 }
@@ -660,6 +667,30 @@ export function formatDisableDonationMessage(result: DisableClanMemberNotificati
   return `Disabled Donation Log for **${result.clanName} (${result.clanTag})**.`;
 }
 
+export function formatConfigureRoleChangeMessage(
+  result: ConfigureClanMemberNotificationsResult,
+): string {
+  if (result.status === 'clan_not_linked') {
+    return 'That clan is not linked to this server. Use `/setup clan` first.';
+  }
+
+  return `Enabled Role Change Log for **${result.clanName} (${result.clanTag})** in <#${result.discordChannelId}>.`;
+}
+
+export function formatDisableRoleChangeMessage(
+  result: DisableClanMemberNotificationsResult,
+): string {
+  if (result.status === 'clan_not_linked') {
+    return 'That clan is not linked to this server. Use `/setup clan` first.';
+  }
+
+  if (result.status === 'not_configured') {
+    return `No Role Change Log is enabled for **${result.clanName} (${result.clanTag})**.`;
+  }
+
+  return `Disabled Role Change Log for **${result.clanName} (${result.clanTag})**.`;
+}
+
 function getConfigureLogHandler(
   store: SetupClanMemberNotificationStore,
   logType: string,
@@ -668,6 +699,7 @@ function getConfigureLogHandler(
   if (logType === 'war_state_log') return store.configureWarStateNotifications;
   if (logType === 'missed_war_attack_log') return store.configureMissedWarAttackNotifications;
   if (logType === 'continuous_donation_log') return store.configureDonationNotifications;
+  if (logType === 'role_change_log') return store.configureRoleChangeNotifications;
   return store.configureJoinLeaveNotifications;
 }
 
@@ -679,6 +711,7 @@ function getDisableLogHandler(
   if (logType === 'war_state_log') return store.disableWarStateNotifications;
   if (logType === 'missed_war_attack_log') return store.disableMissedWarAttackNotifications;
   if (logType === 'continuous_donation_log') return store.disableDonationNotifications;
+  if (logType === 'role_change_log') return store.disableRoleChangeNotifications;
   return store.disableJoinLeaveNotifications;
 }
 
@@ -690,6 +723,7 @@ function formatConfigureClanLogMessage(
   if (logType === 'war_state_log') return formatConfigureWarStateMessage(result);
   if (logType === 'missed_war_attack_log') return formatConfigureMissedWarAttackMessage(result);
   if (logType === 'continuous_donation_log') return formatConfigureDonationMessage(result);
+  if (logType === 'role_change_log') return formatConfigureRoleChangeMessage(result);
   return formatConfigureJoinLeaveMessage(result);
 }
 
@@ -701,6 +735,7 @@ function formatDisableClanLogMessage(
   if (logType === 'war_state_log') return formatDisableWarStateMessage(result);
   if (logType === 'missed_war_attack_log') return formatDisableMissedWarAttackMessage(result);
   if (logType === 'continuous_donation_log') return formatDisableDonationMessage(result);
+  if (logType === 'role_change_log') return formatDisableRoleChangeMessage(result);
   return formatDisableJoinLeaveMessage(result);
 }
 
@@ -709,5 +744,6 @@ function getClanLogLabel(logType: string): string {
   if (logType === 'war_state_log') return 'War State Log';
   if (logType === 'missed_war_attack_log') return 'Missed War Attack Log';
   if (logType === 'continuous_donation_log') return 'Donation Log';
+  if (logType === 'role_change_log') return 'Role Change Log';
   return 'Join/Leave Log';
 }

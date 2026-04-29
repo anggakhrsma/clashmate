@@ -1025,6 +1025,29 @@ export interface DatabaseClanMemberNotificationConfigStore {
     | { status: 'not_configured'; clanName: string; clanTag: string }
     | { status: 'clan_not_linked' }
   >;
+  configureRoleChangeNotifications: (input: {
+    guildId: string;
+    actorDiscordUserId: string;
+    clanTag: string;
+    discordChannelId: string;
+  }) => Promise<
+    | {
+        status: 'configured';
+        clanName: string;
+        clanTag: string;
+        discordChannelId: string;
+      }
+    | { status: 'clan_not_linked' }
+  >;
+  disableRoleChangeNotifications: (input: {
+    guildId: string;
+    actorDiscordUserId: string;
+    clanTag: string;
+  }) => Promise<
+    | { status: 'disabled'; clanName: string; clanTag: string }
+    | { status: 'not_configured'; clanName: string; clanTag: string }
+    | { status: 'clan_not_linked' }
+  >;
 }
 
 export interface LinkPlayerInput {
@@ -5354,6 +5377,161 @@ export function createDatabaseClanMemberNotificationConfigStore(
             clanTag: trackedClan.clanTag,
             clanName: trackedClan.name,
             eventTypes: ['instant_donation'],
+            removedConfigs: existing,
+          },
+        });
+
+        return {
+          status: 'disabled' as const,
+          clanName: trackedClan.name ?? trackedClan.clanTag,
+          clanTag: trackedClan.clanTag,
+        };
+      });
+    },
+    configureRoleChangeNotifications: async (input) => {
+      const clanTag = input.clanTag.trim().toUpperCase();
+      return database.transaction(async (tx) => {
+        const [trackedClan] = await tx
+          .select({
+            id: schema.trackedClans.id,
+            clanTag: schema.trackedClans.clanTag,
+            name: schema.trackedClans.name,
+          })
+          .from(schema.trackedClans)
+          .where(
+            and(
+              eq(schema.trackedClans.guildId, input.guildId),
+              eq(schema.trackedClans.clanTag, clanTag),
+              eq(schema.trackedClans.isActive, true),
+            ),
+          )
+          .limit(1);
+
+        if (!trackedClan) return { status: 'clan_not_linked' as const };
+
+        const existing = await tx
+          .select({
+            id: schema.clanRoleChangeNotificationConfigs.id,
+            discordChannelId: schema.clanRoleChangeNotificationConfigs.discordChannelId,
+            eventType: schema.clanRoleChangeNotificationConfigs.eventType,
+          })
+          .from(schema.clanRoleChangeNotificationConfigs)
+          .where(
+            and(
+              eq(schema.clanRoleChangeNotificationConfigs.guildId, input.guildId),
+              eq(schema.clanRoleChangeNotificationConfigs.trackedClanId, trackedClan.id),
+              eq(schema.clanRoleChangeNotificationConfigs.eventType, 'role_change'),
+            ),
+          );
+
+        await tx
+          .delete(schema.clanRoleChangeNotificationConfigs)
+          .where(
+            and(
+              eq(schema.clanRoleChangeNotificationConfigs.guildId, input.guildId),
+              eq(schema.clanRoleChangeNotificationConfigs.trackedClanId, trackedClan.id),
+              eq(schema.clanRoleChangeNotificationConfigs.eventType, 'role_change'),
+            ),
+          );
+
+        const now = new Date();
+        await tx.insert(schema.clanRoleChangeNotificationConfigs).values({
+          guildId: input.guildId,
+          trackedClanId: trackedClan.id,
+          discordChannelId: input.discordChannelId,
+          eventType: 'role_change',
+          isEnabled: true,
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: 'clan_role_change_notifications.enabled',
+          targetType: 'tracked_clan',
+          targetId: trackedClan.id,
+          metadata: {
+            clanTag: trackedClan.clanTag,
+            clanName: trackedClan.name,
+            discordChannelId: input.discordChannelId,
+            eventTypes: ['role_change'],
+            previousConfigs: existing,
+          },
+        });
+
+        return {
+          status: 'configured' as const,
+          clanName: trackedClan.name ?? trackedClan.clanTag,
+          clanTag: trackedClan.clanTag,
+          discordChannelId: input.discordChannelId,
+        };
+      });
+    },
+    disableRoleChangeNotifications: async (input) => {
+      const clanTag = input.clanTag.trim().toUpperCase();
+      return database.transaction(async (tx) => {
+        const [trackedClan] = await tx
+          .select({
+            id: schema.trackedClans.id,
+            clanTag: schema.trackedClans.clanTag,
+            name: schema.trackedClans.name,
+          })
+          .from(schema.trackedClans)
+          .where(
+            and(
+              eq(schema.trackedClans.guildId, input.guildId),
+              eq(schema.trackedClans.clanTag, clanTag),
+              eq(schema.trackedClans.isActive, true),
+            ),
+          )
+          .limit(1);
+
+        if (!trackedClan) return { status: 'clan_not_linked' as const };
+
+        const existing = await tx
+          .select({
+            id: schema.clanRoleChangeNotificationConfigs.id,
+            discordChannelId: schema.clanRoleChangeNotificationConfigs.discordChannelId,
+            eventType: schema.clanRoleChangeNotificationConfigs.eventType,
+          })
+          .from(schema.clanRoleChangeNotificationConfigs)
+          .where(
+            and(
+              eq(schema.clanRoleChangeNotificationConfigs.guildId, input.guildId),
+              eq(schema.clanRoleChangeNotificationConfigs.trackedClanId, trackedClan.id),
+              eq(schema.clanRoleChangeNotificationConfigs.eventType, 'role_change'),
+            ),
+          );
+
+        if (existing.length === 0) {
+          return {
+            status: 'not_configured' as const,
+            clanName: trackedClan.name ?? trackedClan.clanTag,
+            clanTag: trackedClan.clanTag,
+          };
+        }
+
+        await tx
+          .delete(schema.clanRoleChangeNotificationConfigs)
+          .where(
+            and(
+              eq(schema.clanRoleChangeNotificationConfigs.guildId, input.guildId),
+              eq(schema.clanRoleChangeNotificationConfigs.trackedClanId, trackedClan.id),
+              eq(schema.clanRoleChangeNotificationConfigs.eventType, 'role_change'),
+            ),
+          );
+
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: 'clan_role_change_notifications.disabled',
+          targetType: 'tracked_clan',
+          targetId: trackedClan.id,
+          metadata: {
+            clanTag: trackedClan.clanTag,
+            clanName: trackedClan.name,
+            eventTypes: ['role_change'],
             removedConfigs: existing,
           },
         });
