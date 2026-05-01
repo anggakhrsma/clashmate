@@ -174,9 +174,71 @@ export function formatNotificationOutboxMessage(entry: {
     return `🚨 **${payload.playerName} (${payload.playerTag})** missed **${missed}** war attack${missed === 1 ? '' : 's'} in clan **${payload.clanTag}**.`;
   }
 
+  if (entry.sourceType === 'clan_games_event') {
+    const payload = parseClanGamesNotificationPayload(entry.payload);
+    const progress = `**${formatNotificationNumber(payload.currentPoints)}/${formatNotificationNumber(payload.eventMaxPoints)}**`;
+    const identity = `**${payload.playerName} (${payload.playerTag})**`;
+
+    if (payload.eventType === 'completed') {
+      return `🏅 ${identity} completed Clan Games in clan **${payload.clanTag}** for **${payload.seasonId}** (${progress}).`;
+    }
+
+    if (payload.eventType === 'progress_delta') {
+      return `🎯 ${identity} gained **${formatNotificationNumber(payload.pointsDelta)}** Clan Games points in clan **${payload.clanTag}** for **${payload.seasonId}** (${progress}).`;
+    }
+
+    return `🎯 ${identity} updated Clan Games progress in clan **${payload.clanTag}** for **${payload.seasonId}** (${progress}).`;
+  }
+
   const payload = parseClanMemberNotificationPayload(entry.payload);
   const verb = payload.eventType === 'left' ? 'left' : 'joined';
   return `**${payload.playerName} (${payload.playerTag})** ${verb} clan **${payload.clanTag}**.`;
+}
+
+function parseClanGamesNotificationPayload(payload: unknown): {
+  clanTag: string;
+  seasonId: string;
+  eventType: string;
+  playerTag: string;
+  playerName: string;
+  previousPoints: number | null;
+  currentPoints: number;
+  pointsDelta: number;
+  eventMaxPoints: number;
+} {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Notification payload must be an object.');
+  }
+
+  const record = payload as Record<string, unknown>;
+  const clanTag = readPayloadString(record, 'clanTag');
+  const seasonId = readPayloadString(record, 'seasonId');
+  const eventType = readPayloadString(record, 'eventType');
+  const playerTag = readPayloadString(record, 'playerTag');
+  const playerName = readPayloadString(record, 'playerName');
+  const previousPoints = readNullablePayloadNumber(record, 'previousPoints');
+  const currentPoints = readPayloadNumber(record, 'currentPoints');
+  const pointsDelta = readPayloadNumber(record, 'pointsDelta');
+  const eventMaxPoints = readPayloadNumber(record, 'eventMaxPoints');
+
+  if (currentPoints < 0 || pointsDelta < 0 || eventMaxPoints <= 0) {
+    throw new Error('Clan Games notification payload requires non-negative progress values.');
+  }
+  if (previousPoints !== null && previousPoints < 0) {
+    throw new Error('Clan Games notification payload requires non-negative previous points.');
+  }
+
+  return {
+    clanTag,
+    seasonId,
+    eventType,
+    playerTag,
+    playerName,
+    previousPoints,
+    currentPoints,
+    pointsDelta,
+    eventMaxPoints,
+  };
 }
 
 function parseClanDonationNotificationPayload(payload: unknown): {
@@ -337,6 +399,19 @@ function readPayloadNumber(record: Record<string, unknown>, key: string): number
     throw new Error(`Notification payload requires ${key}.`);
   }
   return value;
+}
+
+function readNullablePayloadNumber(record: Record<string, unknown>, key: string): number | null {
+  const value = record[key];
+  if (value === null) return null;
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`Notification payload requires ${key} to be null or a number.`);
+  }
+  return value;
+}
+
+function formatNotificationNumber(value: number): string {
+  return new Intl.NumberFormat('en-US').format(value);
 }
 
 function readPayloadBoolean(record: Record<string, unknown>, key: string): boolean {
