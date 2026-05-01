@@ -2,6 +2,8 @@ import type { ClashPlayer } from '@clashmate/coc';
 import type { CommandContext, SlashCommandDefinition } from '@clashmate/discord';
 import { normalizeClashTag } from '@clashmate/shared';
 import {
+  type ApplicationCommandOptionChoiceData,
+  type AutocompleteInteraction,
   type ChatInputCommandInteraction,
   EmbedBuilder,
   escapeMarkdown,
@@ -17,7 +19,9 @@ export const playerCommandData = new SlashCommandBuilder()
   .setName(PLAYER_COMMAND_NAME)
   .setDescription(PLAYER_COMMAND_DESCRIPTION)
   .setDMPermission(false)
-  .addStringOption((option) => option.setName('tag').setDescription('Player tag to look up.'))
+  .addStringOption((option) =>
+    option.setName('tag').setDescription('Player tag to look up.').setAutocomplete(true),
+  )
   .addUserOption((option) =>
     option.setName('user').setDescription('Discord user whose linked account to show.'),
   );
@@ -52,7 +56,62 @@ export function createPlayerSlashCommand(options: PlayerCommandOptions): SlashCo
       if (interaction.commandName !== PLAYER_COMMAND_NAME) return;
       await executePlayer(interaction, context, options);
     },
+    autocomplete: async (interaction) => {
+      if (interaction.commandName !== PLAYER_COMMAND_NAME) return;
+      await autocompletePlayer(interaction, options);
+    },
   };
+}
+
+export async function autocompletePlayer(
+  interaction: AutocompleteInteraction,
+  options: { readonly links: Pick<PlayerLinkStore, 'listPlayerTagsForUser'> },
+): Promise<void> {
+  if (!interaction.inCachedGuild()) {
+    await interaction.respond([]);
+    return;
+  }
+
+  const focused = interaction.options.getFocused(true);
+  if (focused.name !== 'tag') {
+    await interaction.respond([]);
+    return;
+  }
+
+  try {
+    const tags = await options.links.listPlayerTagsForUser(
+      interaction.guildId,
+      interaction.user.id,
+    );
+    await interaction.respond(
+      filterPlayerTagAutocompleteChoices(tags, String(focused.value ?? '')),
+    );
+  } catch {
+    await interaction.respond([]);
+  }
+}
+
+export function filterPlayerTagAutocompleteChoices(
+  tags: readonly string[],
+  query: string,
+): ApplicationCommandOptionChoiceData<string>[] {
+  const normalizedQuery = query.trim().toUpperCase();
+  const queryWithoutHash = normalizedQuery.startsWith('#')
+    ? normalizedQuery.slice(1)
+    : normalizedQuery;
+
+  return tags
+    .filter((tag) => {
+      const normalizedTag = tag.toUpperCase();
+      const tagWithoutHash = normalizedTag.startsWith('#') ? normalizedTag.slice(1) : normalizedTag;
+      return (
+        normalizedTag.includes(normalizedQuery) ||
+        tagWithoutHash.includes(queryWithoutHash) ||
+        `#${tagWithoutHash}`.includes(normalizedQuery)
+      );
+    })
+    .slice(0, 25)
+    .map((tag) => ({ name: tag, value: tag }));
 }
 
 export async function executePlayer(
