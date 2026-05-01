@@ -1,5 +1,6 @@
 import type {
   FanOutClanDonationEventNotificationsInput,
+  FanOutClanGamesEventNotificationsInput,
   FanOutClanMemberEventNotificationsInput,
   FanOutClanRoleChangeEventNotificationsInput,
   FanOutMissedWarAttackEventNotificationsInput,
@@ -71,6 +72,13 @@ export async function runNotificationFanOutIteration(
     if (options.batchSize !== undefined) roleChangeInput.limit = options.batchSize;
     const roleChangeResult =
       await options.fanOutStore.fanOutClanRoleChangeEventNotifications(roleChangeInput);
+    const clanGamesInput: FanOutClanGamesEventNotificationsInput = {};
+    if (options.batchSize !== undefined) clanGamesInput.limit = options.batchSize;
+    const fanOutClanGames = options.fanOutStore.fanOutClanGamesEventNotifications;
+    const clanGamesResult =
+      typeof fanOutClanGames === 'function'
+        ? await fanOutClanGames.call(options.fanOutStore, clanGamesInput)
+        : null;
 
     options.logger.info(
       {
@@ -120,6 +128,16 @@ export async function runNotificationFanOutIteration(
       },
       'Clan role change notification fan-out completed',
     );
+    if (clanGamesResult) {
+      options.logger.info(
+        {
+          eventsScanned: clanGamesResult.eventsScanned,
+          matchedTargets: clanGamesResult.matchedTargets,
+          insertedOutboxEntries: clanGamesResult.insertedOutboxEntries,
+        },
+        'Clan Games notification fan-out completed',
+      );
+    }
   } catch (error) {
     options.logger.error({ error }, 'Notification fan-out failed');
   }
