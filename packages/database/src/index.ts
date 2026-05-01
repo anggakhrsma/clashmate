@@ -1762,15 +1762,40 @@ export function createPollingEnrollmentStore(database: Database): PollingEnrollm
       );
     },
     syncPlayerPollingLeases: async (runAfter) => {
-      const rows = await database
+      const linkedPlayerRows = await database
         .select({
           resourceId: schema.playerLinks.playerTag,
         })
         .from(schema.playerLinks);
+      const clanGamesMemberRows = await database
+        .select({
+          resourceId: schema.clanMemberSnapshots.playerTag,
+        })
+        .from(schema.clanMemberSnapshots)
+        .innerJoin(
+          schema.clanLatestSnapshots,
+          eq(schema.clanLatestSnapshots.clanTag, schema.clanMemberSnapshots.clanTag),
+        )
+        .innerJoin(
+          schema.trackedClans,
+          and(
+            eq(schema.trackedClans.clanTag, schema.clanMemberSnapshots.clanTag),
+            eq(schema.trackedClans.isActive, true),
+          ),
+        )
+        .innerJoin(
+          schema.clanGamesNotificationConfigs,
+          and(
+            eq(schema.clanGamesNotificationConfigs.trackedClanId, schema.trackedClans.id),
+            eq(schema.clanGamesNotificationConfigs.isEnabled, true),
+            inArray(schema.clanGamesNotificationConfigs.eventType, clanGamesNotificationEventTypes),
+          ),
+        )
+        .where(gte(schema.clanMemberSnapshots.lastSeenAt, schema.clanLatestSnapshots.fetchedAt));
       return syncPollingLeasesForType(
         database,
         'player',
-        buildPollingEnrollmentResourceIds(rows),
+        buildPollingEnrollmentResourceIds([...linkedPlayerRows, ...clanGamesMemberRows]),
         runAfter,
       );
     },
