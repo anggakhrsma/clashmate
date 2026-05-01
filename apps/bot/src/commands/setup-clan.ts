@@ -96,6 +96,7 @@ export const setupClanCommandData = new SlashCommandBuilder()
             { name: 'Missed War Attack Log', value: 'missed_war_attack_log' },
             { name: 'Donation Log (Instant)', value: 'continuous_donation_log' },
             { name: 'Role Change Log', value: 'role_change_log' },
+            { name: 'Clan Games Log', value: 'clan_games_log' },
           ),
       )
       .addChannelOption((option) =>
@@ -239,6 +240,12 @@ export interface SetupClanMemberNotificationStore {
   disableRoleChangeNotifications: (
     input: DisableClanMemberNotificationsInput,
   ) => Promise<DisableClanMemberNotificationsResult>;
+  configureClanGamesNotifications?: (
+    input: ConfigureClanMemberNotificationsInput,
+  ) => Promise<ConfigureClanMemberNotificationsResult>;
+  disableClanGamesNotifications?: (
+    input: DisableClanMemberNotificationsInput,
+  ) => Promise<DisableClanMemberNotificationsResult>;
 }
 
 export interface SetupClanApi {
@@ -352,10 +359,16 @@ async function executeSetupClanLogs(
   const action = interaction.options.getString('action') ?? 'enable-logs';
   const logType = interaction.options.getString('log') ?? 'member_join_leave_log';
   if (action === 'disable-logs') {
-    const result = await getDisableLogHandler(
-      options.memberNotifications,
-      logType,
-    )({
+    const disableLogHandler = getDisableLogHandler(options.memberNotifications, logType);
+    if (!disableLogHandler) {
+      await interaction.reply({
+        content: `${getClanLogLabel(logType)} configuration is not available yet.`,
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const result = await disableLogHandler({
       guildId: interaction.guildId,
       actorDiscordUserId: interaction.user.id,
       clanTag,
@@ -376,10 +389,16 @@ async function executeSetupClanLogs(
     return;
   }
 
-  const result = await getConfigureLogHandler(
-    options.memberNotifications,
-    logType,
-  )({
+  const configureLogHandler = getConfigureLogHandler(options.memberNotifications, logType);
+  if (!configureLogHandler) {
+    await interaction.reply({
+      content: `${getClanLogLabel(logType)} configuration is not available yet.`,
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const result = await configureLogHandler({
     guildId: interaction.guildId,
     actorDiscordUserId: interaction.user.id,
     clanTag,
@@ -691,27 +710,53 @@ export function formatDisableRoleChangeMessage(
   return `Disabled Role Change Log for **${result.clanName} (${result.clanTag})**.`;
 }
 
+export function formatConfigureClanGamesMessage(
+  result: ConfigureClanMemberNotificationsResult,
+): string {
+  if (result.status === 'clan_not_linked') {
+    return 'That clan is not linked to this server. Use `/setup clan` first.';
+  }
+
+  return `Enabled Clan Games Log for **${result.clanName} (${result.clanTag})** in <#${result.discordChannelId}>.`;
+}
+
+export function formatDisableClanGamesMessage(
+  result: DisableClanMemberNotificationsResult,
+): string {
+  if (result.status === 'clan_not_linked') {
+    return 'That clan is not linked to this server. Use `/setup clan` first.';
+  }
+
+  if (result.status === 'not_configured') {
+    return `No Clan Games Log is enabled for **${result.clanName} (${result.clanTag})**.`;
+  }
+
+  return `Disabled Clan Games Log for **${result.clanName} (${result.clanTag})**.`;
+}
+
 function getConfigureLogHandler(
   store: SetupClanMemberNotificationStore,
   logType: string,
-): SetupClanMemberNotificationStore['configureJoinLeaveNotifications'] {
+): SetupClanMemberNotificationStore['configureJoinLeaveNotifications'] | undefined {
   if (logType === 'war_attack_log') return store.configureWarAttackNotifications;
   if (logType === 'war_state_log') return store.configureWarStateNotifications;
   if (logType === 'missed_war_attack_log') return store.configureMissedWarAttackNotifications;
   if (logType === 'continuous_donation_log') return store.configureDonationNotifications;
   if (logType === 'role_change_log') return store.configureRoleChangeNotifications;
+  if (logType === 'clan_games_log') return store.configureClanGamesNotifications;
   return store.configureJoinLeaveNotifications;
 }
 
 function getDisableLogHandler(
   store: SetupClanMemberNotificationStore,
   logType: string,
-): SetupClanMemberNotificationStore['disableJoinLeaveNotifications'] {
+): SetupClanMemberNotificationStore['disableJoinLeaveNotifications'] | undefined {
   if (logType === 'war_attack_log') return store.disableWarAttackNotifications;
   if (logType === 'war_state_log') return store.disableWarStateNotifications;
   if (logType === 'missed_war_attack_log') return store.disableMissedWarAttackNotifications;
   if (logType === 'continuous_donation_log') return store.disableDonationNotifications;
   if (logType === 'role_change_log') return store.disableRoleChangeNotifications;
+  if (logType === 'clan_games_log') return store.disableClanGamesNotifications;
   return store.disableJoinLeaveNotifications;
 }
 
@@ -724,6 +769,7 @@ function formatConfigureClanLogMessage(
   if (logType === 'missed_war_attack_log') return formatConfigureMissedWarAttackMessage(result);
   if (logType === 'continuous_donation_log') return formatConfigureDonationMessage(result);
   if (logType === 'role_change_log') return formatConfigureRoleChangeMessage(result);
+  if (logType === 'clan_games_log') return formatConfigureClanGamesMessage(result);
   return formatConfigureJoinLeaveMessage(result);
 }
 
@@ -736,6 +782,7 @@ function formatDisableClanLogMessage(
   if (logType === 'missed_war_attack_log') return formatDisableMissedWarAttackMessage(result);
   if (logType === 'continuous_donation_log') return formatDisableDonationMessage(result);
   if (logType === 'role_change_log') return formatDisableRoleChangeMessage(result);
+  if (logType === 'clan_games_log') return formatDisableClanGamesMessage(result);
   return formatDisableJoinLeaveMessage(result);
 }
 
@@ -745,5 +792,6 @@ function getClanLogLabel(logType: string): string {
   if (logType === 'missed_war_attack_log') return 'Missed War Attack Log';
   if (logType === 'continuous_donation_log') return 'Donation Log';
   if (logType === 'role_change_log') return 'Role Change Log';
+  if (logType === 'clan_games_log') return 'Clan Games Log';
   return 'Join/Leave Log';
 }
