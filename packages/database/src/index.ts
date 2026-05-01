@@ -161,6 +161,61 @@ export interface ClanRoleChangeDeltaEvent {
   currentRole: string | null;
 }
 
+export type ClanGamesEventType = 'points_progress' | 'completed';
+
+export interface ClanGamesPlayerProgressInput {
+  playerTag: string;
+  playerName: string;
+  currentAchievementValue: number;
+  rawPlayer: unknown;
+}
+
+export interface ProcessClanGamesProgressInput {
+  clanTag: string;
+  seasonId: string;
+  eventMaxPoints: number;
+  fetchedAt: Date;
+  players: readonly ClanGamesPlayerProgressInput[];
+}
+
+export interface ProcessClanGamesProgressResult {
+  status: 'processed' | 'not_linked';
+  baselinesCreated: number;
+  progressEvents: number;
+  completedEvents: number;
+  clanSnapshots: number;
+}
+
+export interface ClanGamesProgressDeltaInput {
+  initialPoints: number;
+  previousCurrentPoints: number;
+  currentAchievementValue: number;
+  eventMaxPoints: number;
+  wasCompleted: boolean;
+}
+
+export interface ClanGamesProgressDelta {
+  previousEventPoints: number;
+  currentEventPoints: number;
+  pointsIncrease: number;
+  completed: boolean;
+  completedAt: Date | null;
+}
+
+export interface BuildClanGamesEventKeyInput {
+  clanTag: string;
+  seasonId: string;
+  playerTag: string;
+  eventType: ClanGamesEventType;
+  currentPoints: number;
+}
+
+export interface ClanGamesEventStore {
+  processClanGamesProgress: (
+    input: ProcessClanGamesProgressInput,
+  ) => Promise<ProcessClanGamesProgressResult>;
+}
+
 export interface ProcessClanMemberSnapshotsInput {
   clanTag: string;
   fetchedAt: Date;
@@ -1981,6 +2036,200 @@ export function createClanMemberEventStore(database: Database): ClanMemberEventS
         }
 
         return { status: 'processed', joined, left, donationEvents, roleChangeEvents };
+      });
+    },
+  };
+}
+
+export function createClanGamesEventStore(database: Database): ClanGamesEventStore {
+  return {
+    processClanGamesProgress: async (input) => {
+      const normalized = normalizeClanGamesProgressInput(input);
+
+      return database.transaction(async (tx) => {
+        const linkedClans = await tx
+          .select({ id: schema.trackedClans.id, guildId: schema.trackedClans.guildId })
+          .from(schema.trackedClans)
+          .where(
+            and(
+              eq(schema.trackedClans.clanTag, normalized.clanTag),
+              eq(schema.trackedClans.isActive, true),
+            ),
+          );
+
+        if (linkedClans.length === 0) {
+          return {
+            status: 'not_linked',
+            baselinesCreated: 0,
+            progressEvents: 0,
+            completedEvents: 0,
+            clanSnapshots: 0,
+          };
+        }
+
+        const previousRows =
+          normalized.players.length > 0
+            ? await tx
+                .select({
+                  playerTag: schema.clanGamesSeasonSnapshots.playerTag,
+                  playerName: schema.clanGamesSeasonSnapshots.playerName,
+                  initialPoints: schema.clanGamesSeasonSnapshots.initialPoints,
+                  currentPoints: schema.clanGamesSeasonSnapshots.currentPoints,
+                  pointsDelta: schema.clanGamesSeasonSnapshots.pointsDelta,
+                  completedAt: schema.clanGamesSeasonSnapshots.completedAt,
+                  rawPlayer: schema.clanGamesSeasonSnapshots.rawPlayer,
+                })
+                .from(schema.clanGamesSeasonSnapshots)
+                .where(
+                  and(
+                    eq(schema.clanGamesSeasonSnapshots.seasonId, normalized.seasonId),
+                    inArray(
+                      schema.clanGamesSeasonSnapshots.playerTag,
+                      normalized.players.map((player) => player.playerTag),
+                    ),
+                  ),
+                )
+            : [];
+        const previousByTag = new Map(previousRows.map((row) => [row.playerTag, row]));
+
+        let baselinesCreated = 0;
+        let progressEvents = 0;
+        let completedEvents = 0;
+        const members: ClanGamesClanSnapshotMember[] = [];
+
+        for (const player of normalized.players) {
+          const previous = previousByTag.get(player.playerTag);
+          if (!previous) {
+            baselinesCreated += 1;
+            await tx
+              .insert(schema.clanGamesSeasonSnapshots)
+              .values({
+                seasonId: normalized.seasonId,
+                playerTag: player.playerTag,
+                playerName: player.playerName,
+                initialPoints: player.currentAchievementValue,
+                currentPoints: player.currentAchievementValue,
+                pointsDelta: 0,
+                firstSeenAt: normalized.fetchedAt,
+                lastSeenAt: normalized.fetchedAt,
+                lastFetchedAt: normalized.fetchedAt,
+                rawPlayer: player.rawPlayer,
+                updatedAt: normalized.fetchedAt,
+              })
+              .onConflictDoNothing();
+            members.push({ playerTag: player.playerTag, playerName: player.playerName, points: 0 });
+            continue;
+          }
+
+          const delta = computeClanGamesProgressDelta({
+            initialPoints: previous.initialPoints,
+            previousCurrentPoints: previous.currentPoints,
+            currentAchievementValue: player.currentAchievementValue,
+            eventMaxPoints: normalized.eventMaxPoints,
+            wasCompleted: previous.completedAt !== null,
+          });
+
+          if (delta.pointsIncrease > 0) {
+            progressEvents += await insertClanGamesEvents(tx, {
+              linkedClans,
+              clanTag: normalized.clanTag,
+              seasonId: normalized.seasonId,
+              eventType: 'points_progress',
+              playerTag: player.playerTag,
+              playerName: player.playerName,
+              previousPoints: delta.previousEventPoints,
+              currentPoints: delta.currentEventPoints,
+              pointsDelta: delta.pointsIncrease,
+              eventMaxPoints: normalized.eventMaxPoints,
+              previousSnapshot: previous.rawPlayer,
+              currentSnapshot: player.rawPlayer,
+              fetchedAt: normalized.fetchedAt,
+            });
+          }
+
+          if (delta.completed) {
+            completedEvents += await insertClanGamesEvents(tx, {
+              linkedClans,
+              clanTag: normalized.clanTag,
+              seasonId: normalized.seasonId,
+              eventType: 'completed',
+              playerTag: player.playerTag,
+              playerName: player.playerName,
+              previousPoints: delta.previousEventPoints,
+              currentPoints: delta.currentEventPoints,
+              pointsDelta: delta.pointsIncrease,
+              eventMaxPoints: normalized.eventMaxPoints,
+              previousSnapshot: previous.rawPlayer,
+              currentSnapshot: player.rawPlayer,
+              fetchedAt: normalized.fetchedAt,
+            });
+          }
+
+          await tx
+            .update(schema.clanGamesSeasonSnapshots)
+            .set({
+              playerName: player.playerName,
+              currentPoints: player.currentAchievementValue,
+              pointsDelta: delta.currentEventPoints,
+              completedAt: delta.completed ? normalized.fetchedAt : previous.completedAt,
+              lastSeenAt: normalized.fetchedAt,
+              lastFetchedAt: normalized.fetchedAt,
+              rawPlayer: player.rawPlayer,
+              updatedAt: normalized.fetchedAt,
+            })
+            .where(
+              and(
+                eq(schema.clanGamesSeasonSnapshots.seasonId, normalized.seasonId),
+                eq(schema.clanGamesSeasonSnapshots.playerTag, player.playerTag),
+              ),
+            );
+          members.push({
+            playerTag: player.playerTag,
+            playerName: player.playerName,
+            points: delta.currentEventPoints,
+          });
+        }
+
+        const snapshot = buildClanGamesClanSnapshot({
+          seasonId: normalized.seasonId,
+          eventMaxPoints: normalized.eventMaxPoints,
+          fetchedAt: normalized.fetchedAt,
+          members,
+        });
+        const clanSnapshotRows = await tx
+          .insert(schema.clanGamesClanSnapshots)
+          .values(
+            linkedClans.map((linkedClan) => ({
+              guildId: linkedClan.guildId,
+              trackedClanId: linkedClan.id,
+              clanTag: normalized.clanTag,
+              seasonId: normalized.seasonId,
+              snapshot,
+              sourceFetchedAt: normalized.fetchedAt,
+              updatedAt: normalized.fetchedAt,
+            })),
+          )
+          .onConflictDoUpdate({
+            target: [
+              schema.clanGamesClanSnapshots.guildId,
+              schema.clanGamesClanSnapshots.clanTag,
+              schema.clanGamesClanSnapshots.seasonId,
+            ],
+            set: {
+              snapshot,
+              sourceFetchedAt: normalized.fetchedAt,
+              updatedAt: normalized.fetchedAt,
+            },
+          })
+          .returning({ id: schema.clanGamesClanSnapshots.id });
+
+        return {
+          status: 'processed',
+          baselinesCreated,
+          progressEvents,
+          completedEvents,
+          clanSnapshots: clanSnapshotRows.length,
+        };
       });
     },
   };
@@ -3975,6 +4224,192 @@ export function normalizeLatestClanSnapshotInput(
     name: input.name,
     snapshot: input.snapshot,
     fetchedAt: input.fetchedAt ?? new Date(),
+  };
+}
+
+interface NormalizedClanGamesProgressInput extends ProcessClanGamesProgressInput {
+  clanTag: string;
+  seasonId: string;
+  players: readonly (ClanGamesPlayerProgressInput & {
+    playerTag: string;
+    playerName: string;
+  })[];
+}
+
+interface ClanGamesClanSnapshotMember {
+  playerTag: string;
+  playerName: string;
+  points: number;
+}
+
+interface InsertClanGamesEventsInput {
+  linkedClans: readonly { id: string; guildId: string }[];
+  clanTag: string;
+  seasonId: string;
+  eventType: ClanGamesEventType;
+  playerTag: string;
+  playerName: string;
+  previousPoints: number;
+  currentPoints: number;
+  pointsDelta: number;
+  eventMaxPoints: number;
+  previousSnapshot: unknown;
+  currentSnapshot: unknown;
+  fetchedAt: Date;
+}
+
+function normalizeClanGamesProgressInput(
+  input: ProcessClanGamesProgressInput,
+): NormalizedClanGamesProgressInput {
+  const clanTag = input.clanTag.trim().toUpperCase();
+  const seasonId = input.seasonId.trim();
+  if (!clanTag) throw new Error('Clan Games progress requires a clan tag.');
+  if (!seasonId) throw new Error('Clan Games progress requires a season id.');
+  if (!Number.isInteger(input.eventMaxPoints) || input.eventMaxPoints < 0) {
+    throw new Error('Clan Games progress requires a non-negative integer event max points value.');
+  }
+
+  const players = input.players.map((player) => {
+    const playerTag = player.playerTag.trim().toUpperCase();
+    const playerName = player.playerName.trim();
+    if (!playerTag || !playerName) {
+      throw new Error('Clan Games progress requires non-empty player tags and names.');
+    }
+    if (!Number.isInteger(player.currentAchievementValue) || player.currentAchievementValue < 0) {
+      throw new Error('Clan Games progress requires non-negative integer achievement values.');
+    }
+    return { ...player, playerTag, playerName };
+  });
+
+  const playerTags = new Set(players.map((player) => player.playerTag));
+  if (playerTags.size !== players.length) {
+    throw new Error('Clan Games progress requires unique player tags in a batch.');
+  }
+
+  return { ...input, clanTag, seasonId, players };
+}
+
+export function buildClanGamesEventKey(input: BuildClanGamesEventKeyInput): string {
+  const clanTag = input.clanTag.trim().toUpperCase();
+  const seasonId = input.seasonId.trim();
+  const playerTag = input.playerTag.trim().toUpperCase();
+  if (!clanTag || !seasonId || !playerTag) {
+    throw new Error('Clan Games event keys require clan, season, and player identifiers.');
+  }
+  if (!Number.isInteger(input.currentPoints) || input.currentPoints < 0) {
+    throw new Error('Clan Games event keys require non-negative integer current points.');
+  }
+
+  return [
+    'clan-games',
+    seasonId,
+    clanTag,
+    playerTag,
+    input.eventType,
+    String(input.currentPoints),
+  ].join(':');
+}
+
+export function computeClanGamesProgressDelta(
+  input: ClanGamesProgressDeltaInput,
+): ClanGamesProgressDelta {
+  for (const value of [
+    input.initialPoints,
+    input.previousCurrentPoints,
+    input.currentAchievementValue,
+    input.eventMaxPoints,
+  ]) {
+    if (!Number.isInteger(value) || value < 0) {
+      throw new Error('Clan Games progress delta requires non-negative integer point values.');
+    }
+  }
+
+  const previousEventPoints = Math.max(0, input.previousCurrentPoints - input.initialPoints);
+  const currentEventPoints = Math.max(0, input.currentAchievementValue - input.initialPoints);
+  const pointsIncrease = Math.max(0, currentEventPoints - previousEventPoints);
+  const completed =
+    !input.wasCompleted &&
+    input.eventMaxPoints > 0 &&
+    previousEventPoints < input.eventMaxPoints &&
+    currentEventPoints >= input.eventMaxPoints;
+
+  return {
+    previousEventPoints,
+    currentEventPoints,
+    pointsIncrease,
+    completed,
+    completedAt: null,
+  };
+}
+
+async function insertClanGamesEvents(
+  tx: DatabaseTransaction,
+  input: InsertClanGamesEventsInput,
+): Promise<number> {
+  const rows = await tx
+    .insert(schema.clanGamesEvents)
+    .values(
+      input.linkedClans.map((linkedClan) => ({
+        guildId: linkedClan.guildId,
+        trackedClanId: linkedClan.id,
+        clanTag: input.clanTag,
+        seasonId: input.seasonId,
+        eventType: input.eventType,
+        eventKey: buildClanGamesEventKey({
+          clanTag: input.clanTag,
+          seasonId: input.seasonId,
+          playerTag: input.playerTag,
+          eventType: input.eventType,
+          currentPoints: input.currentPoints,
+        }),
+        playerTag: input.playerTag,
+        playerName: input.playerName,
+        previousPoints: input.previousPoints,
+        currentPoints: input.currentPoints,
+        pointsDelta: input.pointsDelta,
+        eventMaxPoints: input.eventMaxPoints,
+        previousSnapshot: input.previousSnapshot,
+        currentSnapshot: input.currentSnapshot,
+        sourceFetchedAt: input.fetchedAt,
+        occurredAt: input.fetchedAt,
+        detectedAt: input.fetchedAt,
+      })),
+    )
+    .onConflictDoNothing({
+      target: [schema.clanGamesEvents.guildId, schema.clanGamesEvents.eventKey],
+    })
+    .returning({ id: schema.clanGamesEvents.id });
+
+  return rows.length;
+}
+
+function buildClanGamesClanSnapshot(input: {
+  seasonId: string;
+  eventMaxPoints: number;
+  fetchedAt: Date;
+  members: readonly ClanGamesClanSnapshotMember[];
+}): Record<string, unknown> {
+  const members = [...input.members]
+    .sort((left, right) => {
+      const pointsComparison = right.points - left.points;
+      if (pointsComparison !== 0) return pointsComparison;
+      return (
+        left.playerName.localeCompare(right.playerName) ||
+        left.playerTag.localeCompare(right.playerTag)
+      );
+    })
+    .map((member) => ({
+      playerTag: member.playerTag,
+      playerName: member.playerName,
+      points: member.points,
+    }));
+
+  return {
+    seasonId: input.seasonId,
+    eventMaxPoints: input.eventMaxPoints,
+    sourceFetchedAt: input.fetchedAt.toISOString(),
+    totalPoints: members.reduce((total, member) => total + member.points, 0),
+    members,
   };
 }
 
