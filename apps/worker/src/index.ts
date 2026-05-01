@@ -22,7 +22,7 @@ import { createDiscordRestNotificationSender } from './discord-notification-send
 import { startNotificationDeliveryLoop } from './notification-delivery-loop.js';
 import { startNotificationFanOutLoop } from './notification-fanout-loop.js';
 import { createPlayerPollerHandler } from './player-poller.js';
-import { syncPollingLeases } from './polling-enrollment.js';
+import { startPollingEnrollmentLoop, syncPollingLeases } from './polling-enrollment.js';
 import { createWarPollerHandler } from './war-poller.js';
 import { createWorkerOwnerId, startWorkerPollingLoop } from './worker-loop.js';
 
@@ -61,7 +61,39 @@ const warPollerHandler = createWarPollerHandler({
   missedAttackEvents: missedWarAttackEvents,
 });
 const workerOwnerId = createWorkerOwnerId();
+const pollingIntervals = {
+  clan: { baseSeconds: config.POLL_CLAN_SECONDS, jitterSeconds: config.POLL_CLAN_JITTER_SECONDS },
+  player: {
+    baseSeconds: config.POLL_PLAYER_SECONDS,
+    jitterSeconds: config.POLL_PLAYER_JITTER_SECONDS,
+  },
+  war: { baseSeconds: config.POLL_WAR_SECONDS, jitterSeconds: config.POLL_WAR_JITTER_SECONDS },
+};
+const pollingEnrollmentInterval = {
+  baseSeconds: Math.max(
+    300,
+    Math.min(
+      pollingIntervals.clan.baseSeconds,
+      pollingIntervals.player.baseSeconds,
+      pollingIntervals.war.baseSeconds,
+    ),
+  ),
+  jitterSeconds: Math.max(
+    60,
+    Math.min(
+      pollingIntervals.clan.jitterSeconds,
+      pollingIntervals.player.jitterSeconds,
+      pollingIntervals.war.jitterSeconds,
+    ),
+  ),
+};
 const pollingEnrollmentResult = await syncPollingLeases(pollingEnrollment);
+
+startPollingEnrollmentLoop({
+  enrollment: pollingEnrollment,
+  interval: pollingEnrollmentInterval,
+  logger,
+});
 
 startNotificationFanOutLoop({
   fanOutStore: notificationFanOut,
@@ -92,14 +124,7 @@ startWorkerPollingLoop({
   leaseStore: pollingLeases,
   ownerId: workerOwnerId,
   lockForSeconds: 60,
-  intervals: {
-    clan: { baseSeconds: config.POLL_CLAN_SECONDS, jitterSeconds: config.POLL_CLAN_JITTER_SECONDS },
-    player: {
-      baseSeconds: config.POLL_PLAYER_SECONDS,
-      jitterSeconds: config.POLL_PLAYER_JITTER_SECONDS,
-    },
-    war: { baseSeconds: config.POLL_WAR_SECONDS, jitterSeconds: config.POLL_WAR_JITTER_SECONDS },
-  },
+  intervals: pollingIntervals,
   handlers: {
     clan: clanPollerHandler,
     player: playerPollerHandler,
@@ -127,6 +152,8 @@ logger.info(
     notificationDeliveryMaxAttempts: config.NOTIFICATION_DELIVERY_MAX_ATTEMPTS,
     workerOwnerId,
     pollingEnrollment: pollingEnrollmentResult,
+    pollingEnrollmentIntervalSeconds: pollingEnrollmentInterval.baseSeconds,
+    pollingEnrollmentJitterSeconds: pollingEnrollmentInterval.jitterSeconds,
   },
   'Worker started',
 );
