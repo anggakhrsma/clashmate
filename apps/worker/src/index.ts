@@ -1,6 +1,7 @@
 import { ClashMateCocClient } from '@clashmate/coc';
 import { loadConfig } from '@clashmate/config';
 import {
+  createClanGamesEventStore,
   createClanMemberEventStore,
   createClanSnapshotStore,
   createDatabase,
@@ -32,6 +33,7 @@ const pollingEnrollment = createPollingEnrollmentStore(database);
 const pollingLeases = createPollingLeaseStore(database);
 const clanSnapshots = createClanSnapshotStore(database);
 const clanMemberEvents = createClanMemberEventStore(database);
+const clanGames = createClanGamesEventStore(database);
 const playerSnapshots = createPlayerSnapshotStore(database);
 const warSnapshots = createWarSnapshotStore(database);
 const warAttackEvents = createWarAttackEventStore(database);
@@ -46,7 +48,11 @@ const clanPollerHandler = createClanPollerHandler({
   snapshots: clanSnapshots,
   memberEvents: clanMemberEvents,
 });
-const playerPollerHandler = createPlayerPollerHandler({ coc, snapshots: playerSnapshots });
+const playerPollerHandler = createPlayerPollerHandler({
+  coc,
+  snapshots: playerSnapshots,
+  clanGames,
+});
 const warPollerHandler = createWarPollerHandler({
   coc,
   snapshots: warSnapshots,
@@ -109,6 +115,7 @@ logger.info(
     clanPollerReady: Boolean(clanPollerHandler),
     playerPollerReady: Boolean(playerPollerHandler),
     warPollerReady: Boolean(warPollerHandler),
+    clanGamesReady: Boolean(clanGames),
     notificationFanOutReady: Boolean(notificationFanOut),
     notificationDeliveryReady: Boolean(notificationDelivery),
     notificationFanOutIntervalSeconds: config.NOTIFICATION_FANOUT_SECONDS,
