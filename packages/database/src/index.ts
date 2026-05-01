@@ -578,7 +578,7 @@ export interface NotificationFanOutStore {
   fanOutClanRoleChangeEventNotifications: (
     input?: FanOutClanRoleChangeEventNotificationsInput,
   ) => Promise<FanOutClanRoleChangeEventNotificationsResult>;
-  fanOutClanGamesEventNotifications: (
+  fanOutClanGamesEventNotifications?: (
     input?: FanOutClanGamesEventNotificationsInput,
   ) => Promise<FanOutClanGamesEventNotificationsResult>;
   fanOutWarStateEventNotifications: (
