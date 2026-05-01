@@ -15,11 +15,13 @@ import {
 } from '@clashmate/database';
 import {
   isOwner,
+  parseMessageCommandToken,
   routeAutocompleteInteraction,
+  routeMessageCommand,
   type SlashCommandDefinition,
 } from '@clashmate/discord';
 import { createLogger } from '@clashmate/logger';
-import { Client, GatewayIntentBits, type InteractionReplyOptions } from 'discord.js';
+import { Client, GatewayIntentBits, type InteractionReplyOptions, type Message } from 'discord.js';
 
 import { createBotCommandRegistry } from './commands/index.js';
 import { loadBotPackageVersion, type StatusMetricReader } from './commands/status.js';
@@ -191,6 +193,37 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
+client.on('messageCreate', async (message) => {
+  const commandToken = parseMessageCommandToken(message.content);
+
+  try {
+    const result = await routeMessageCommand(
+      commandRegistry,
+      message,
+      { client, ownerIds: config.DISCORD_OWNER_IDS },
+      {
+        isUserBlacklisted: globalAccessBlocks.isUserBlacklisted,
+        isGuildBlacklisted: globalAccessBlocks.isGuildBlacklisted,
+      },
+    );
+
+    if (result.blocked === 'user') {
+      await sendMessageCommandReply(message, 'You are not allowed to use ClashMate commands.');
+      return;
+    }
+
+    if (result.blocked === 'guild') {
+      await sendMessageCommandReply(
+        message,
+        'This server is not allowed to use ClashMate commands.',
+      );
+    }
+  } catch (error) {
+    logger.error({ error, command: commandToken }, 'Message command failed');
+    await sendMessageCommandFailure(message);
+  }
+});
+
 client.on('error', (error) => {
   logger.error({ error }, 'Discord client error');
 });
@@ -221,4 +254,21 @@ async function sendCommandFailure(interaction: {
   }
 
   await interaction.reply(options);
+}
+
+async function sendMessageCommandFailure(message: Message): Promise<void> {
+  await sendMessageCommandReply(message, 'Something went wrong while running this command.');
+}
+
+async function sendMessageCommandReply(message: Message, content: string): Promise<void> {
+  try {
+    if (message.channel.isSendable()) {
+      await message.channel.send(content);
+      return;
+    }
+
+    await message.reply(content);
+  } catch (error) {
+    logger.warn({ error }, 'Failed to send message command response');
+  }
 }
