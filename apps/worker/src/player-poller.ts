@@ -147,7 +147,17 @@ export function extractGamesChampionAchievementValue(player: {
     return (item as PlayerAchievementPayload).name === GAMES_CHAMPION_ACHIEVEMENT_NAME;
   });
 
-  return typeof achievement?.value === 'number' ? achievement.value : null;
+  const value = achievement?.value;
+  if (
+    typeof value !== 'number' ||
+    !Number.isFinite(value) ||
+    !Number.isInteger(value) ||
+    value < 0
+  ) {
+    return null;
+  }
+
+  return value;
 }
 
 function extractPlayerClanTag(player: { readonly data?: unknown }): string | null {
