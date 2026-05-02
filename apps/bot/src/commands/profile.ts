@@ -13,6 +13,19 @@ import {
 export const PROFILE_COMMAND_NAME = 'profile';
 export const PROFILE_COMMAND_DESCRIPTION = 'Show linked Clash player accounts for a Discord user.';
 
+const EMBED_TITLE_LIMIT = 256;
+const EMBED_DESCRIPTION_LIMIT = 4096;
+const EMBED_FIELD_NAME_LIMIT = 256;
+const EMBED_FIELD_VALUE_LIMIT = 1024;
+const EMBED_MAX_FIELDS = 25;
+
+const PROFILE_EMBED_TITLE = truncateEmbedText('ClashMate Profile', EMBED_TITLE_LIMIT, 'Profile');
+const PROFILE_EMBED_DESCRIPTION = truncateEmbedText(
+  'Based on ClashMate player links already stored for this bot.',
+  EMBED_DESCRIPTION_LIMIT,
+  'Stored player links.',
+);
+
 export const profileCommandData = new SlashCommandBuilder()
   .setName(PROFILE_COMMAND_NAME)
   .setDescription(PROFILE_COMMAND_DESCRIPTION)
@@ -193,7 +206,16 @@ async function resolveProfile(input: {
   }
 
   const links = await input.links.listPlayerLinksByTags(playerTags);
-  return { status: 'user_links', targetUser, links: orderLinksByRequestedTags(playerTags, links) };
+  const orderedLinks = orderLinksByRequestedTags(playerTags, links);
+  if (orderedLinks.length === 0) {
+    return {
+      status: 'no_user_links',
+      targetUser,
+      isSelf: targetUser.id === input.invokingUser.id,
+    };
+  }
+
+  return { status: 'user_links', targetUser, links: orderedLinks };
 }
 
 function orderLinksByRequestedTags(
@@ -210,37 +232,61 @@ function formatNoUserLinksMessage(
   result: Extract<ProfileResolution, { status: 'no_user_links' }>,
 ): string {
   if (result.isSelf) return 'You do not have linked player accounts. Use `/link create` first.';
-  return `**${escapeMarkdown(result.targetUser.displayName)}** does not have linked player accounts. Use \`/link create\` to add one.`;
+  return `**${sanitizeEmbedText(result.targetUser.displayName, 'This user')}** does not have linked player accounts. Use \`/link create\` to add one.`;
 }
 
 export function buildProfileEmbed(
   resolution: Extract<ProfileResolution, { status: 'user_links' | 'player_link' }>,
 ): EmbedBuilder {
-  const embed = new EmbedBuilder().setTitle('ClashMate Profile');
+  const embed = new EmbedBuilder().setTitle(PROFILE_EMBED_TITLE);
 
   if (resolution.status === 'player_link') {
-    embed
-      .setDescription('Based on ClashMate player links already stored for this bot.')
-      .addFields(
-        { name: 'Discord User', value: `<@${resolution.link.discordUserId}>`, inline: true },
-        { name: 'Player Tag', value: formatLinkedPlayerTag(resolution.link), inline: true },
-      );
+    embed.setDescription(PROFILE_EMBED_DESCRIPTION).addFields(
+      {
+        name: formatEmbedFieldName('Discord User'),
+        value: truncateEmbedText(
+          `<@${resolution.link.discordUserId}>`,
+          EMBED_FIELD_VALUE_LIMIT,
+          'Unknown',
+        ),
+        inline: true,
+      },
+      {
+        name: formatEmbedFieldName('Player Tag'),
+        value: truncateEmbedText(
+          formatLinkedPlayerTag(resolution.link),
+          EMBED_FIELD_VALUE_LIMIT,
+          '**Unknown Tag**',
+        ),
+        inline: true,
+      },
+    );
     return embed;
   }
 
+  const accountFields = buildLinkedAccountFields(resolution.links);
+
   embed
     .setAuthor({
-      name: `${resolution.targetUser.displayName} (${resolution.targetUser.id})`,
+      name: truncateEmbedText(
+        `${sanitizeEmbedText(resolution.targetUser.displayName, 'Discord User')} (${resolution.targetUser.id})`,
+        EMBED_FIELD_NAME_LIMIT,
+        `Discord User (${resolution.targetUser.id})`,
+      ),
       iconURL: resolution.targetUser.displayAvatarURL(),
     })
-    .setDescription('Based on ClashMate player links already stored for this bot.')
+    .setDescription(PROFILE_EMBED_DESCRIPTION)
     .addFields(
-      { name: 'Discord User', value: `<@${resolution.targetUser.id}>`, inline: false },
       {
-        name: `Linked Player Accounts (${resolution.links.length})`,
-        value: resolution.links.map(formatLinkedPlayerTag).join('\n').slice(0, 1024),
+        name: formatEmbedFieldName('Discord User'),
+        value: truncateEmbedText(
+          `<@${resolution.targetUser.id}>`,
+          EMBED_FIELD_VALUE_LIMIT,
+          'Unknown',
+        ),
         inline: false,
       },
+      ...accountFields,
     );
 
   return embed;
@@ -251,5 +297,69 @@ function formatLinkedPlayerTag(link: ProfilePlayerLinkRecord): string {
     .filter((marker): marker is string => Boolean(marker))
     .join(', ');
   const markerText = markers ? ` (${markers})` : '';
-  return `**${escapeMarkdown(link.playerTag)}**${markerText}`;
+  return `**${sanitizeEmbedText(link.playerTag, 'Unknown Tag')}**${markerText}`;
+}
+
+function buildLinkedAccountFields(
+  links: readonly ProfilePlayerLinkRecord[],
+): Array<{ name: string; value: string; inline: false }> {
+  const fields: Array<{ name: string; value: string; inline: false }> = [];
+  let currentRows: string[] = [];
+  let currentLength = 0;
+
+  for (const row of links.map(formatLinkedPlayerTag)) {
+    const nextLength = currentLength === 0 ? row.length : currentLength + 1 + row.length;
+    if (currentRows.length > 0 && nextLength > EMBED_FIELD_VALUE_LIMIT) {
+      fields.push(createLinkedAccountField(fields.length, links.length, currentRows.join('\n')));
+      currentRows = [];
+      currentLength = 0;
+      if (fields.length >= EMBED_MAX_FIELDS - 1) break;
+    }
+
+    const safeRow = truncateEmbedText(row, EMBED_FIELD_VALUE_LIMIT, '**Unknown Tag**');
+    currentRows.push(safeRow);
+    currentLength = currentLength === 0 ? safeRow.length : currentLength + 1 + safeRow.length;
+  }
+
+  if (currentRows.length > 0 && fields.length < EMBED_MAX_FIELDS - 1) {
+    fields.push(createLinkedAccountField(fields.length, links.length, currentRows.join('\n')));
+  }
+
+  return fields.length
+    ? fields
+    : [createLinkedAccountField(0, links.length, 'No linked player accounts were found.')];
+}
+
+function createLinkedAccountField(
+  index: number,
+  totalLinks: number,
+  value: string,
+): { name: string; value: string; inline: false } {
+  const suffix = index === 0 ? '' : ` (${index + 1})`;
+  return {
+    name: formatEmbedFieldName(`Linked Player Accounts (${totalLinks})${suffix}`),
+    value: truncateEmbedText(
+      value,
+      EMBED_FIELD_VALUE_LIMIT,
+      'No linked player accounts were found.',
+    ),
+    inline: false,
+  };
+}
+
+function formatEmbedFieldName(value: string): string {
+  return truncateEmbedText(sanitizeEmbedText(value, 'Field'), EMBED_FIELD_NAME_LIMIT, 'Field');
+}
+
+function sanitizeEmbedText(value: string, fallback: string): string {
+  const trimmed = value.trim();
+  const safeText = trimmed.length ? trimmed : fallback;
+  return escapeMarkdown(safeText).replaceAll('@', '@\u200b');
+}
+
+function truncateEmbedText(value: string, limit: number, fallback: string): string {
+  const text = value.trim() || fallback;
+  if (text.length <= limit) return text;
+  if (limit <= 1) return text.slice(0, limit);
+  return `${text.slice(0, limit - 1)}…`;
 }
