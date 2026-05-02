@@ -164,7 +164,10 @@ function extractPlayerClanTag(player: { readonly data?: unknown }): string | nul
   const data = asPlayerDataPayload(player.data);
   const clan = isRecord(data?.clan) ? (data.clan as PlayerClanPayload) : null;
 
-  return typeof clan?.tag === 'string' && clan.tag.length > 0 ? clan.tag : null;
+  if (typeof clan?.tag !== 'string') return null;
+
+  const clanTag = clan.tag.trim();
+  return clanTag.length > 0 ? clanTag : null;
 }
 
 function asPlayerDataPayload(value: unknown): PlayerDataPayload | null {
