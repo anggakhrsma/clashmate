@@ -39,6 +39,17 @@ export function computePollingEnrollmentLoopDelayMs(
   interval: PollingIntervalConfig,
   random = Math.random,
 ): number {
+  if (
+    !Number.isFinite(interval.baseSeconds) ||
+    !Number.isFinite(interval.jitterSeconds) ||
+    interval.baseSeconds <= 0 ||
+    interval.jitterSeconds < 0
+  ) {
+    throw new Error(
+      'Polling enrollment loop intervals must be finite and positive with non-negative jitter.',
+    );
+  }
+
   const jitter = Math.floor(random() * (interval.jitterSeconds + 1));
 
   return (interval.baseSeconds + jitter) * 1000;
