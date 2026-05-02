@@ -82,7 +82,9 @@ export function createPlayerPollerHandler(options: PlayerPollerHandlerOptions) {
 
     const clanTag = extractPlayerClanTag(player);
     const currentAchievementValue = extractGamesChampionAchievementValue(player);
-    const seasonConfig = (options.clanGamesSeasonConfig ?? defaultClanGamesSeasonConfig)(fetchedAt);
+    const seasonConfig = normalizeClanGamesSeasonConfig(
+      (options.clanGamesSeasonConfig ?? defaultClanGamesSeasonConfig)(fetchedAt),
+    );
 
     if (!clanTag || currentAchievementValue === null || !seasonConfig) return pollerResult;
 
@@ -135,6 +137,29 @@ export function getActiveClanGamesSeasonConfig(now: Date): ClanGamesSeasonConfig
 }
 
 export const defaultClanGamesSeasonConfig = getActiveClanGamesSeasonConfig;
+
+export function normalizeClanGamesSeasonConfig(value: unknown): ClanGamesSeasonConfig | null {
+  if (!isRecord(value)) return null;
+
+  const candidate = value as { readonly seasonId?: unknown; readonly eventMaxPoints?: unknown };
+  const seasonId = candidate.seasonId;
+  const eventMaxPoints = candidate.eventMaxPoints;
+
+  if (typeof seasonId !== 'string') return null;
+
+  const trimmedSeasonId = seasonId.trim();
+  if (trimmedSeasonId.length === 0) return null;
+  if (
+    typeof eventMaxPoints !== 'number' ||
+    !Number.isFinite(eventMaxPoints) ||
+    !Number.isInteger(eventMaxPoints) ||
+    eventMaxPoints < 0
+  ) {
+    return null;
+  }
+
+  return { seasonId: trimmedSeasonId, eventMaxPoints };
+}
 
 export function extractGamesChampionAchievementValue(player: {
   readonly data?: unknown;
