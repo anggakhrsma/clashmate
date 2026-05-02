@@ -31,9 +31,14 @@ export function computeNotificationDeliveryLoopDelayMs(
   interval: NotificationDeliveryLoopIntervalConfig,
   random = Math.random,
 ): number {
-  if (interval.baseSeconds <= 0 || interval.jitterSeconds < 0) {
+  if (
+    !Number.isFinite(interval.baseSeconds) ||
+    !Number.isFinite(interval.jitterSeconds) ||
+    interval.baseSeconds <= 0 ||
+    interval.jitterSeconds < 0
+  ) {
     throw new Error(
-      'Notification delivery loop intervals must be positive with non-negative jitter.',
+      'Notification delivery loop intervals must be finite and positive with non-negative jitter.',
     );
   }
   const jitter = Math.floor(random() * (interval.jitterSeconds + 1));
