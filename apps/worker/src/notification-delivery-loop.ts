@@ -56,6 +56,18 @@ const DISCORD_EMBED_FIELD_NAME_LIMIT = 256;
 const DISCORD_EMBED_FIELD_VALUE_LIMIT = 1024;
 const DISCORD_EMBED_MAX_FIELDS = 25;
 const TRUNCATION_ELLIPSIS = '…';
+const DEFAULT_NOTIFICATION_DELIVERY_BATCH_SIZE = 50;
+const MAX_NOTIFICATION_DELIVERY_BATCH_SIZE = 1000;
+const DEFAULT_NOTIFICATION_DELIVERY_MAX_ATTEMPTS = 5;
+const DEFAULT_NOTIFICATION_DELIVERY_LOCK_SECONDS = 60;
+const DEFAULT_NOTIFICATION_DELIVERY_RETRY_BASE_SECONDS = 30;
+
+interface ResolvedNotificationDeliveryIterationOptions {
+  readonly batchSize: number;
+  readonly maxAttempts: number;
+  readonly lockForSeconds: number;
+  readonly retryBaseSeconds: number;
+}
 
 export function computeNotificationDeliveryLoopDelayMs(
   interval: NotificationDeliveryLoopIntervalConfig,
@@ -86,12 +98,41 @@ export function computeNotificationRetryAt(now: Date, attempts: number, baseSeco
   return new Date(now.getTime() + baseSeconds * 2 ** exponent * 1000);
 }
 
+function resolveNotificationDeliveryIterationOptions(
+  options: NotificationDeliveryLoopOptions,
+): ResolvedNotificationDeliveryIterationOptions {
+  const batchSize = options.batchSize ?? DEFAULT_NOTIFICATION_DELIVERY_BATCH_SIZE;
+  const maxAttempts = options.maxAttempts ?? DEFAULT_NOTIFICATION_DELIVERY_MAX_ATTEMPTS;
+  const lockForSeconds = options.lockForSeconds ?? DEFAULT_NOTIFICATION_DELIVERY_LOCK_SECONDS;
+  const retryBaseSeconds =
+    options.retryBaseSeconds ?? DEFAULT_NOTIFICATION_DELIVERY_RETRY_BASE_SECONDS;
+
+  assertFinitePositiveInteger('batchSize', batchSize);
+  if (batchSize > MAX_NOTIFICATION_DELIVERY_BATCH_SIZE) {
+    throw new Error(
+      `Notification delivery batchSize must not exceed ${MAX_NOTIFICATION_DELIVERY_BATCH_SIZE}.`,
+    );
+  }
+  assertFinitePositiveInteger('maxAttempts', maxAttempts);
+  assertFinitePositiveInteger('lockForSeconds', lockForSeconds);
+  if (!Number.isFinite(retryBaseSeconds) || retryBaseSeconds <= 0) {
+    throw new Error('Notification delivery retryBaseSeconds must be a finite positive number.');
+  }
+
+  return { batchSize, maxAttempts, lockForSeconds, retryBaseSeconds };
+}
+
+function assertFinitePositiveInteger(name: string, value: number): void {
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
+    throw new Error(`Notification delivery ${name} must be a finite positive integer.`);
+  }
+}
+
 export async function runNotificationDeliveryIteration(
   options: NotificationDeliveryLoopOptions,
 ): Promise<void> {
-  const batchSize = options.batchSize ?? 50;
-  const maxAttempts = options.maxAttempts ?? 5;
-  const lockForSeconds = options.lockForSeconds ?? 60;
+  const { batchSize, lockForSeconds, maxAttempts, retryBaseSeconds } =
+    resolveNotificationDeliveryIterationOptions(options);
   const claimed = await options.deliveryStore.claimDueNotificationOutboxEntries({
     ownerId: options.ownerId,
     lockForSeconds,
@@ -135,11 +176,7 @@ export async function runNotificationDeliveryIteration(
       await options.deliveryStore.markNotificationOutboxSent(entry.id, options.ownerId, new Date());
       options.logger?.info?.({ outboxId: entry.id, targetId: entry.targetId }, 'Sent notification');
     } catch (error) {
-      const retryAt = computeNotificationRetryAt(
-        new Date(),
-        entry.attempts + 1,
-        options.retryBaseSeconds,
-      );
+      const retryAt = computeNotificationRetryAt(new Date(), entry.attempts + 1, retryBaseSeconds);
       await options.deliveryStore.markNotificationOutboxFailed({
         id: entry.id,
         ownerId: options.ownerId,
