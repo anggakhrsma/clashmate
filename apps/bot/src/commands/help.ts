@@ -49,6 +49,13 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     ],
   },
   {
+    name: 'clan',
+    usage: '/clan tag:<tag>',
+    description: 'View a Clash of Clans clan profile.',
+    category: 'Player & Clan',
+    details: ['Performs a one-off public Clash API lookup without tracking the clan.'],
+  },
+  {
     name: 'clans',
     usage: '/clans [category]',
     description: 'List ClashMate clans linked to this server.',

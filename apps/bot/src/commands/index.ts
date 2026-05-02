@@ -1,5 +1,6 @@
 import { CommandRegistry } from '@clashmate/discord';
 import { type BlacklistCommandOptions, createBlacklistSlashCommand } from './blacklist.js';
+import { type ClanCommandOptions, createClanSlashCommand } from './clan.js';
 import { type ClanGamesCommandOptions, createClanGamesSlashCommand } from './clan-games.js';
 import { type ClansCommandOptions, createClansSlashCommand } from './clans.js';
 import { createDebugSlashCommand, type DebugCommandOptions } from './debug.js';
@@ -17,6 +18,7 @@ import { createVerifySlashCommand, type VerifyCommandOptions } from './verify.js
 export interface BotCommandRegistryOptions {
   blacklist: BlacklistCommandOptions;
   clanGames: ClanGamesCommandOptions;
+  clan: ClanCommandOptions;
   clans: ClansCommandOptions;
   debug: DebugCommandOptions;
   guildBan: GuildBanCommandOptions;
@@ -34,6 +36,7 @@ export function createBotCommandRegistry(options: BotCommandRegistryOptions): Co
 
   registry.registerSlash(createBlacklistSlashCommand(options.blacklist));
   registry.registerSlash(createClanGamesSlashCommand(options.clanGames));
+  registry.registerSlash(createClanSlashCommand(options.clan));
   registry.registerSlash(createClansSlashCommand(options.clans));
   registry.registerSlash(createDebugSlashCommand(options.debug));
   registry.registerSlash(createGuildBanSlashCommand(options.guildBan));
