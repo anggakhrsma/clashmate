@@ -111,10 +111,21 @@ export async function runNotificationDeliveryIteration(
       }
 
       if (options.sender.sendDiscordNotificationMessage) {
-        await options.sender.sendDiscordNotificationMessage(
-          entry.targetId,
-          formatDiscordNotificationMessage(entry),
-        );
+        try {
+          await options.sender.sendDiscordNotificationMessage(
+            entry.targetId,
+            formatDiscordNotificationMessage(entry),
+          );
+        } catch (richSendError) {
+          try {
+            await options.sender.sendChannelMessage(
+              entry.targetId,
+              formatNotificationOutboxMessage(entry),
+            );
+          } catch {
+            throw richSendError;
+          }
+        }
       } else {
         await options.sender.sendChannelMessage(
           entry.targetId,
