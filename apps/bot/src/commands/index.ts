@@ -4,6 +4,7 @@ import {
   createBlacklistMessageCommand,
   createBlacklistSlashCommand,
 } from './blacklist.js';
+import { type ClanGamesCommandOptions, createClanGamesSlashCommand } from './clan-games.js';
 import { type ClansCommandOptions, createClansSlashCommand } from './clans.js';
 import { createDebugSlashCommand, type DebugCommandOptions } from './debug.js';
 import {
@@ -30,6 +31,7 @@ import { createVerifySlashCommand, type VerifyCommandOptions } from './verify.js
 
 export interface BotCommandRegistryOptions {
   blacklist: BlacklistCommandOptions;
+  clanGames: ClanGamesCommandOptions;
   clans: ClansCommandOptions;
   debug: DebugCommandOptions;
   guildBan: GuildBanCommandOptions;
@@ -46,6 +48,7 @@ export function createBotCommandRegistry(options: BotCommandRegistryOptions): Co
   const registry = new CommandRegistry();
 
   registry.registerSlash(createBlacklistSlashCommand(options.blacklist));
+  registry.registerSlash(createClanGamesSlashCommand(options.clanGames));
   registry.registerSlash(createClansSlashCommand(options.clans));
   registry.registerSlash(createDebugSlashCommand(options.debug));
   registry.registerSlash(createGuildBanSlashCommand(options.guildBan));

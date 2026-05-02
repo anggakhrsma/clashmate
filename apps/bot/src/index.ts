@@ -1,6 +1,7 @@
 import { ClashMateCocClient } from '@clashmate/coc';
 import { loadConfig } from '@clashmate/config';
 import {
+  createClanGamesScoreboardReader,
   createDatabase,
   createDatabaseClanMemberNotificationConfigStore,
   createDatabaseCommandUsageRecorder,
@@ -34,6 +35,7 @@ const databaseDebugReader = createDatabaseDebugReader(database);
 const databaseStatusMetrics = createDatabaseStatusMetrics(database);
 const databaseUsageMetrics = createDatabaseUsageMetrics(database);
 const databaseTrackedClans = createDatabaseTrackedClanStore(database);
+const databaseClanGamesScoreboards = createClanGamesScoreboardReader(database);
 const databaseClanMemberNotifications = createDatabaseClanMemberNotificationConfigStore(database);
 const databasePlayerLinks = createDatabasePlayerLinkStore(database);
 const databaseWarSnapshots = createWarSnapshotStore(database);
@@ -52,6 +54,9 @@ const { GIT_SHA: gitSha, SOURCE_REPOSITORY_URL: sourceRepositoryUrl } = process.
 const commandRegistry = createBotCommandRegistry({
   blacklist: {
     accessBlocks: globalAccessBlocks,
+  },
+  clanGames: {
+    reader: databaseClanGamesScoreboards,
   },
   clans: {
     clans: databaseTrackedClans,
@@ -98,6 +103,7 @@ const commandRegistry = createBotCommandRegistry({
     metricReader: databaseUsageMetrics,
     loadedCommandNames: [
       'blacklist',
+      'clan-games',
       'clans',
       'debug',
       'guild-ban',

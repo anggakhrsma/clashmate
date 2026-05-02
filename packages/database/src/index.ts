@@ -792,6 +792,46 @@ export interface WarSnapshotStore {
   ) => Promise<UpsertLatestWarSnapshotResult>;
 }
 
+export interface ClanGamesScoreboardMember {
+  playerTag: string;
+  playerName: string;
+  points: number;
+}
+
+export interface ClanGamesScoreboardSnapshot {
+  guildId: string;
+  clanTag: string;
+  clanName: string | null;
+  clanAlias: string | null;
+  seasonId: string;
+  eventMaxPoints: number;
+  sourceFetchedAt: Date;
+  updatedAt: Date;
+  members: ClanGamesScoreboardMember[];
+  totalPoints: number;
+}
+
+export interface ClanGamesScoreboardQuery {
+  guildId: string;
+  clanTag?: string;
+  seasonId?: string;
+}
+
+export interface ClanGamesScoreboardChoice {
+  clanTag: string;
+  clanName: string | null;
+  clanAlias: string | null;
+  seasonId: string | null;
+  updatedAt: Date | null;
+}
+
+export interface ClanGamesScoreboardReader {
+  getLatestScoreboard: (
+    query: ClanGamesScoreboardQuery,
+  ) => Promise<ClanGamesScoreboardSnapshot | null>;
+  listScoreboardChoices: (guildId: string, query?: string) => Promise<ClanGamesScoreboardChoice[]>;
+}
+
 export interface WarAttackEventInput {
   clanTag: string;
   warKey: string;
@@ -4292,6 +4332,161 @@ export function createWarSnapshotStore(database: Database): WarSnapshotStore {
       return { status: 'upserted' };
     },
   };
+}
+
+export function createClanGamesScoreboardReader(database: Database): ClanGamesScoreboardReader {
+  return {
+    getLatestScoreboard: async (query) => {
+      const clanTag = query.clanTag ? normalizeClanGamesClanTag(query.clanTag) : undefined;
+      const conditions = [eq(schema.clanGamesClanSnapshots.guildId, query.guildId)];
+      if (clanTag) conditions.push(eq(schema.clanGamesClanSnapshots.clanTag, clanTag));
+      if (query.seasonId)
+        conditions.push(eq(schema.clanGamesClanSnapshots.seasonId, query.seasonId));
+
+      const [row] = await database
+        .select({
+          guildId: schema.clanGamesClanSnapshots.guildId,
+          clanTag: schema.clanGamesClanSnapshots.clanTag,
+          seasonId: schema.clanGamesClanSnapshots.seasonId,
+          snapshot: schema.clanGamesClanSnapshots.snapshot,
+          sourceFetchedAt: schema.clanGamesClanSnapshots.sourceFetchedAt,
+          updatedAt: schema.clanGamesClanSnapshots.updatedAt,
+          clanName: schema.trackedClans.name,
+          clanAlias: schema.trackedClans.alias,
+        })
+        .from(schema.clanGamesClanSnapshots)
+        .leftJoin(
+          schema.trackedClans,
+          eq(schema.clanGamesClanSnapshots.trackedClanId, schema.trackedClans.id),
+        )
+        .where(and(...conditions))
+        .orderBy(
+          desc(schema.clanGamesClanSnapshots.updatedAt),
+          asc(schema.clanGamesClanSnapshots.clanTag),
+        )
+        .limit(1);
+
+      if (!row) return null;
+      return parseClanGamesScoreboardSnapshot(row);
+    },
+    listScoreboardChoices: async (guildId, query = '') => {
+      const rows = await database
+        .select({
+          clanTag: schema.clanGamesClanSnapshots.clanTag,
+          seasonId: schema.clanGamesClanSnapshots.seasonId,
+          updatedAt: schema.clanGamesClanSnapshots.updatedAt,
+          clanName: schema.trackedClans.name,
+          clanAlias: schema.trackedClans.alias,
+        })
+        .from(schema.clanGamesClanSnapshots)
+        .leftJoin(
+          schema.trackedClans,
+          eq(schema.clanGamesClanSnapshots.trackedClanId, schema.trackedClans.id),
+        )
+        .where(eq(schema.clanGamesClanSnapshots.guildId, guildId))
+        .orderBy(
+          desc(schema.clanGamesClanSnapshots.updatedAt),
+          asc(schema.clanGamesClanSnapshots.clanTag),
+        )
+        .limit(100);
+
+      const normalized = query.trim().toLowerCase();
+      const seen = new Set<string>();
+      return rows
+        .filter((row) => {
+          if (seen.has(row.clanTag)) return false;
+          seen.add(row.clanTag);
+          if (!normalized) return true;
+          return [row.clanTag, row.clanName, row.clanAlias]
+            .filter((value): value is string => Boolean(value))
+            .some((value) => value.toLowerCase().includes(normalized));
+        })
+        .slice(0, 25)
+        .map((row) => ({
+          clanTag: row.clanTag,
+          clanName: row.clanName,
+          clanAlias: row.clanAlias,
+          seasonId: row.seasonId,
+          updatedAt: row.updatedAt,
+        }));
+    },
+  };
+}
+
+function parseClanGamesScoreboardSnapshot(row: {
+  guildId: string;
+  clanTag: string;
+  clanName: string | null;
+  clanAlias: string | null;
+  seasonId: string;
+  snapshot: unknown;
+  sourceFetchedAt: Date;
+  updatedAt: Date;
+}): ClanGamesScoreboardSnapshot {
+  const snapshot = isRecord(row.snapshot)
+    ? (row.snapshot as {
+        members?: unknown;
+        seasonId?: unknown;
+        eventMaxPoints?: unknown;
+        sourceFetchedAt?: unknown;
+      })
+    : {};
+  const membersValue = Array.isArray(snapshot.members) ? snapshot.members : [];
+  const members = membersValue.filter(isClanGamesMember).sort(compareClanGamesMembers);
+  const seasonId =
+    typeof snapshot.seasonId === 'string' && snapshot.seasonId ? snapshot.seasonId : row.seasonId;
+  const eventMaxPoints =
+    typeof snapshot.eventMaxPoints === 'number' && Number.isFinite(snapshot.eventMaxPoints)
+      ? snapshot.eventMaxPoints
+      : 0;
+  const sourceFetchedAt =
+    typeof snapshot.sourceFetchedAt === 'string'
+      ? new Date(snapshot.sourceFetchedAt)
+      : row.sourceFetchedAt;
+
+  return {
+    guildId: row.guildId,
+    clanTag: row.clanTag,
+    clanName: row.clanName,
+    clanAlias: row.clanAlias,
+    seasonId,
+    eventMaxPoints,
+    sourceFetchedAt: Number.isNaN(sourceFetchedAt.getTime())
+      ? row.sourceFetchedAt
+      : sourceFetchedAt,
+    updatedAt: row.updatedAt,
+    members,
+    totalPoints: members.reduce((total, member) => total + member.points, 0),
+  };
+}
+
+function isClanGamesMember(value: unknown): value is ClanGamesScoreboardMember {
+  if (!isRecord(value)) return false;
+  const member = value as { playerTag?: unknown; playerName?: unknown; points?: unknown };
+  return (
+    typeof member.playerTag === 'string' &&
+    member.playerTag.length > 0 &&
+    typeof member.playerName === 'string' &&
+    member.playerName.length > 0 &&
+    typeof member.points === 'number' &&
+    Number.isFinite(member.points)
+  );
+}
+
+function compareClanGamesMembers(
+  a: ClanGamesScoreboardMember,
+  b: ClanGamesScoreboardMember,
+): number {
+  return (
+    b.points - a.points ||
+    a.playerName.localeCompare(b.playerName) ||
+    a.playerTag.localeCompare(b.playerTag)
+  );
+}
+
+function normalizeClanGamesClanTag(tag: string): string {
+  const trimmed = tag.trim().toUpperCase();
+  return trimmed.startsWith('#') ? trimmed : `#${trimmed}`;
 }
 
 export function createWarAttackEventStore(database: Database): WarAttackEventStore {
