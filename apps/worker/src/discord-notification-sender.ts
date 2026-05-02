@@ -14,5 +14,14 @@ export function createDiscordRestNotificationSender(token: string): DiscordNotif
         },
       });
     },
+    sendDiscordNotificationMessage: async (channelId, message) => {
+      await rest.post(Routes.channelMessages(channelId), {
+        body: {
+          content: message.content,
+          ...(message.embeds ? { embeds: message.embeds } : {}),
+          allowed_mentions: { parse: [] },
+        },
+      });
+    },
   };
 }

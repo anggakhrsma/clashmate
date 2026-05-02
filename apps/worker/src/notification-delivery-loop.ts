@@ -1,6 +1,24 @@
 import type { NotificationOutboxDeliveryStore } from '@clashmate/database';
 import type { Logger } from '@clashmate/logger';
 
+export interface DiscordNotificationEmbedField {
+  readonly name: string;
+  readonly value: string;
+  readonly inline?: boolean;
+}
+
+export interface DiscordNotificationEmbed {
+  readonly title: string;
+  readonly description?: string;
+  readonly color?: number;
+  readonly fields?: readonly DiscordNotificationEmbedField[];
+}
+
+export interface DiscordNotificationMessage {
+  readonly content: string;
+  readonly embeds?: readonly DiscordNotificationEmbed[];
+}
+
 export interface NotificationDeliveryLoopIntervalConfig {
   readonly baseSeconds: number;
   readonly jitterSeconds: number;
@@ -8,6 +26,10 @@ export interface NotificationDeliveryLoopIntervalConfig {
 
 export interface DiscordNotificationSender {
   sendChannelMessage: (channelId: string, content: string) => Promise<void>;
+  sendDiscordNotificationMessage?: (
+    channelId: string,
+    message: DiscordNotificationMessage,
+  ) => Promise<void>;
 }
 
 export interface NotificationDeliveryLoopOptions {
@@ -80,10 +102,17 @@ export async function runNotificationDeliveryIteration(
         throw new Error(`Unsupported notification target type: ${entry.targetType}`);
       }
 
-      await options.sender.sendChannelMessage(
-        entry.targetId,
-        formatNotificationOutboxMessage(entry),
-      );
+      if (options.sender.sendDiscordNotificationMessage) {
+        await options.sender.sendDiscordNotificationMessage(
+          entry.targetId,
+          formatDiscordNotificationMessage(entry),
+        );
+      } else {
+        await options.sender.sendChannelMessage(
+          entry.targetId,
+          formatNotificationOutboxMessage(entry),
+        );
+      }
       await options.deliveryStore.markNotificationOutboxSent(entry.id, options.ownerId, new Date());
       options.logger?.info?.({ outboxId: entry.id, targetId: entry.targetId }, 'Sent notification');
     } catch (error) {
@@ -101,6 +130,22 @@ export async function runNotificationDeliveryIteration(
       });
       options.logger?.error?.({ error, outboxId: entry.id }, 'Failed to send notification');
     }
+  }
+}
+
+export function formatDiscordNotificationMessage(entry: {
+  sourceType?: string;
+  payload: unknown;
+}): DiscordNotificationMessage {
+  const fallback = formatNotificationOutboxMessage(entry);
+
+  try {
+    return {
+      content: buildSafeNotificationContent(entry.sourceType),
+      embeds: [buildNotificationEmbed(entry)],
+    };
+  } catch {
+    return { content: fallback };
   }
 }
 
@@ -198,6 +243,145 @@ export function formatNotificationOutboxMessage(entry: {
   const payload = parseClanMemberNotificationPayload(entry.payload);
   const verb = payload.eventType === 'left' ? 'left' : 'joined';
   return `**${payload.playerName} (${payload.playerTag})** ${verb} clan **${payload.clanTag}**.`;
+}
+
+function buildSafeNotificationContent(sourceType?: string): string {
+  return `${getNotificationStyle(sourceType).icon} ${getNotificationStyle(sourceType).title}`;
+}
+
+function buildNotificationEmbed(entry: {
+  sourceType?: string;
+  payload: unknown;
+}): DiscordNotificationEmbed {
+  const style = getNotificationStyle(entry.sourceType);
+
+  if (entry.sourceType === 'clan_donation_event') {
+    const payload = parseClanDonationNotificationPayload(entry.payload);
+    return buildEmbed(style, `${safeDiscordText(payload.playerName)} (${payload.playerTag})`, [
+      field('Clan', payload.clanTag, true),
+      field('Donated', formatNotificationNumber(payload.donationDelta), true),
+      field('Received', formatNotificationNumber(payload.receivedDelta), true),
+      field('Player Tag', payload.playerTag, true),
+    ]);
+  }
+
+  if (entry.sourceType === 'clan_role_change_event') {
+    const payload = parseClanRoleChangeNotificationPayload(entry.payload);
+    return buildEmbed(style, `${safeDiscordText(payload.playerName)} (${payload.playerTag})`, [
+      field('Clan', payload.clanTag, true),
+      field('Previous Role', payload.previousRole ?? 'none', true),
+      field('Current Role', payload.currentRole ?? 'none', true),
+      field('Player Tag', payload.playerTag, true),
+    ]);
+  }
+
+  if (entry.sourceType === 'war_attack_event') {
+    const payload = parseWarAttackNotificationPayload(entry.payload);
+    return buildEmbed(style, `${payload.stars}★ attack for ${payload.destructionPercentage}%`, [
+      field('Clan', payload.clanTag, true),
+      field('Attacker', payload.attackerTag, true),
+      field('Defender', payload.defenderTag, true),
+      field('Fresh Attack', payload.freshAttack ? 'Yes' : 'No', true),
+      field('Duration', payload.duration === null ? 'Unknown' : `${payload.duration}s`, true),
+    ]);
+  }
+
+  if (entry.sourceType === 'war_state_event') {
+    const payload = parseWarStateNotificationPayload(entry.payload);
+    return buildEmbed(style, `War is now ${safeDiscordText(payload.currentState)}`, [
+      field('Clan', payload.clanTag, true),
+      field('Previous State', payload.previousState ?? 'none', true),
+      field('Current State', payload.currentState, true),
+    ]);
+  }
+
+  if (entry.sourceType === 'missed_war_attack_event') {
+    const payload = parseMissedWarAttackNotificationPayload(entry.payload);
+    const missed = payload.attacksAvailable - payload.attacksUsed;
+    return buildEmbed(
+      style,
+      `${safeDiscordText(payload.playerName)} missed ${missed} attack${missed === 1 ? '' : 's'}`,
+      [
+        field('Clan', payload.clanTag, true),
+        field('Player Tag', payload.playerTag, true),
+        field('Used', String(payload.attacksUsed), true),
+        field('Available', String(payload.attacksAvailable), true),
+      ],
+    );
+  }
+
+  if (entry.sourceType === 'clan_games_event') {
+    const payload = parseClanGamesNotificationPayload(entry.payload);
+    return buildEmbed(
+      style,
+      `${safeDiscordText(payload.playerName)} Clan Games ${payload.eventType}`,
+      [
+        field('Clan', payload.clanTag, true),
+        field('Season', payload.seasonId, true),
+        field('Player Tag', payload.playerTag, true),
+        field(
+          'Progress',
+          `${formatNotificationNumber(payload.currentPoints)}/${formatNotificationNumber(payload.eventMaxPoints)}`,
+          true,
+        ),
+        field('Points Gained', formatNotificationNumber(payload.pointsDelta), true),
+      ],
+    );
+  }
+
+  const payload = parseClanMemberNotificationPayload(entry.payload);
+  const verb = payload.eventType === 'left' ? 'left' : 'joined';
+  return buildEmbed(style, `${safeDiscordText(payload.playerName)} ${verb} the clan`, [
+    field('Clan', payload.clanTag, true),
+    field('Player Tag', payload.playerTag, true),
+    field('Event', payload.eventType, true),
+  ]);
+}
+
+function buildEmbed(
+  style: NotificationStyle,
+  description: string,
+  fields: readonly DiscordNotificationEmbedField[],
+): DiscordNotificationEmbed {
+  return {
+    title: `${style.icon} ${style.title}`,
+    description: safeDiscordText(description),
+    color: style.color,
+    fields: fields.slice(0, 25),
+  };
+}
+
+function field(name: string, value: string, inline = false): DiscordNotificationEmbedField {
+  return { name, value: safeDiscordText(value), inline };
+}
+
+interface NotificationStyle {
+  readonly title: string;
+  readonly icon: string;
+  readonly color: number;
+}
+
+function getNotificationStyle(sourceType?: string): NotificationStyle {
+  switch (sourceType) {
+    case 'clan_donation_event':
+      return { title: 'Donation Update', icon: '🎁', color: 0x2ecc71 };
+    case 'clan_role_change_event':
+      return { title: 'Role Change', icon: '👑', color: 0xf1c40f };
+    case 'war_attack_event':
+      return { title: 'War Attack', icon: '⚔️', color: 0xe74c3c };
+    case 'war_state_event':
+      return { title: 'War State Update', icon: '🛡️', color: 0x3498db };
+    case 'missed_war_attack_event':
+      return { title: 'Missed War Attack', icon: '🚨', color: 0xc0392b };
+    case 'clan_games_event':
+      return { title: 'Clan Games Update', icon: '🎯', color: 0x9b59b6 };
+    default:
+      return { title: 'Clan Member Update', icon: '👥', color: 0x95a5a6 };
+  }
+}
+
+function safeDiscordText(value: string): string {
+  return value.replace(/@/g, '@\u200b').trim() || 'Unknown';
 }
 
 function parseClanGamesNotificationPayload(payload: unknown): {
