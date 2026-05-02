@@ -11,6 +11,7 @@ import {
   createDatabaseTrackedClanStore,
   createDatabaseUsageMetrics,
   createGlobalAccessBlockStore,
+  createLastSeenSnapshotReader,
   createMissedWarAttackEventStore,
   createWarSnapshotStore,
 } from '@clashmate/database';
@@ -36,6 +37,7 @@ const databaseTrackedClans = createDatabaseTrackedClanStore(database);
 const databaseClanGamesScoreboards = createClanGamesScoreboardReader(database);
 const databaseClanMemberNotifications = createDatabaseClanMemberNotificationConfigStore(database);
 const databasePlayerLinks = createDatabasePlayerLinkStore(database);
+const databaseLastSeenSnapshots = createLastSeenSnapshotReader(database);
 const databaseWarSnapshots = createWarSnapshotStore(database);
 const databaseMissedWarAttacks = createMissedWarAttackEventStore(database);
 const globalAccessBlocks = createGlobalAccessBlockStore(database);
@@ -72,6 +74,12 @@ const commandRegistry = createBotCommandRegistry({
   link: {
     coc: cocClient,
     links: databasePlayerLinks,
+  },
+  lastSeen: {
+    store: {
+      listPlayerTagsForUser: databasePlayerLinks.listPlayerTagsForUser,
+      listLastSeenSnapshots: databaseLastSeenSnapshots.listLastSeenSnapshots,
+    },
   },
   player: {
     coc: cocClient,
@@ -111,6 +119,7 @@ const commandRegistry = createBotCommandRegistry({
       'guild-ban',
       'help',
       'invite',
+      'lastseen',
       'link',
       'player',
       'remaining',

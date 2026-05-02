@@ -79,6 +79,23 @@ export interface DatabaseDebugReader {
   getConfigDiagnostics: (guildId: string) => Promise<DatabaseConfigDiagnostics>;
 }
 
+export interface LastSeenSnapshotRecord {
+  playerTag: string;
+  playerName: string;
+  clanTag: string;
+  clanName: string | null;
+  firstSeenAt: Date;
+  lastSeenAt: Date;
+  lastFetchedAt: Date;
+}
+
+export interface LastSeenSnapshotReader {
+  listLastSeenSnapshots: (
+    guildId: string,
+    playerTags: readonly string[],
+  ) => Promise<LastSeenSnapshotRecord[]>;
+}
+
 export type PollingResourceType = 'clan' | 'player' | 'war';
 
 export const TOP_LEVEL_POLLING_RESOURCE_TYPES = ['clan', 'player', 'war'] as const;
@@ -1562,6 +1579,43 @@ export function createDatabasePlayerLinkStore(database: Database): DatabasePlaye
 
         return { status: 'linked', wasDefault: shouldBeDefault };
       });
+    },
+  };
+}
+
+export function createLastSeenSnapshotReader(database: Database): LastSeenSnapshotReader {
+  return {
+    listLastSeenSnapshots: async (guildId, playerTags) => {
+      const uniqueTags = [
+        ...new Set(playerTags.map((tag) => tag.trim().toUpperCase()).filter(Boolean)),
+      ];
+      if (uniqueTags.length === 0) return [];
+
+      return database
+        .select({
+          playerTag: schema.clanMemberSnapshots.playerTag,
+          playerName: schema.clanMemberSnapshots.name,
+          clanTag: schema.clanMemberSnapshots.clanTag,
+          clanName: schema.trackedClans.name,
+          firstSeenAt: schema.clanMemberSnapshots.firstSeenAt,
+          lastSeenAt: schema.clanMemberSnapshots.lastSeenAt,
+          lastFetchedAt: schema.clanMemberSnapshots.lastFetchedAt,
+        })
+        .from(schema.clanMemberSnapshots)
+        .innerJoin(
+          schema.trackedClans,
+          and(
+            eq(schema.trackedClans.clanTag, schema.clanMemberSnapshots.clanTag),
+            eq(schema.trackedClans.guildId, guildId),
+            eq(schema.trackedClans.isActive, true),
+          ),
+        )
+        .where(inArray(schema.clanMemberSnapshots.playerTag, uniqueTags))
+        .orderBy(
+          asc(schema.clanMemberSnapshots.playerTag),
+          desc(schema.clanMemberSnapshots.lastSeenAt),
+          desc(schema.clanMemberSnapshots.lastFetchedAt),
+        );
     },
   };
 }

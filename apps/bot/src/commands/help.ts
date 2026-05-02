@@ -77,6 +77,13 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     details: ['Works with linked clans and player links where available.'],
   },
   {
+    name: 'lastseen',
+    usage: '/lastseen [player] [user]',
+    description: 'Show when linked players were last seen in tracked clans.',
+    category: 'Player & Clan',
+    details: ['Reads existing linked-clan polling snapshots without querying the Clash API.'],
+  },
+  {
     name: 'link',
     usage: '/link create|list|delete',
     description: 'Manage Discord user links to Clash player or clan tags.',
