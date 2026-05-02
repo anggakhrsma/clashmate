@@ -63,52 +63,86 @@ export function createClanPollerHandler(options: ClanPollerHandlerOptions) {
 }
 
 interface ClanWithMembers {
-  readonly memberList?: readonly RawClanMember[];
-  readonly members?: readonly RawClanMember[];
-  readonly data?: {
-    readonly memberList?: readonly RawClanMember[];
-    readonly members?: readonly RawClanMember[];
-  };
+  readonly memberList?: unknown;
+  readonly members?: unknown;
+  readonly data?: unknown;
 }
 
 interface RawClanMember {
-  readonly tag?: string;
-  readonly name?: string;
-  readonly role?: string | null;
-  readonly expLevel?: number | null;
-  readonly league?: { readonly id?: number | null } | null;
-  readonly trophies?: number | null;
-  readonly builderBaseTrophies?: number | null;
-  readonly clanRank?: number | null;
-  readonly previousClanRank?: number | null;
-  readonly donations?: number | null;
-  readonly donationsReceived?: number | null;
+  readonly tag?: unknown;
+  readonly name?: unknown;
+  readonly role?: unknown;
+  readonly expLevel?: unknown;
+  readonly league?: unknown;
+  readonly trophies?: unknown;
+  readonly builderBaseTrophies?: unknown;
+  readonly clanRank?: unknown;
+  readonly previousClanRank?: unknown;
+  readonly donations?: unknown;
+  readonly donationsReceived?: unknown;
 }
 
 export function extractClanMemberSnapshots(clan: unknown): ClanMemberSnapshotInput[] {
-  const clanWithMembers = clan as ClanWithMembers;
-  const memberList =
-    clanWithMembers.memberList ??
-    clanWithMembers.members ??
-    clanWithMembers.data?.memberList ??
-    clanWithMembers.data?.members ??
-    [];
-  return memberList.map((member) => {
-    if (!member.tag?.trim()) throw new Error('Clan member payload is missing a player tag.');
-    return {
-      clanTag: '',
-      playerTag: member.tag,
-      name: member.name ?? member.tag,
-      role: member.role ?? null,
-      expLevel: member.expLevel ?? null,
-      leagueId: member.league?.id ?? null,
-      trophies: member.trophies ?? null,
-      builderBaseTrophies: member.builderBaseTrophies ?? null,
-      clanRank: member.clanRank ?? null,
-      previousClanRank: member.previousClanRank ?? null,
-      donations: member.donations ?? null,
-      donationsReceived: member.donationsReceived ?? null,
-      rawMember: member,
-    };
+  return getClanMemberList(clan).flatMap((member) => {
+    const playerTag = normalizeNonBlankString(member.tag);
+    if (!playerTag) return [];
+
+    return [
+      {
+        clanTag: '',
+        playerTag,
+        name: normalizeNonBlankString(member.name) ?? playerTag,
+        role: normalizeNonBlankString(member.role),
+        expLevel: asNonNegativeInteger(member.expLevel),
+        leagueId: extractLeagueId(member.league),
+        trophies: asNonNegativeInteger(member.trophies),
+        builderBaseTrophies: asNonNegativeInteger(member.builderBaseTrophies),
+        clanRank: asNonNegativeInteger(member.clanRank),
+        previousClanRank: asNonNegativeInteger(member.previousClanRank),
+        donations: asNonNegativeInteger(member.donations),
+        donationsReceived: asNonNegativeInteger(member.donationsReceived),
+        rawMember: member,
+      },
+    ];
   });
+}
+
+function getClanMemberList(clan: unknown): readonly RawClanMember[] {
+  if (!isRecord(clan)) return [];
+
+  const clanWithMembers = clan as ClanWithMembers;
+  const data = isRecord(clanWithMembers.data) ? (clanWithMembers.data as ClanWithMembers) : null;
+  const memberList = [
+    clanWithMembers.memberList,
+    clanWithMembers.members,
+    data?.memberList,
+    data?.members,
+  ].find(Array.isArray);
+
+  return memberList?.filter(isRecord) ?? [];
+}
+
+function extractLeagueId(value: unknown): number | null {
+  if (!isRecord(value)) return null;
+  const league = value as { readonly id?: unknown };
+  return asNonNegativeInteger(league.id);
+}
+
+function asNonNegativeInteger(value: unknown): number | null {
+  return typeof value === 'number' &&
+    Number.isFinite(value) &&
+    Number.isInteger(value) &&
+    value >= 0
+    ? value
+    : null;
+}
+
+function normalizeNonBlankString(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
