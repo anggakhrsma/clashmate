@@ -47,6 +47,22 @@ export function computeWorkerLoopDelayMs(
   intervals: Record<PollingResourceType, PollingIntervalConfig>,
   random = Math.random,
 ): number {
+  const intervalConfigs = [intervals.clan, intervals.player, intervals.war];
+
+  if (
+    intervalConfigs.some(
+      (interval) =>
+        !Number.isFinite(interval.baseSeconds) ||
+        !Number.isFinite(interval.jitterSeconds) ||
+        interval.baseSeconds <= 0 ||
+        interval.jitterSeconds < 0,
+    )
+  ) {
+    throw new Error(
+      'Worker polling loop intervals must be finite and positive with non-negative jitter.',
+    );
+  }
+
   const baseSeconds = Math.min(
     intervals.clan.baseSeconds,
     intervals.player.baseSeconds,
