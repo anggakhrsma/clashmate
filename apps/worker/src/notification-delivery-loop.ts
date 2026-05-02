@@ -49,6 +49,14 @@ export interface NotificationDeliveryLoopController {
   stop: () => void;
 }
 
+const DISCORD_NOTIFICATION_CONTENT_LIMIT = 2000;
+const DISCORD_EMBED_TITLE_LIMIT = 256;
+const DISCORD_EMBED_DESCRIPTION_LIMIT = 4096;
+const DISCORD_EMBED_FIELD_NAME_LIMIT = 256;
+const DISCORD_EMBED_FIELD_VALUE_LIMIT = 1024;
+const DISCORD_EMBED_MAX_FIELDS = 25;
+const TRUNCATION_ELLIPSIS = '…';
+
 export function computeNotificationDeliveryLoopDelayMs(
   interval: NotificationDeliveryLoopIntervalConfig,
   random = Math.random,
@@ -141,11 +149,11 @@ export function formatDiscordNotificationMessage(entry: {
 
   try {
     return {
-      content: buildSafeNotificationContent(entry.sourceType),
+      content: formatDiscordNotificationContent(buildSafeNotificationContent(entry.sourceType)),
       embeds: [buildNotificationEmbed(entry)],
     };
   } catch {
-    return { content: fallback };
+    return { content: formatDiscordNotificationContent(fallback) };
   }
 }
 
@@ -257,7 +265,7 @@ function buildNotificationEmbed(entry: {
 
   if (entry.sourceType === 'clan_donation_event') {
     const payload = parseClanDonationNotificationPayload(entry.payload);
-    return buildEmbed(style, `${safeDiscordText(payload.playerName)} (${payload.playerTag})`, [
+    return buildEmbed(style, `${payload.playerName} (${payload.playerTag})`, [
       field('Clan', payload.clanTag, true),
       field('Donated', formatNotificationNumber(payload.donationDelta), true),
       field('Received', formatNotificationNumber(payload.receivedDelta), true),
@@ -288,7 +296,7 @@ function buildNotificationEmbed(entry: {
 
   if (entry.sourceType === 'war_state_event') {
     const payload = parseWarStateNotificationPayload(entry.payload);
-    return buildEmbed(style, `War is now ${safeDiscordText(payload.currentState)}`, [
+    return buildEmbed(style, `War is now ${payload.currentState}`, [
       field('Clan', payload.clanTag, true),
       field('Previous State', payload.previousState ?? 'none', true),
       field('Current State', payload.currentState, true),
@@ -300,7 +308,7 @@ function buildNotificationEmbed(entry: {
     const missed = payload.attacksAvailable - payload.attacksUsed;
     return buildEmbed(
       style,
-      `${safeDiscordText(payload.playerName)} missed ${missed} attack${missed === 1 ? '' : 's'}`,
+      `${payload.playerName} missed ${missed} attack${missed === 1 ? '' : 's'}`,
       [
         field('Clan', payload.clanTag, true),
         field('Player Tag', payload.playerTag, true),
@@ -312,26 +320,22 @@ function buildNotificationEmbed(entry: {
 
   if (entry.sourceType === 'clan_games_event') {
     const payload = parseClanGamesNotificationPayload(entry.payload);
-    return buildEmbed(
-      style,
-      `${safeDiscordText(payload.playerName)} Clan Games ${payload.eventType}`,
-      [
-        field('Clan', payload.clanTag, true),
-        field('Season', payload.seasonId, true),
-        field('Player Tag', payload.playerTag, true),
-        field(
-          'Progress',
-          `${formatNotificationNumber(payload.currentPoints)}/${formatNotificationNumber(payload.eventMaxPoints)}`,
-          true,
-        ),
-        field('Points Gained', formatNotificationNumber(payload.pointsDelta), true),
-      ],
-    );
+    return buildEmbed(style, `${payload.playerName} Clan Games ${payload.eventType}`, [
+      field('Clan', payload.clanTag, true),
+      field('Season', payload.seasonId, true),
+      field('Player Tag', payload.playerTag, true),
+      field(
+        'Progress',
+        `${formatNotificationNumber(payload.currentPoints)}/${formatNotificationNumber(payload.eventMaxPoints)}`,
+        true,
+      ),
+      field('Points Gained', formatNotificationNumber(payload.pointsDelta), true),
+    ]);
   }
 
   const payload = parseClanMemberNotificationPayload(entry.payload);
   const verb = payload.eventType === 'left' ? 'left' : 'joined';
-  return buildEmbed(style, `${safeDiscordText(payload.playerName)} ${verb} the clan`, [
+  return buildEmbed(style, `${payload.playerName} ${verb} the clan`, [
     field('Clan', payload.clanTag, true),
     field('Player Tag', payload.playerTag, true),
     field('Event', payload.eventType, true),
@@ -344,15 +348,19 @@ function buildEmbed(
   fields: readonly DiscordNotificationEmbedField[],
 ): DiscordNotificationEmbed {
   return {
-    title: `${style.icon} ${style.title}`,
-    description: safeDiscordText(description),
+    title: formatDiscordEmbedTitle(`${style.icon} ${style.title}`),
+    description: formatDiscordEmbedDescription(description),
     color: style.color,
-    fields: fields.slice(0, 25),
+    fields: fields.slice(0, DISCORD_EMBED_MAX_FIELDS).map((embedField) => ({
+      name: formatDiscordEmbedFieldName(embedField.name),
+      value: formatDiscordEmbedFieldValue(embedField.value),
+      inline: embedField.inline ?? false,
+    })),
   };
 }
 
 function field(name: string, value: string, inline = false): DiscordNotificationEmbedField {
-  return { name, value: safeDiscordText(value), inline };
+  return { name, value, inline };
 }
 
 interface NotificationStyle {
@@ -382,6 +390,33 @@ function getNotificationStyle(sourceType?: string): NotificationStyle {
 
 function safeDiscordText(value: string): string {
   return value.replace(/@/g, '@\u200b').trim() || 'Unknown';
+}
+
+function formatDiscordNotificationContent(value: string): string {
+  return truncateDiscordText(safeDiscordText(value), DISCORD_NOTIFICATION_CONTENT_LIMIT);
+}
+
+function formatDiscordEmbedTitle(value: string): string {
+  return truncateDiscordText(safeDiscordText(value), DISCORD_EMBED_TITLE_LIMIT);
+}
+
+function formatDiscordEmbedDescription(value: string): string {
+  return truncateDiscordText(safeDiscordText(value), DISCORD_EMBED_DESCRIPTION_LIMIT);
+}
+
+function formatDiscordEmbedFieldName(value: string): string {
+  return truncateDiscordText(safeDiscordText(value), DISCORD_EMBED_FIELD_NAME_LIMIT);
+}
+
+function formatDiscordEmbedFieldValue(value: string): string {
+  return truncateDiscordText(safeDiscordText(value), DISCORD_EMBED_FIELD_VALUE_LIMIT);
+}
+
+function truncateDiscordText(value: string, limit: number): string {
+  if (!Number.isInteger(limit) || limit <= 0) return TRUNCATION_ELLIPSIS;
+  if (value.length <= limit) return value;
+  if (limit === 1) return TRUNCATION_ELLIPSIS;
+  return `${value.slice(0, limit - TRUNCATION_ELLIPSIS.length).trimEnd()}${TRUNCATION_ELLIPSIS}`;
 }
 
 function parseClanGamesNotificationPayload(payload: unknown): {
