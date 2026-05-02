@@ -12,6 +12,7 @@ import {
   createGuildBanSlashCommand,
   type GuildBanCommandOptions,
 } from './guild-ban.js';
+import { createHelpMessageCommand, createHelpSlashCommand } from './help.js';
 import { createInviteMessageCommand, createInviteSlashCommand } from './invite.js';
 import { createLinkSlashCommand, type LinkCommandOptions } from './link.js';
 import { createPlayerSlashCommand, type PlayerCommandOptions } from './player.js';
@@ -52,6 +53,7 @@ export function createBotCommandRegistry(options: BotCommandRegistryOptions): Co
   registry.registerSlash(createClansSlashCommand(options.clans));
   registry.registerSlash(createDebugSlashCommand(options.debug));
   registry.registerSlash(createGuildBanSlashCommand(options.guildBan));
+  registry.registerSlash(createHelpSlashCommand());
   registry.registerSlash(createInviteSlashCommand());
   registry.registerSlash(createLinkSlashCommand(options.link));
   registry.registerSlash(createPlayerSlashCommand(options.player));
@@ -62,6 +64,7 @@ export function createBotCommandRegistry(options: BotCommandRegistryOptions): Co
   registry.registerSlash(createVerifySlashCommand(options.verify));
   registry.registerMessage(createBlacklistMessageCommand(options.blacklist));
   registry.registerMessage(createGuildBanMessageCommand(options.guildBan));
+  registry.registerMessage(createHelpMessageCommand());
   registry.registerMessage(createInviteMessageCommand());
   registry.registerMessage(createStatusMessageCommand(options.status));
   registry.registerMessage(createUsageMessageCommand(options.usage));
