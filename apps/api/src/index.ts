@@ -16,7 +16,42 @@ const serviceStatus = {
   version: '0.0.0',
 } as const;
 
+type BuildMetadata = {
+  commitSha?: string;
+  repositoryUrl?: string;
+};
+
 const createTimestamp = () => new Date().toISOString();
+
+const createBuildMetadata = (env: NodeJS.ProcessEnv = process.env): BuildMetadata => {
+  const { GIT_SHA: gitSha, SOURCE_REPOSITORY_URL: sourceRepositoryUrl } = env;
+  const metadata: BuildMetadata = {};
+
+  if (gitSha) {
+    metadata.commitSha = gitSha;
+  }
+
+  if (sourceRepositoryUrl) {
+    metadata.repositoryUrl = sourceRepositoryUrl;
+  }
+
+  return metadata;
+};
+
+const createServiceMetadata = (env: NodeJS.ProcessEnv = process.env) => ({
+  ok: true,
+  ...serviceStatus,
+  timestamp: createTimestamp(),
+  ...createBuildMetadata(env),
+});
+
+app.get('/', async () => {
+  return createServiceMetadata();
+});
+
+app.get('/info', async () => {
+  return createServiceMetadata();
+});
 
 app.get('/health', async () => {
   return {
