@@ -11,6 +11,7 @@ import {
   createGuildBanSlashCommand,
   type GuildBanCommandOptions,
 } from './guild-ban.js';
+import { createInviteSlashCommand } from './invite.js';
 import { createLinkSlashCommand, type LinkCommandOptions } from './link.js';
 import { createPlayerSlashCommand, type PlayerCommandOptions } from './player.js';
 import { createRemainingSlashCommand, type RemainingCommandOptions } from './remaining.js';
@@ -48,6 +49,7 @@ export function createBotCommandRegistry(options: BotCommandRegistryOptions): Co
   registry.registerSlash(createClansSlashCommand(options.clans));
   registry.registerSlash(createDebugSlashCommand(options.debug));
   registry.registerSlash(createGuildBanSlashCommand(options.guildBan));
+  registry.registerSlash(createInviteSlashCommand());
   registry.registerSlash(createLinkSlashCommand(options.link));
   registry.registerSlash(createPlayerSlashCommand(options.player));
   registry.registerSlash(createRemainingSlashCommand(options.remaining));

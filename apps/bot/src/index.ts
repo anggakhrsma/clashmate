@@ -101,6 +101,7 @@ const commandRegistry = createBotCommandRegistry({
       'clans',
       'debug',
       'guild-ban',
+      'invite',
       'link',
       'player',
       'remaining',
