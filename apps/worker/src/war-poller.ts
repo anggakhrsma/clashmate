@@ -47,6 +47,16 @@ export function createWarPollerHandler(options: WarPollerHandlerOptions) {
       snapshot: war,
       fetchedAt,
     });
+    const warKey = buildCurrentWarKey(war);
+    if (result.status === 'upserted' && options.snapshots.retainWarSnapshot) {
+      await options.snapshots.retainWarSnapshot({
+        clanTag: war.clanTag,
+        warKey,
+        state: war.state,
+        snapshot: war,
+        fetchedAt,
+      });
+    }
 
     const attacks = detectWarAttackEvents(war, fetchedAt);
     const attackResult =
@@ -92,7 +102,7 @@ export function detectWarStateTransitionEvent(
   const currentData = isWarData(current.data) ? current.data : undefined;
   return {
     clanTag,
-    warKey: buildWarKey(clanTag, currentData ?? {}),
+    warKey: buildCurrentWarKey({ clanTag, data: currentData }),
     previousState,
     currentState,
     previousSnapshot: previous.snapshot,
@@ -113,7 +123,7 @@ export function detectWarAttackEvents(
   const clanTag = normalizeTag(war.clanTag);
   if (!clanTag) return [];
 
-  const warKey = buildWarKey(clanTag, data);
+  const warKey = buildCurrentWarKey({ clanTag, data });
   const defenderBestOrder = new Map<string, number>();
   for (const member of getWarMembers(data.opponent)) {
     const defenderTag = normalizeTag(member.tag);
@@ -165,7 +175,7 @@ export function detectMissedWarAttackEvents(
   const attacksAvailable = normalizeAttacksPerMember(data.attacksPerMember);
   if (attacksAvailable === null) return [];
 
-  const warKey = buildWarKey(clanTag, data);
+  const warKey = buildCurrentWarKey({ clanTag, data });
   const warStartedAt = parseWarTimestamp(data.startTime);
   const warEndedAt = parseWarTimestamp(data.endTime);
   const occurredAt = warEndedAt ?? fetchedAt;
@@ -198,7 +208,9 @@ export function detectMissedWarAttackEvents(
   });
 }
 
-function buildWarKey(clanTag: string, data: WarData): string {
+export function buildCurrentWarKey(war: { clanTag: string; data?: unknown }): string {
+  const clanTag = normalizeTag(war.clanTag) ?? war.clanTag;
+  const data = isWarData(war.data) ? war.data : {};
   const start = normalizeNonBlankString(data.startTime) ?? 'unknown-start';
   const opponentTag = normalizeTag(data.opponent?.tag) ?? 'unknown-opponent';
   return `current:${(normalizeTag(clanTag) ?? clanTag).toUpperCase()}:${opponentTag}:${start}`.toLowerCase();

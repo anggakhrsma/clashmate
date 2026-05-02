@@ -781,6 +781,10 @@ export interface UpsertLatestWarSnapshotInput {
   fetchedAt?: Date;
 }
 
+export interface RetainWarSnapshotInput extends UpsertLatestWarSnapshotInput {
+  warKey: string;
+}
+
 export interface UpsertLatestWarSnapshotResult {
   status: 'upserted' | 'not_linked';
 }
@@ -807,6 +811,7 @@ export interface WarSnapshotStore {
   upsertLatestWarSnapshot: (
     input: UpsertLatestWarSnapshotInput,
   ) => Promise<UpsertLatestWarSnapshotResult>;
+  retainWarSnapshot?: (input: RetainWarSnapshotInput) => Promise<{ inserted: number }>;
 }
 
 export interface ClanGamesScoreboardMember {
@@ -4385,6 +4390,28 @@ export function createWarSnapshotStore(database: Database): WarSnapshotStore {
 
       return { status: 'upserted' };
     },
+    retainWarSnapshot: async (input) => {
+      const snapshot = normalizeRetainedWarSnapshotInput(input);
+      const result = await database
+        .insert(schema.warSnapshots)
+        .values({
+          clanTag: snapshot.clanTag,
+          warKey: snapshot.warKey,
+          state: snapshot.state,
+          snapshot: snapshot.snapshot,
+          fetchedAt: snapshot.fetchedAt,
+        })
+        .onConflictDoNothing({
+          target: [
+            schema.warSnapshots.clanTag,
+            schema.warSnapshots.warKey,
+            schema.warSnapshots.fetchedAt,
+          ],
+        })
+        .returning({ id: schema.warSnapshots.id });
+
+      return { inserted: result.length };
+    },
   };
 }
 
@@ -5259,6 +5286,21 @@ export function normalizeLatestWarSnapshotInput(
     snapshot: input.snapshot,
     fetchedAt: input.fetchedAt ?? new Date(),
   };
+}
+
+export function normalizeRetainedWarSnapshotInput(
+  input: RetainWarSnapshotInput,
+): RetainWarSnapshotInput & {
+  clanTag: string;
+  state: string;
+  warKey: string;
+  fetchedAt: Date;
+} {
+  const snapshot = normalizeLatestWarSnapshotInput(input);
+  const warKey = input.warKey.trim().toLowerCase();
+  if (!warKey) throw new Error('War snapshot requires a war key.');
+
+  return { ...snapshot, warKey };
 }
 
 export function normalizeWarAttackEventInput(input: WarAttackEventInput): WarAttackEventInput {

@@ -854,6 +854,33 @@ export const warLatestSnapshots = pgTable(
   }),
 );
 
+export const warSnapshots = pgTable(
+  'war_snapshots',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    clanTag: text('clan_tag').notNull(),
+    warKey: text('war_key').notNull(),
+    state: text('state').notNull(),
+    snapshot: jsonb('snapshot').notNull(),
+    fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    warSnapshotsClanWarFetchedAtUnique: uniqueIndex(
+      'war_snapshots_clan_tag_war_key_fetched_at_unique',
+    ).on(table.clanTag, table.warKey, table.fetchedAt),
+    warSnapshotsClanWarIndex: index('war_snapshots_clan_tag_war_key_idx').on(
+      table.clanTag,
+      table.warKey,
+    ),
+    warSnapshotsClanFetchedAtIndex: index('war_snapshots_clan_tag_fetched_at_idx').on(
+      table.clanTag,
+      table.fetchedAt,
+    ),
+    warSnapshotsWarKeyIndex: index('war_snapshots_war_key_idx').on(table.warKey),
+  }),
+);
+
 export const warAttackEvents = pgTable(
   'war_attack_events',
   {
