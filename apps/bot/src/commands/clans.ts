@@ -1,4 +1,8 @@
-import type { CommandContext, SlashCommandDefinition } from '@clashmate/discord';
+import type {
+  CommandContext,
+  MessageCommandDefinition,
+  SlashCommandDefinition,
+} from '@clashmate/discord';
 import {
   type ApplicationCommandOptionChoiceData,
   type AutocompleteInteraction,
@@ -67,6 +71,49 @@ export function createClansSlashCommand(options: ClansCommandOptions): SlashComm
       await autocompleteClans(interaction, options);
     },
   };
+}
+
+export function createClansMessageCommand(options: ClansCommandOptions): MessageCommandDefinition {
+  return {
+    name: CLANS_COMMAND_NAME,
+    aliases: ['clan-list'],
+    execute: async (message) => {
+      if (!message.guildId || !message.guild) {
+        await message.reply('`clans` can only be used in a server.');
+        return;
+      }
+
+      if (!message.channel.isSendable()) {
+        await message.reply('I cannot send the linked clans list in this channel.');
+        return;
+      }
+
+      const categoryId = parseClansMessageCommand(message.content).categoryId;
+      const [categories, clans] = await Promise.all([
+        options.clans.listClanCategories(message.guildId),
+        options.clans.listClansForGuild(message.guildId),
+      ]);
+      const guildIconUrl = message.guild.iconURL() ?? undefined;
+      const payload = buildClansPayload({
+        categories,
+        clans,
+        guildName: message.guild.name,
+        ...(categoryId ? { categoryId } : {}),
+        ...(guildIconUrl ? { guildIconUrl } : {}),
+      });
+
+      await message.channel.send(payload);
+    },
+  };
+}
+
+export interface ClansMessageQuery {
+  readonly categoryId?: string;
+}
+
+export function parseClansMessageCommand(content: string): ClansMessageQuery {
+  const [, categoryId] = content.trim().split(/\s+/, 2);
+  return categoryId ? { categoryId } : {};
 }
 
 export async function autocompleteClans(
