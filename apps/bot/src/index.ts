@@ -217,6 +217,18 @@ client.on('messageCreate', async (message) => {
         message,
         'This server is not allowed to use ClashMate commands.',
       );
+      return;
+    }
+
+    if (result.routed && result.commandName && !result.blocked) {
+      try {
+        await commandUsageRecorder.recordCommandUsage({
+          commandName: result.commandName,
+          guildId: message.guildId,
+        });
+      } catch (error) {
+        logger.warn({ error, command: result.commandName }, 'Failed to record command usage');
+      }
     }
   } catch (error) {
     logger.error({ error, command: commandToken }, 'Message command failed');
