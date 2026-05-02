@@ -133,12 +133,21 @@ const commandRegistry = createBotCommandRegistry({
       'status',
       'usage',
       'verify',
+      'warlog',
     ],
     logger,
   },
   verify: {
     coc: cocClient,
     links: databasePlayerLinks,
+  },
+  warlog: {
+    store: {
+      listLinkedClans: databaseTrackedClans.listLinkedClans,
+      listRetainedEndedWarSnapshotsForGuild: (input) =>
+        databaseWarSnapshots.listRetainedEndedWarSnapshotsForGuild?.(input) ?? Promise.resolve([]),
+      getLinkedPlayerTags: databasePlayerLinks.listPlayerTagsForUser,
+    },
   },
 });
 

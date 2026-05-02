@@ -809,6 +809,12 @@ export interface GuildRetainedWarSnapshot extends GuildLatestWarSnapshot {
   warKey: string;
 }
 
+export interface ListRetainedEndedWarSnapshotsInput {
+  guildId: string;
+  clanTag?: string;
+  limit?: number;
+}
+
 export interface WarSnapshotStore {
   getLatestWarSnapshot: (clanTag: string) => Promise<NormalizedLatestWarSnapshot | null>;
   getLatestWarSnapshotsForGuild: (guildId: string) => Promise<GuildLatestWarSnapshot[]>;
@@ -817,6 +823,9 @@ export interface WarSnapshotStore {
     warKey: string;
     clanTag?: string;
   }) => Promise<GuildRetainedWarSnapshot[]>;
+  listRetainedEndedWarSnapshotsForGuild?: (
+    input: ListRetainedEndedWarSnapshotsInput,
+  ) => Promise<GuildRetainedWarSnapshot[]>;
   upsertLatestWarSnapshot: (
     input: UpsertLatestWarSnapshotInput,
   ) => Promise<UpsertLatestWarSnapshotResult>;
@@ -4404,6 +4413,57 @@ export function createWarSnapshotStore(database: Database): WarSnapshotStore {
       }
 
       return [...newestByClan.values()].map((row) => ({
+        clanTag: row.clanTag,
+        warKey: row.warKey,
+        state: row.state,
+        snapshot: row.snapshot,
+        fetchedAt: row.fetchedAt,
+        trackedClan: {
+          id: row.trackedClanId,
+          clanTag: row.trackedClanTag,
+          name: row.trackedClanName,
+          alias: row.trackedClanAlias,
+        },
+      }));
+    },
+    listRetainedEndedWarSnapshotsForGuild: async (input) => {
+      const clanTag = input.clanTag?.trim().toUpperCase();
+      const limit = Math.max(1, Math.min(input.limit ?? 20, 100));
+      const conditions = [
+        eq(schema.trackedClans.guildId, input.guildId),
+        eq(schema.trackedClans.isActive, true),
+        sql`lower(replace(${schema.warSnapshots.state}, '_', '')) = 'warended'`,
+      ];
+      if (clanTag) conditions.push(eq(schema.trackedClans.clanTag, clanTag));
+
+      const rows = await database
+        .select({
+          clanTag: schema.warSnapshots.clanTag,
+          warKey: schema.warSnapshots.warKey,
+          state: schema.warSnapshots.state,
+          snapshot: schema.warSnapshots.snapshot,
+          fetchedAt: schema.warSnapshots.fetchedAt,
+          trackedClanId: schema.trackedClans.id,
+          trackedClanTag: schema.trackedClans.clanTag,
+          trackedClanName: schema.trackedClans.name,
+          trackedClanAlias: schema.trackedClans.alias,
+        })
+        .from(schema.trackedClans)
+        .innerJoin(
+          schema.warSnapshots,
+          eq(schema.warSnapshots.clanTag, schema.trackedClans.clanTag),
+        )
+        .where(and(...conditions))
+        .orderBy(desc(schema.warSnapshots.fetchedAt), desc(schema.warSnapshots.createdAt));
+
+      const newestByWar = new Map<string, (typeof rows)[number]>();
+      for (const row of rows) {
+        const key = `${row.trackedClanTag}\u0000${row.warKey.toLowerCase()}`;
+        if (!newestByWar.has(key)) newestByWar.set(key, row);
+        if (newestByWar.size >= limit) break;
+      }
+
+      return [...newestByWar.values()].map((row) => ({
         clanTag: row.clanTag,
         warKey: row.warKey,
         state: row.state,
