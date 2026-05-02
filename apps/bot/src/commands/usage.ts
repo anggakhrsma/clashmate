@@ -1,4 +1,9 @@
-import { type CommandContext, isOwner, type SlashCommandDefinition } from '@clashmate/discord';
+import {
+  type CommandContext,
+  isOwner,
+  type MessageCommandDefinition,
+  type SlashCommandDefinition,
+} from '@clashmate/discord';
 import {
   type ChatInputCommandInteraction,
   type ColorResolvable,
@@ -108,6 +113,38 @@ export function createUsageSlashCommand(options: UsageCommandOptions): SlashComm
   };
 }
 
+export function createUsageMessageCommand(options: UsageCommandOptions): MessageCommandDefinition {
+  return {
+    name: USAGE_COMMAND_NAME,
+    ownerOnly: true,
+    execute: async (message, context) => {
+      if (!isOwner(message.author.id, context.ownerIds)) {
+        await message.reply('Only bot owners can use `usage`.');
+        return;
+      }
+
+      if (!message.channel.isSendable()) {
+        await message.reply('I cannot send messages in this channel.');
+        return;
+      }
+
+      const request = parseUsageMessageRequest(message.content);
+      if (request.limitError) {
+        await message.channel.send(request.limitError);
+        return;
+      }
+
+      if (request.showChart) {
+        await message.channel.send(await buildUsageChartReply(request.limit, options));
+        return;
+      }
+
+      const view = await collectUsageView(message, context, options);
+      await message.channel.send({ embeds: [buildUsageEmbed(view)] });
+    },
+  };
+}
+
 export async function executeUsageInteraction(
   interaction: ChatInputCommandInteraction,
   context: CommandContext,
@@ -153,7 +190,7 @@ export async function executeUsageInteraction(
 }
 
 export async function collectUsageView(
-  interaction: ChatInputCommandInteraction,
+  source: Pick<ChatInputCommandInteraction, 'guild'>,
   context: CommandContext,
   options: UsageCommandOptions,
 ): Promise<UsageView> {
@@ -181,7 +218,7 @@ export async function collectUsageView(
   return {
     botName: context.client.user?.displayName ?? context.client.user?.username ?? 'ClashMate',
     ...(botAvatarUrl ? { botAvatarUrl } : {}),
-    color: interaction.guild?.members.me?.displayColor || DEFAULT_USAGE_EMBED_COLOR,
+    color: source.guild?.members.me?.displayColor || DEFAULT_USAGE_EMBED_COLOR,
     dailyUsage: dailyUsage.slice(0, 15),
     commandTotals,
     totalUses,
@@ -278,6 +315,39 @@ export function formatUsageDate(value: Date | string): string {
 
 export function formatCount(value: number): string {
   return value.toLocaleString('en-US');
+}
+
+function parseUsageMessageRequest(content: string): {
+  showChart: boolean;
+  limit: number;
+  limitError?: string;
+} {
+  const [, mode, limitToken] = content.trim().split(/\s+/, 3);
+  const showChart = mode?.toLowerCase() === 'chart';
+  const parsedLimit = showChart && limitToken ? Number.parseInt(limitToken, 10) : undefined;
+  const limit = parsedLimit ?? DEFAULT_USAGE_CHART_LIMIT;
+
+  if (
+    showChart &&
+    limitToken &&
+    (!Number.isInteger(parsedLimit) || String(parsedLimit) !== limitToken)
+  ) {
+    return {
+      showChart,
+      limit,
+      limitError: `The chart limit must be between ${MIN_USAGE_CHART_LIMIT} and ${MAX_USAGE_CHART_LIMIT}.`,
+    };
+  }
+
+  if (showChart && (limit < MIN_USAGE_CHART_LIMIT || limit > MAX_USAGE_CHART_LIMIT)) {
+    return {
+      showChart,
+      limit,
+      limitError: `The chart limit must be between ${MIN_USAGE_CHART_LIMIT} and ${MAX_USAGE_CHART_LIMIT}.`,
+    };
+  }
+
+  return { showChart, limit };
 }
 
 async function safeRead<T>(

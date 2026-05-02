@@ -20,7 +20,11 @@ import {
   createStatusSlashCommand,
   type StatusCommandOptions,
 } from './status.js';
-import { createUsageSlashCommand, type UsageCommandOptions } from './usage.js';
+import {
+  createUsageMessageCommand,
+  createUsageSlashCommand,
+  type UsageCommandOptions,
+} from './usage.js';
 import { createVerifySlashCommand, type VerifyCommandOptions } from './verify.js';
 
 export interface BotCommandRegistryOptions {
@@ -54,6 +58,7 @@ export function createBotCommandRegistry(options: BotCommandRegistryOptions): Co
   registry.registerMessage(createBlacklistMessageCommand(options.blacklist));
   registry.registerMessage(createGuildBanMessageCommand(options.guildBan));
   registry.registerMessage(createStatusMessageCommand(options.status));
+  registry.registerMessage(createUsageMessageCommand(options.usage));
 
   return registry;
 }
