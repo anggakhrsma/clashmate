@@ -1,10 +1,5 @@
 import type { GlobalAccessBlockStore } from '@clashmate/database';
-import {
-  type CommandContext,
-  isOwner,
-  type MessageCommandDefinition,
-  type SlashCommandDefinition,
-} from '@clashmate/discord';
+import { type CommandContext, isOwner, type SlashCommandDefinition } from '@clashmate/discord';
 import { SlashCommandBuilder } from 'discord.js';
 
 export const GUILD_BAN_COMMAND_NAME = 'guild-ban';
@@ -66,40 +61,6 @@ export function createGuildBanSlashCommand(
         }),
         ephemeral: true,
       });
-    },
-  };
-}
-
-export function createGuildBanMessageCommand(
-  options: GuildBanCommandOptions,
-): MessageCommandDefinition {
-  return {
-    name: GUILD_BAN_COMMAND_NAME,
-    ownerOnly: true,
-    execute: async (message, context) => {
-      if (!isOwner(message.author.id, context.ownerIds)) return;
-
-      const guildId = message.content.trim().split(/\s+/)[1]?.trim();
-      if (!guildId || !isDiscordSnowflake(guildId)) {
-        await message.reply('Invalid guildId.');
-        return;
-      }
-
-      const targetDisplayName = resolveGuildDisplayName(guildId, context);
-      const result = await options.accessBlocks.toggle({
-        targetType: 'guild',
-        targetId: guildId,
-        targetName: targetDisplayName,
-        actorDiscordUserId: message.author.id,
-      });
-      const content = formatGuildBanToggleMessage({
-        action: result.action,
-        targetDisplayName,
-        botDisplayName: getBotDisplayName(context),
-      });
-
-      if (message.channel.isSendable()) await message.channel.send(content);
-      else await message.reply(content);
     },
   };
 }

@@ -1,11 +1,6 @@
 import { readFileSync } from 'node:fs';
 import os from 'node:os';
-import {
-  type CommandContext,
-  isOwner,
-  type MessageCommandDefinition,
-  type SlashCommandDefinition,
-} from '@clashmate/discord';
+import { type CommandContext, isOwner, type SlashCommandDefinition } from '@clashmate/discord';
 import {
   type ChatInputCommandInteraction,
   type Client,
@@ -18,7 +13,6 @@ import {
 
 export const STATUS_COMMAND_NAME = 'status';
 export const STATUS_COMMAND_DESCRIPTION = "Shows information about the bot's status.";
-export const STATUS_COMMAND_ALIASES = ['bot'] as const;
 export const DEFAULT_STATUS_EMBED_COLOR = 0x5865f2;
 
 export const statusCommandData = new SlashCommandBuilder()
@@ -78,44 +72,6 @@ export function createStatusSlashCommand(options: StatusCommandOptions): SlashCo
     execute: async (interaction, context) => {
       if (!interaction.isChatInputCommand()) return;
       await executeStatusInteraction(interaction, context, options);
-    },
-  };
-}
-
-export function createStatusMessageCommand(
-  options: StatusCommandOptions,
-): MessageCommandDefinition {
-  return {
-    name: STATUS_COMMAND_NAME,
-    aliases: STATUS_COMMAND_ALIASES,
-    ownerOnly: true,
-    execute: async (message, context) => {
-      if (!isOwner(message.author.id, context.ownerIds)) {
-        await message.reply('Only bot owners can use `status`.');
-        return;
-      }
-
-      if (!message.guild) {
-        await message.reply('`status` can only be used in a server.');
-        return;
-      }
-
-      if (!message.channel.isSendable()) {
-        await message.reply('I cannot send messages in this channel.');
-        return;
-      }
-
-      const view = await collectStatusView({
-        client: context.client,
-        guild: message.guild,
-        metricReader: options.metricReader,
-        version: options.version,
-        commitSha: options.commitSha,
-        repositoryUrl: options.repositoryUrl,
-        logger: options.logger,
-      });
-
-      await message.channel.send({ embeds: [buildStatusEmbed(view)] });
     },
   };
 }

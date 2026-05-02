@@ -1,9 +1,5 @@
 import type { ClanGamesScoreboardReader, ClanGamesScoreboardSnapshot } from '@clashmate/database';
-import type {
-  CommandContext,
-  MessageCommandDefinition,
-  SlashCommandDefinition,
-} from '@clashmate/discord';
+import type { CommandContext, SlashCommandDefinition } from '@clashmate/discord';
 import {
   type ApplicationCommandOptionChoiceData,
   type AutocompleteInteraction,
@@ -53,57 +49,6 @@ export function createClanGamesSlashCommand(
       if (interaction.commandName !== CLAN_GAMES_COMMAND_NAME) return;
       await autocompleteClanGames(interaction, options);
     },
-  };
-}
-
-export function createClanGamesMessageCommand(
-  options: ClanGamesCommandOptions,
-): MessageCommandDefinition {
-  return {
-    name: CLAN_GAMES_COMMAND_NAME,
-    aliases: ['clangames'],
-    execute: async (message) => {
-      if (!message.guildId) {
-        await message.reply('`clan-games` can only be used in a server.');
-        return;
-      }
-
-      if (!message.channel.isSendable()) {
-        await message.reply('I cannot send Clan Games scoreboards in this channel.');
-        return;
-      }
-
-      const query = parseClanGamesMessageCommand(message.content);
-      const scoreboard = await options.reader.getLatestScoreboard({
-        guildId: message.guildId,
-        ...(query.clanTag ? { clanTag: query.clanTag } : {}),
-        ...(query.seasonId ? { seasonId: query.seasonId } : {}),
-      });
-
-      if (!scoreboard) {
-        await message.channel.send(CLAN_GAMES_NO_DATA_MESSAGE);
-        return;
-      }
-
-      await message.channel.send({ embeds: [buildClanGamesEmbed(scoreboard, !query.clanTag)] });
-    },
-  };
-}
-
-export interface ClanGamesMessageQuery {
-  readonly clanTag?: string;
-  readonly seasonId?: string;
-}
-
-export function parseClanGamesMessageCommand(content: string): ClanGamesMessageQuery {
-  const [, firstArg, secondArg] = content.trim().split(/\s+/, 3);
-
-  if (!firstArg) return {};
-  if (isSeasonId(firstArg)) return { seasonId: firstArg };
-
-  return {
-    clanTag: firstArg,
-    ...(secondArg && isSeasonId(secondArg) ? { seasonId: secondArg } : {}),
   };
 }
 
@@ -223,8 +168,4 @@ function formatScoreboardRows(
 function truncateDescription(description: string): string {
   if (description.length <= EMBED_DESCRIPTION_LIMIT) return description;
   return `${description.slice(0, EMBED_DESCRIPTION_LIMIT - 16)}\n\`\`\`\n…and more`;
-}
-
-function isSeasonId(value: string): boolean {
-  return /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
 }

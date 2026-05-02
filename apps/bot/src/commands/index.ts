@@ -1,41 +1,17 @@
 import { CommandRegistry } from '@clashmate/discord';
-import {
-  type BlacklistCommandOptions,
-  createBlacklistMessageCommand,
-  createBlacklistSlashCommand,
-} from './blacklist.js';
-import {
-  type ClanGamesCommandOptions,
-  createClanGamesMessageCommand,
-  createClanGamesSlashCommand,
-} from './clan-games.js';
-import {
-  type ClansCommandOptions,
-  createClansMessageCommand,
-  createClansSlashCommand,
-} from './clans.js';
+import { type BlacklistCommandOptions, createBlacklistSlashCommand } from './blacklist.js';
+import { type ClanGamesCommandOptions, createClanGamesSlashCommand } from './clan-games.js';
+import { type ClansCommandOptions, createClansSlashCommand } from './clans.js';
 import { createDebugSlashCommand, type DebugCommandOptions } from './debug.js';
-import {
-  createGuildBanMessageCommand,
-  createGuildBanSlashCommand,
-  type GuildBanCommandOptions,
-} from './guild-ban.js';
-import { createHelpMessageCommand, createHelpSlashCommand } from './help.js';
-import { createInviteMessageCommand, createInviteSlashCommand } from './invite.js';
+import { createGuildBanSlashCommand, type GuildBanCommandOptions } from './guild-ban.js';
+import { createHelpSlashCommand } from './help.js';
+import { createInviteSlashCommand } from './invite.js';
 import { createLinkSlashCommand, type LinkCommandOptions } from './link.js';
 import { createPlayerSlashCommand, type PlayerCommandOptions } from './player.js';
 import { createRemainingSlashCommand, type RemainingCommandOptions } from './remaining.js';
 import { createSetupClanSlashCommand, type SetupClanCommandOptions } from './setup-clan.js';
-import {
-  createStatusMessageCommand,
-  createStatusSlashCommand,
-  type StatusCommandOptions,
-} from './status.js';
-import {
-  createUsageMessageCommand,
-  createUsageSlashCommand,
-  type UsageCommandOptions,
-} from './usage.js';
+import { createStatusSlashCommand, type StatusCommandOptions } from './status.js';
+import { createUsageSlashCommand, type UsageCommandOptions } from './usage.js';
 import { createVerifySlashCommand, type VerifyCommandOptions } from './verify.js';
 
 export interface BotCommandRegistryOptions {
@@ -70,14 +46,6 @@ export function createBotCommandRegistry(options: BotCommandRegistryOptions): Co
   registry.registerSlash(createStatusSlashCommand(options.status));
   registry.registerSlash(createUsageSlashCommand(options.usage));
   registry.registerSlash(createVerifySlashCommand(options.verify));
-  registry.registerMessage(createBlacklistMessageCommand(options.blacklist));
-  registry.registerMessage(createClanGamesMessageCommand(options.clanGames));
-  registry.registerMessage(createClansMessageCommand(options.clans));
-  registry.registerMessage(createGuildBanMessageCommand(options.guildBan));
-  registry.registerMessage(createHelpMessageCommand());
-  registry.registerMessage(createInviteMessageCommand());
-  registry.registerMessage(createStatusMessageCommand(options.status));
-  registry.registerMessage(createUsageMessageCommand(options.usage));
 
   return registry;
 }

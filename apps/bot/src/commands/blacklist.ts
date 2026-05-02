@@ -1,10 +1,5 @@
 import type { GlobalAccessBlockStore } from '@clashmate/database';
-import {
-  type CommandContext,
-  isOwner,
-  type MessageCommandDefinition,
-  type SlashCommandDefinition,
-} from '@clashmate/discord';
+import { type CommandContext, isOwner, type SlashCommandDefinition } from '@clashmate/discord';
 import { SlashCommandBuilder, type User } from 'discord.js';
 
 export const BLACKLIST_COMMAND_NAME = 'blacklist';
@@ -64,47 +59,6 @@ export function createBlacklistSlashCommand(
         }),
         ephemeral: true,
       });
-    },
-  };
-}
-
-export function createBlacklistMessageCommand(
-  options: BlacklistCommandOptions,
-): MessageCommandDefinition {
-  return {
-    name: BLACKLIST_COMMAND_NAME,
-    ownerOnly: true,
-    execute: async (message, context) => {
-      if (!isOwner(message.author.id, context.ownerIds)) return;
-
-      const id = message.content.trim().split(/\s+/)[1];
-      const target = id ? await context.client.users.fetch(id).catch(() => null) : null;
-      if (!target) {
-        await message.reply('Invalid userId.');
-        return;
-      }
-
-      const validation = validateBlacklistTarget(target.id, context);
-      if (validation) {
-        await message.reply(validation);
-        return;
-      }
-
-      const result = await options.accessBlocks.toggle({
-        targetType: 'user',
-        targetId: target.id,
-        targetName: getUserDisplayName(target),
-        actorDiscordUserId: message.author.id,
-      });
-
-      const content = formatBlacklistToggleMessage({
-        action: result.action,
-        targetDisplayName: getUserDisplayName(target),
-        botDisplayName: getBotDisplayName(context),
-      });
-
-      if (message.channel.isSendable()) await message.channel.send(content);
-      else await message.reply(content);
     },
   };
 }

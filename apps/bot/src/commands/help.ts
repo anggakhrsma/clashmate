@@ -1,8 +1,4 @@
-import type {
-  CommandContext,
-  MessageCommandDefinition,
-  SlashCommandDefinition,
-} from '@clashmate/discord';
+import type { CommandContext, SlashCommandDefinition } from '@clashmate/discord';
 import {
   type ChatInputCommandInteraction,
   type ColorResolvable,
@@ -96,14 +92,14 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
   },
   {
     name: 'help',
-    usage: '/help [command] or help [command]',
+    usage: '/help [command]',
     description: 'Show ClashMate help.',
     category: 'Utility',
-    details: ['Use `/help command:<name>` or `help <name>` for command details.'],
+    details: ['Use `/help command:<name>` for command details.'],
   },
   {
     name: 'invite',
-    usage: '/invite or invite',
+    usage: '/invite',
     description: 'Get an invite link for ClashMate.',
     category: 'Utility',
     details: ['Shows the bot invite, source, and support links.'],
@@ -117,28 +113,28 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
   },
   {
     name: 'status',
-    usage: '/status or status',
+    usage: '/status',
     description: 'Show owner-only runtime and bot status metrics.',
     category: 'Owner',
     details: ['Bot owner command for operational status.'],
   },
   {
     name: 'usage',
-    usage: '/usage or usage [chart] [limit]',
+    usage: '/usage [chart] [limit]',
     description: 'Show owner-only command usage metrics.',
     category: 'Owner',
     details: ['Bot owner command for usage and growth metrics.'],
   },
   {
     name: 'blacklist',
-    usage: '/blacklist or blacklist',
+    usage: '/blacklist',
     description: 'Manage global user access blocks.',
     category: 'Owner',
     details: ['Bot owner command for blocking or unblocking users.'],
   },
   {
     name: 'guild-ban',
-    usage: '/guild-ban or guild-ban',
+    usage: '/guild-ban',
     description: 'Manage global server access blocks.',
     category: 'Owner',
     details: ['Bot owner command for blocking or unblocking servers.'],
@@ -159,31 +155,6 @@ export function createHelpSlashCommand(): SlashCommandDefinition {
     execute: async (interaction, context) => {
       if (!interaction.isChatInputCommand()) return;
       await executeHelpInteraction(interaction, context);
-    },
-  };
-}
-
-export function createHelpMessageCommand(): MessageCommandDefinition {
-  return {
-    name: HELP_COMMAND_NAME,
-    execute: async (message, context) => {
-      if (!message.channel.isSendable()) {
-        await message.reply('I cannot send help in this channel.');
-        return;
-      }
-
-      const commandName = parseHelpMessageCommandName(message.content);
-      const view = collectHelpView(message, context);
-      const entry = commandName ? findHelpCatalogEntry(commandName) : undefined;
-
-      if (commandName && !entry) {
-        await message.channel.send(formatUnknownHelpCommand(commandName));
-        return;
-      }
-
-      await message.channel.send({
-        embeds: [entry ? buildHelpCommandEmbed(view, entry) : buildHelpOverviewEmbed(view)],
-      });
     },
   };
 }
@@ -224,7 +195,7 @@ export function buildHelpOverviewEmbed(view: HelpView): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(view.color ?? DEFAULT_HELP_EMBED_COLOR)
     .setTitle('ClashMate Help')
-    .setDescription('Use `/help command:<name>` or `help <command>` for command details.')
+    .setDescription('Use `/help command:<name>` for command details.')
     .setAuthor(
       view.botAvatarUrl
         ? { name: view.botName, iconURL: view.botAvatarUrl }
@@ -263,11 +234,6 @@ export function buildHelpCommandEmbed(view: HelpView, entry: HelpCatalogEntry): 
 export function findHelpCatalogEntry(commandName: string): HelpCatalogEntry | undefined {
   const normalized = commandName.trim().toLowerCase().replace(/^\//, '');
   return HELP_CATALOG.find((entry) => entry.name === normalized);
-}
-
-export function parseHelpMessageCommandName(content: string): string | undefined {
-  const [, commandName] = content.trim().split(/\s+/, 2);
-  return commandName?.trim() || undefined;
 }
 
 export function formatUnknownHelpCommand(commandName: string): string {

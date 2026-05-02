@@ -1,8 +1,4 @@
-import type {
-  CommandContext,
-  MessageCommandDefinition,
-  SlashCommandDefinition,
-} from '@clashmate/discord';
+import type { CommandContext, SlashCommandDefinition } from '@clashmate/discord';
 import {
   type ChatInputCommandInteraction,
   type ColorResolvable,
@@ -44,21 +40,6 @@ export function createInviteSlashCommand(): SlashCommandDefinition {
     execute: async (interaction, context) => {
       if (!interaction.isChatInputCommand()) return;
       await executeInviteInteraction(interaction, context);
-    },
-  };
-}
-
-export function createInviteMessageCommand(): MessageCommandDefinition {
-  return {
-    name: INVITE_COMMAND_NAME,
-    execute: async (message, context) => {
-      if (!message.channel.isSendable()) {
-        await message.reply('I cannot send invite information in this channel.');
-        return;
-      }
-
-      const view = collectInviteView(message, context);
-      await message.channel.send({ embeds: [buildInviteEmbed(view)] });
     },
   };
 }
