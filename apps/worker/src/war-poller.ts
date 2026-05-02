@@ -82,14 +82,17 @@ export function detectWarStateTransitionEvent(
 ): WarStateEventInput | null {
   if (!previous) return null;
 
-  const previousState = previous.state.trim().toLowerCase();
-  const currentState = current.state.trim().toLowerCase();
+  const clanTag = normalizeTag(current.clanTag);
+  if (!clanTag) return null;
+
+  const previousState = normalizeState(previous.state);
+  const currentState = normalizeState(current.state);
   if (!previousState || !currentState || previousState === currentState) return null;
 
   const currentData = isWarData(current.data) ? current.data : undefined;
   return {
-    clanTag: current.clanTag,
-    warKey: buildWarKey(current.clanTag, currentData ?? {}),
+    clanTag,
+    warKey: buildWarKey(clanTag, currentData ?? {}),
     previousState,
     currentState,
     previousSnapshot: previous.snapshot,
@@ -107,30 +110,42 @@ export function detectWarAttackEvents(
   const data = war.data;
   if (!isWarData(data)) return [];
 
-  const warKey = buildWarKey(war.clanTag, data);
+  const clanTag = normalizeTag(war.clanTag);
+  if (!clanTag) return [];
+
+  const warKey = buildWarKey(clanTag, data);
   const defenderBestOrder = new Map<string, number>();
-  for (const member of data.opponent?.members ?? []) {
-    if (typeof member.tag === 'string' && typeof member.bestOpponentAttack?.order === 'number') {
-      defenderBestOrder.set(member.tag.toUpperCase(), member.bestOpponentAttack.order);
+  for (const member of getWarMembers(data.opponent)) {
+    const defenderTag = normalizeTag(member.tag);
+    const bestOrder = asNonNegativeInteger(member.bestOpponentAttack?.order);
+    if (defenderTag && bestOrder !== null) {
+      defenderBestOrder.set(defenderTag, bestOrder);
     }
   }
 
-  return (data.clan?.members ?? []).flatMap((member) =>
-    (member.attacks ?? []).map((attack) => ({
-      clanTag: war.clanTag,
-      warKey,
-      attackerTag: attack.attackerTag,
-      defenderTag: attack.defenderTag,
-      attackOrder: attack.order,
-      stars: attack.stars,
-      destructionPercentage: attack.destructionPercentage,
-      duration: attack.duration ?? null,
-      freshAttack: defenderBestOrder.get(attack.defenderTag.toUpperCase()) === attack.order,
-      rawAttack: attack,
-      sourceFetchedAt: fetchedAt,
-      occurredAt: fetchedAt,
-      detectedAt: fetchedAt,
-    })),
+  return getWarMembers(data.clan).flatMap((member) =>
+    getWarAttacks(member).flatMap((attack) => {
+      const normalized = normalizeWarAttack(attack);
+      if (!normalized) return [];
+
+      return [
+        {
+          clanTag,
+          warKey,
+          attackerTag: normalized.attackerTag,
+          defenderTag: normalized.defenderTag,
+          attackOrder: normalized.order,
+          stars: normalized.stars,
+          destructionPercentage: normalized.destructionPercentage,
+          duration: normalized.duration,
+          freshAttack: defenderBestOrder.get(normalized.defenderTag) === normalized.order,
+          rawAttack: attack,
+          sourceFetchedAt: fetchedAt,
+          occurredAt: fetchedAt,
+          detectedAt: fetchedAt,
+        },
+      ];
+    }),
   );
 }
 
@@ -139,33 +154,36 @@ export function detectMissedWarAttackEvents(
   fetchedAt: Date,
 ): MissedWarAttackEventInput[] {
   const data = war.data;
-  if (war.state.trim().toLowerCase() !== 'warended' || !isWarData(data)) return [];
+  if (normalizeState(war.state) !== 'warended' || !isWarData(data)) return [];
 
-  const clanTag = war.clanTag.trim().toUpperCase();
+  const clanTag = normalizeTag(war.clanTag);
+  if (!clanTag) return [];
   const perspectiveClan = choosePerspectiveWarClan(clanTag, data);
-  if (!perspectiveClan?.members?.length) return [];
+  const members = getWarMembers(perspectiveClan);
+  if (members.length === 0) return [];
 
-  const attacksAvailable = Number.isInteger(data.attacksPerMember)
-    ? Number(data.attacksPerMember)
-    : 2;
-  if (attacksAvailable <= 0) return [];
+  const attacksAvailable = normalizeAttacksPerMember(data.attacksPerMember);
+  if (attacksAvailable === null) return [];
 
   const warKey = buildWarKey(clanTag, data);
   const warStartedAt = parseWarTimestamp(data.startTime);
   const warEndedAt = parseWarTimestamp(data.endTime);
   const occurredAt = warEndedAt ?? fetchedAt;
 
-  return perspectiveClan.members.flatMap((member) => {
-    if (typeof member.tag !== 'string' || typeof member.name !== 'string') return [];
-    const attacksUsed = member.attacks?.length ?? 0;
+  return members.flatMap((member) => {
+    const playerTag = normalizeTag(member.tag);
+    const playerName = normalizeNonBlankString(member.name);
+    if (!playerTag || !playerName) return [];
+
+    const attacksUsed = getWarAttacks(member).length;
     if (attacksUsed >= attacksAvailable) return [];
 
     return [
       {
         clanTag,
         warKey,
-        playerTag: member.tag,
-        playerName: member.name,
+        playerTag,
+        playerName,
         attacksUsed,
         attacksAvailable,
         warSnapshot: war,
@@ -181,9 +199,9 @@ export function detectMissedWarAttackEvents(
 }
 
 function buildWarKey(clanTag: string, data: WarData): string {
-  const start = data.startTime ?? 'unknown-start';
-  const opponentTag = data.opponent?.tag ?? 'unknown-opponent';
-  return `current:${clanTag.trim().toUpperCase()}:${opponentTag.trim().toUpperCase()}:${start}`.toLowerCase();
+  const start = normalizeNonBlankString(data.startTime) ?? 'unknown-start';
+  const opponentTag = normalizeTag(data.opponent?.tag) ?? 'unknown-opponent';
+  return `current:${(normalizeTag(clanTag) ?? clanTag).toUpperCase()}:${opponentTag}:${start}`.toLowerCase();
 }
 
 function chooseWarStateTransitionOccurredAt(
@@ -200,55 +218,124 @@ function chooseWarStateTransitionOccurredAt(
           ? data?.endTime
           : undefined;
 
-  if (!timestamp) return fetchedAt;
-  const parsed = new Date(timestamp);
-  return Number.isNaN(parsed.getTime()) ? fetchedAt : parsed;
+  return parseWarTimestamp(timestamp) ?? fetchedAt;
 }
 
 interface WarData {
-  readonly preparationStartTime?: string;
-  readonly startTime?: string;
-  readonly endTime?: string;
-  readonly attacksPerMember?: number;
+  readonly preparationStartTime?: unknown;
+  readonly startTime?: unknown;
+  readonly endTime?: unknown;
+  readonly attacksPerMember?: unknown;
   readonly clan?: WarClan;
   readonly opponent?: WarClan;
 }
 
 interface WarClan {
-  readonly tag?: string;
-  readonly members?: readonly WarMember[];
+  readonly tag?: unknown;
+  readonly members?: unknown;
 }
 
 interface WarMember {
-  readonly tag?: string;
-  readonly name?: string;
-  readonly attacks?: readonly WarAttack[];
-  readonly bestOpponentAttack?: { readonly order?: number };
+  readonly tag?: unknown;
+  readonly name?: unknown;
+  readonly attacks?: unknown;
+  readonly bestOpponentAttack?: { readonly order?: unknown };
 }
 
 interface WarAttack {
-  readonly attackerTag: string;
-  readonly defenderTag: string;
-  readonly stars: number;
-  readonly destructionPercentage: number;
-  readonly order: number;
-  readonly duration?: number;
+  readonly attackerTag?: unknown;
+  readonly defenderTag?: unknown;
+  readonly stars?: unknown;
+  readonly destructionPercentage?: unknown;
+  readonly order?: unknown;
+  readonly duration?: unknown;
 }
 
 function isWarData(value: unknown): value is WarData {
-  return typeof value === 'object' && value !== null && 'clan' in value;
+  return isRecord(value) && 'clan' in value;
 }
 
 function choosePerspectiveWarClan(clanTag: string, data: WarData): WarClan | undefined {
-  if (data.clan?.tag?.trim().toUpperCase() === clanTag) return data.clan;
-  if (data.opponent?.tag?.trim().toUpperCase() === clanTag) return data.opponent;
+  if (normalizeTag(data.clan?.tag) === clanTag) return data.clan;
+  if (normalizeTag(data.opponent?.tag) === clanTag) return data.opponent;
   return data.clan;
 }
 
-function parseWarTimestamp(timestamp: string | undefined): Date | null {
-  if (!timestamp) return null;
+function parseWarTimestamp(timestamp: unknown): Date | null {
+  if (typeof timestamp !== 'string' || timestamp.trim().length === 0) return null;
   const parsed = new Date(timestamp);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function getWarMembers(clan: WarClan | undefined): readonly WarMember[] {
+  return Array.isArray(clan?.members) ? clan.members.filter(isRecord) : [];
+}
+
+function getWarAttacks(member: WarMember): readonly WarAttack[] {
+  return Array.isArray(member.attacks) ? member.attacks.filter(isRecord) : [];
+}
+
+function normalizeWarAttack(attack: WarAttack): {
+  readonly attackerTag: string;
+  readonly defenderTag: string;
+  readonly order: number;
+  readonly stars: number;
+  readonly destructionPercentage: number;
+  readonly duration: number | null;
+} | null {
+  const attackerTag = normalizeTag(attack.attackerTag);
+  const defenderTag = normalizeTag(attack.defenderTag);
+  const order = asNonNegativeInteger(attack.order);
+  const stars = asNonNegativeInteger(attack.stars);
+  const destructionPercentage = asNonNegativeInteger(attack.destructionPercentage);
+  const duration = attack.duration === undefined ? null : asNonNegativeInteger(attack.duration);
+  const hasMalformedDuration = attack.duration !== undefined && duration === null;
+
+  if (
+    !attackerTag ||
+    !defenderTag ||
+    order === null ||
+    stars === null ||
+    destructionPercentage === null ||
+    hasMalformedDuration
+  ) {
+    return null;
+  }
+
+  return { attackerTag, defenderTag, order, stars, destructionPercentage, duration };
+}
+
+function normalizeAttacksPerMember(value: unknown): number | null {
+  if (value === undefined) return 2;
+  const attacksPerMember = asNonNegativeInteger(value);
+  return attacksPerMember !== null && attacksPerMember > 0 ? attacksPerMember : null;
+}
+
+function asNonNegativeInteger(value: unknown): number | null {
+  return typeof value === 'number' &&
+    Number.isFinite(value) &&
+    Number.isInteger(value) &&
+    value >= 0
+    ? value
+    : null;
+}
+
+function normalizeState(value: unknown): string | null {
+  return normalizeNonBlankString(value)?.toLowerCase() ?? null;
+}
+
+function normalizeTag(value: unknown): string | null {
+  return normalizeNonBlankString(value)?.toUpperCase() ?? null;
+}
+
+function normalizeNonBlankString(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 export function parseCurrentWarResourceId(resourceId: string): string {
