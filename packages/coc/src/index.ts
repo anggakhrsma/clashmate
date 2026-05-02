@@ -169,9 +169,20 @@ export interface ClashPlayer {
 }
 
 function resolveRetryOptions(options?: ClashApiRetryOptions): ResolvedRetryOptions {
+  const maxAttempts = options?.maxAttempts ?? 3;
+  const baseDelayMs = options?.baseDelayMs ?? 250;
+
+  if (!Number.isFinite(maxAttempts) || maxAttempts <= 0) {
+    throw new Error('Clash API retry max attempts must be positive.');
+  }
+
+  if (!Number.isFinite(baseDelayMs) || baseDelayMs < 0) {
+    throw new Error('Clash API retry base delay must be non-negative.');
+  }
+
   return {
-    maxAttempts: Math.max(1, Math.floor(options?.maxAttempts ?? 3)),
-    baseDelayMs: Math.max(0, Math.floor(options?.baseDelayMs ?? 250)),
+    maxAttempts: Math.max(1, Math.floor(maxAttempts)),
+    baseDelayMs: Math.max(0, Math.floor(baseDelayMs)),
     sleep: options?.sleep ?? defaultSleep,
   };
 }
