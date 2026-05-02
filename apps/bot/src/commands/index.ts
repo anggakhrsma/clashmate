@@ -10,6 +10,7 @@ import { createInviteSlashCommand } from './invite.js';
 import { createLastSeenSlashCommand, type LastSeenCommandOptions } from './lastseen.js';
 import { createLinkSlashCommand, type LinkCommandOptions } from './link.js';
 import { createPlayerSlashCommand, type PlayerCommandOptions } from './player.js';
+import { createProfileSlashCommand, type ProfileCommandOptions } from './profile.js';
 import { createRemainingSlashCommand, type RemainingCommandOptions } from './remaining.js';
 import { createSetupClanSlashCommand, type SetupClanCommandOptions } from './setup-clan.js';
 import { createStatusSlashCommand, type StatusCommandOptions } from './status.js';
@@ -26,6 +27,7 @@ export interface BotCommandRegistryOptions {
   lastSeen: LastSeenCommandOptions;
   link: LinkCommandOptions;
   player: PlayerCommandOptions;
+  profile: ProfileCommandOptions;
   remaining: RemainingCommandOptions;
   setupClan: SetupClanCommandOptions;
   status: StatusCommandOptions;
@@ -47,6 +49,7 @@ export function createBotCommandRegistry(options: BotCommandRegistryOptions): Co
   registry.registerSlash(createLastSeenSlashCommand(options.lastSeen));
   registry.registerSlash(createLinkSlashCommand(options.link));
   registry.registerSlash(createPlayerSlashCommand(options.player));
+  registry.registerSlash(createProfileSlashCommand(options.profile));
   registry.registerSlash(createRemainingSlashCommand(options.remaining));
   registry.registerSlash(createSetupClanSlashCommand(options.setupClan));
   registry.registerSlash(createStatusSlashCommand(options.status));

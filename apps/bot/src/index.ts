@@ -85,6 +85,9 @@ const commandRegistry = createBotCommandRegistry({
     coc: cocClient,
     links: databasePlayerLinks,
   },
+  profile: {
+    links: databasePlayerLinks,
+  },
   remaining: {
     store: {
       listLinkedClans: databaseTrackedClans.listLinkedClans,
@@ -122,6 +125,7 @@ const commandRegistry = createBotCommandRegistry({
       'lastseen',
       'link',
       'player',
+      'profile',
       'remaining',
       'setup',
       'status',
