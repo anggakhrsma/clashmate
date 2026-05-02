@@ -161,7 +161,7 @@ export interface ClanRoleChangeDeltaEvent {
   currentRole: string | null;
 }
 
-export type ClanGamesEventType = 'points_progress' | 'completed';
+export type ClanGamesEventType = 'progress_delta' | 'completed';
 
 export interface ClanGamesPlayerProgressInput {
   playerTag: string;
@@ -2248,7 +2248,7 @@ export function createClanGamesEventStore(database: Database): ClanGamesEventSto
               linkedClans,
               clanTag: normalized.clanTag,
               seasonId: normalized.seasonId,
-              eventType: 'points_progress',
+              eventType: 'progress_delta',
               playerTag: player.playerTag,
               playerName: player.playerName,
               previousPoints: delta.previousEventPoints,
