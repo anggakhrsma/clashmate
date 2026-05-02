@@ -2304,24 +2304,52 @@ export function createClanGamesEventStore(database: Database): ClanGamesEventSto
           });
         }
 
-        const snapshot = buildClanGamesClanSnapshot({
-          seasonId: normalized.seasonId,
-          eventMaxPoints: normalized.eventMaxPoints,
-          fetchedAt: normalized.fetchedAt,
-          members,
-        });
+        const existingClanSnapshots = await tx
+          .select({
+            guildId: schema.clanGamesClanSnapshots.guildId,
+            snapshot: schema.clanGamesClanSnapshots.snapshot,
+          })
+          .from(schema.clanGamesClanSnapshots)
+          .where(
+            and(
+              eq(schema.clanGamesClanSnapshots.clanTag, normalized.clanTag),
+              eq(schema.clanGamesClanSnapshots.seasonId, normalized.seasonId),
+              inArray(
+                schema.clanGamesClanSnapshots.guildId,
+                linkedClans.map((linkedClan) => linkedClan.guildId),
+              ),
+            ),
+          );
+        const existingClanSnapshotsByGuild = new Map(
+          existingClanSnapshots.map((row) => [row.guildId, row.snapshot]),
+        );
+
         const clanSnapshotRows = await tx
           .insert(schema.clanGamesClanSnapshots)
           .values(
-            linkedClans.map((linkedClan) => ({
-              guildId: linkedClan.guildId,
-              trackedClanId: linkedClan.id,
-              clanTag: normalized.clanTag,
-              seasonId: normalized.seasonId,
-              snapshot,
-              sourceFetchedAt: normalized.fetchedAt,
-              updatedAt: normalized.fetchedAt,
-            })),
+            linkedClans.map((linkedClan) => {
+              const snapshot = buildClanGamesClanSnapshot({
+                seasonId: normalized.seasonId,
+                eventMaxPoints: normalized.eventMaxPoints,
+                fetchedAt: normalized.fetchedAt,
+                members: mergeClanGamesClanSnapshotMembers({
+                  existingMembers: parseClanGamesClanSnapshotMembers(
+                    existingClanSnapshotsByGuild.get(linkedClan.guildId),
+                  ),
+                  currentMembers: members,
+                }),
+              });
+
+              return {
+                guildId: linkedClan.guildId,
+                trackedClanId: linkedClan.id,
+                clanTag: normalized.clanTag,
+                seasonId: normalized.seasonId,
+                snapshot,
+                sourceFetchedAt: normalized.fetchedAt,
+                updatedAt: normalized.fetchedAt,
+              };
+            }),
           )
           .onConflictDoUpdate({
             target: [
@@ -2330,7 +2358,7 @@ export function createClanGamesEventStore(database: Database): ClanGamesEventSto
               schema.clanGamesClanSnapshots.seasonId,
             ],
             set: {
-              snapshot,
+              snapshot: sql`excluded.snapshot`,
               sourceFetchedAt: normalized.fetchedAt,
               updatedAt: normalized.fetchedAt,
             },
@@ -4743,6 +4771,62 @@ async function insertClanGamesEvents(
     .returning({ id: schema.clanGamesEvents.id });
 
   return rows.length;
+}
+
+function parseClanGamesClanSnapshotMembers(snapshot: unknown): ClanGamesClanSnapshotMember[] {
+  if (!isRecord(snapshot)) return [];
+  const snapshotRecord = snapshot as { members?: unknown };
+  if (!Array.isArray(snapshotRecord.members)) return [];
+
+  const members: ClanGamesClanSnapshotMember[] = [];
+  for (const member of snapshotRecord.members) {
+    if (!isRecord(member)) continue;
+    const memberRecord = member as {
+      playerTag?: unknown;
+      playerName?: unknown;
+      points?: unknown;
+    };
+    const playerTagValue = memberRecord.playerTag;
+    const playerNameValue = memberRecord.playerName;
+    const pointsValue = memberRecord.points;
+    if (
+      typeof playerTagValue !== 'string' ||
+      typeof playerNameValue !== 'string' ||
+      typeof pointsValue !== 'number' ||
+      !Number.isInteger(pointsValue) ||
+      pointsValue < 0
+    ) {
+      continue;
+    }
+
+    const playerTag = playerTagValue.trim().toUpperCase();
+    const playerName = playerNameValue.trim();
+    if (!playerTag || !playerName) continue;
+
+    members.push({ playerTag, playerName, points: pointsValue });
+  }
+
+  return members;
+}
+
+function mergeClanGamesClanSnapshotMembers(input: {
+  existingMembers: readonly ClanGamesClanSnapshotMember[];
+  currentMembers: readonly ClanGamesClanSnapshotMember[];
+}): ClanGamesClanSnapshotMember[] {
+  const membersByTag = new Map<string, ClanGamesClanSnapshotMember>();
+
+  for (const member of input.existingMembers) {
+    membersByTag.set(member.playerTag, member);
+  }
+  for (const member of input.currentMembers) {
+    membersByTag.set(member.playerTag, member);
+  }
+
+  return [...membersByTag.values()];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function buildClanGamesClanSnapshot(input: {
