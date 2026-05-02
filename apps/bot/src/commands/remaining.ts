@@ -34,11 +34,7 @@ export const remainingCommandData = new SlashCommandBuilder()
   .addUserOption((option) =>
     option.setName('user').setDescription('Remaining attacks of a linked user.'),
   )
-  .addStringOption((option) =>
-    option
-      .setName('war_id')
-      .setDescription('Historical war id. Current-war snapshots do not support this yet.'),
-  );
+  .addStringOption((option) => option.setName('war_id').setDescription('Historical war id.'));
 
 export interface RemainingTrackedClan {
   readonly id: string;
@@ -68,6 +64,11 @@ export interface RemainingStore {
   readonly getLatestWarSnapshotsForGuild: (
     guildId: string,
   ) => Promise<RemainingLatestWarSnapshot[]>;
+  readonly getRetainedWarSnapshotsForGuild: (input: {
+    guildId: string;
+    warKey: string;
+    clanTag?: string;
+  }) => Promise<RemainingLatestWarSnapshot[]>;
   readonly getLinkedPlayerTags: (guildId: string, discordUserId: string) => Promise<string[]>;
   readonly listMissedWarAttacksForWar?: (
     guildId: string,
@@ -218,19 +219,19 @@ async function executeRemaining(
     return;
   }
 
-  const warId = interaction.options.getString('war_id');
-  if (warId) {
-    await interaction.reply({
-      content: '`war_id` is not available until ClashMate stores historical war snapshots.',
-      ephemeral: true,
-    });
-    return;
-  }
+  const warKey = normalizeWarIdOption(interaction.options.getString('war_id'));
 
   await interaction.deferReply();
 
   const user = interaction.options.getUser('user');
   const player = interaction.options.getString('player');
+  const clanOption = interaction.options.getString('clan');
+
+  if (warKey) {
+    await executeHistoricalRemaining(interaction, options, { warKey, clanOption, user, player });
+    return;
+  }
+
   if (user || player) {
     const playerTags = player
       ? normalizePlayerTagOption(player)
@@ -248,11 +249,7 @@ async function executeRemaining(
     return;
   }
 
-  const clan = await resolveRemainingClan(
-    interaction.guildId,
-    interaction.options.getString('clan'),
-    options.store,
-  );
+  const clan = await resolveRemainingClan(interaction.guildId, clanOption, options.store);
   if (!clan) {
     await interaction.editReply(
       'No clan was found. Link one with `/setup clan` first or provide a linked clan tag.',
@@ -310,6 +307,77 @@ async function executeRemaining(
   await interaction.editReply({ embeds: [buildClanRemainingEmbed(summary)] });
 }
 
+async function executeHistoricalRemaining(
+  interaction: ChatInputCommandInteraction<'cached'>,
+  options: RemainingCommandOptions,
+  input: {
+    warKey: string;
+    clanOption: string | null;
+    user: ReturnType<ChatInputCommandInteraction['options']['getUser']>;
+    player: string | null;
+  },
+): Promise<void> {
+  const clan = input.clanOption
+    ? await resolveRemainingClan(interaction.guildId, input.clanOption, options.store)
+    : null;
+  if (input.clanOption && !clan) {
+    await interaction.editReply('No linked clan was found for that clan option.');
+    return;
+  }
+
+  const snapshots = await options.store.getRetainedWarSnapshotsForGuild({
+    guildId: interaction.guildId,
+    warKey: input.warKey,
+    ...(clan ? { clanTag: clan.clanTag } : {}),
+  });
+  if (snapshots.length === 0) {
+    await interaction.editReply('No historical war snapshot was found for that war id.');
+    return;
+  }
+
+  if (input.user || input.player) {
+    const playerTags = input.player
+      ? normalizePlayerTagOption(input.player)
+      : input.user
+        ? await options.store.getLinkedPlayerTags(interaction.guildId, input.user.id)
+        : [];
+    if (playerTags.length === 0) {
+      await interaction.editReply('No linked player tags were found for that user.');
+      return;
+    }
+
+    const rows = buildPlayerRemainingRows(snapshots, playerTags, new Date(0), {
+      includeEndedWars: true,
+    });
+    await interaction.editReply({
+      embeds: [buildPlayerRemainingEmbed(rows, input.user ?? undefined)],
+    });
+    return;
+  }
+
+  const snapshot = snapshots[0];
+  if (!snapshot) {
+    await interaction.editReply('No historical war snapshot was found for that war id.');
+    return;
+  }
+
+  const war = extractWarData(snapshot.snapshot);
+  if (!war) {
+    await interaction.editReply(
+      'The stored war snapshot is not readable yet. Please try again after the next war poll.',
+    );
+    return;
+  }
+
+  const summary = buildRemainingWarSummary(war, snapshot.trackedClan?.clanTag ?? snapshot.clanTag);
+  if (!summary) {
+    await interaction.editReply('The stored war snapshot does not include clan war members.');
+    return;
+  }
+
+  await interaction.editReply({ embeds: [buildClanRemainingEmbed(summary)] });
+}
+
 async function resolveRemainingClan(
   guildId: string,
   clanOption: string | null,
@@ -333,6 +401,11 @@ async function resolveRemainingClan(
     ) ??
     null
   );
+}
+
+function normalizeWarIdOption(warId: string | null): string | null {
+  const normalized = warId?.trim().toLowerCase() ?? '';
+  return normalized || null;
 }
 
 function normalizePlayerTagOption(player: string): string[] {
@@ -439,15 +512,18 @@ export function buildPlayerRemainingRows(
   snapshots: readonly RemainingLatestWarSnapshot[],
   playerTags: readonly string[],
   now: Date,
+  options: { includeEndedWars?: boolean } = {},
 ): RemainingPlayerRow[] {
   const tagSet = new Set(playerTags.map((tag) => tag.trim().toUpperCase()));
   const rows: RemainingPlayerRow[] = [];
 
   for (const snapshot of snapshots) {
     const war = extractWarData(snapshot.snapshot);
-    if (!war || normalizeWarState(war.state ?? snapshot.state) !== 'inwar') continue;
-    const endTime = parseWarDate(war.endTime);
-    if (!endTime || endTime.getTime() < now.getTime()) continue;
+    const state = normalizeWarState(war?.state ?? snapshot.state);
+    if (!war || (state !== 'inwar' && !(options.includeEndedWars && state === 'warended')))
+      continue;
+    const endTime = parseWarDate(war.endTime) ?? snapshot.fetchedAt;
+    if (!options.includeEndedWars && endTime.getTime() < now.getTime()) continue;
     const attacksPerMember = getAttacksPerMember(war);
 
     for (const clan of [war.clan, war.opponent]) {

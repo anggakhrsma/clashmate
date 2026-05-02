@@ -805,9 +805,18 @@ export interface GuildLatestWarSnapshot extends NormalizedLatestWarSnapshot {
   };
 }
 
+export interface GuildRetainedWarSnapshot extends GuildLatestWarSnapshot {
+  warKey: string;
+}
+
 export interface WarSnapshotStore {
   getLatestWarSnapshot: (clanTag: string) => Promise<NormalizedLatestWarSnapshot | null>;
   getLatestWarSnapshotsForGuild: (guildId: string) => Promise<GuildLatestWarSnapshot[]>;
+  getRetainedWarSnapshotsForGuild?: (input: {
+    guildId: string;
+    warKey: string;
+    clanTag?: string;
+  }) => Promise<GuildRetainedWarSnapshot[]>;
   upsertLatestWarSnapshot: (
     input: UpsertLatestWarSnapshotInput,
   ) => Promise<UpsertLatestWarSnapshotResult>;
@@ -4343,6 +4352,60 @@ export function createWarSnapshotStore(database: Database): WarSnapshotStore {
 
       return rows.map((row) => ({
         clanTag: row.clanTag,
+        state: row.state,
+        snapshot: row.snapshot,
+        fetchedAt: row.fetchedAt,
+        trackedClan: {
+          id: row.trackedClanId,
+          clanTag: row.trackedClanTag,
+          name: row.trackedClanName,
+          alias: row.trackedClanAlias,
+        },
+      }));
+    },
+    getRetainedWarSnapshotsForGuild: async (input) => {
+      const warKey = input.warKey.trim().toLowerCase();
+      if (!warKey) throw new Error('Retained war snapshot requires a war key.');
+      const clanTag = input.clanTag?.trim().toUpperCase();
+      const conditions = [
+        eq(schema.trackedClans.guildId, input.guildId),
+        eq(schema.trackedClans.isActive, true),
+        sql`lower(${schema.warSnapshots.warKey}) = ${warKey}`,
+      ];
+      if (clanTag) conditions.push(eq(schema.trackedClans.clanTag, clanTag));
+
+      const rows = await database
+        .select({
+          clanTag: schema.warSnapshots.clanTag,
+          warKey: schema.warSnapshots.warKey,
+          state: schema.warSnapshots.state,
+          snapshot: schema.warSnapshots.snapshot,
+          fetchedAt: schema.warSnapshots.fetchedAt,
+          trackedClanId: schema.trackedClans.id,
+          trackedClanTag: schema.trackedClans.clanTag,
+          trackedClanName: schema.trackedClans.name,
+          trackedClanAlias: schema.trackedClans.alias,
+        })
+        .from(schema.trackedClans)
+        .innerJoin(
+          schema.warSnapshots,
+          eq(schema.warSnapshots.clanTag, schema.trackedClans.clanTag),
+        )
+        .where(and(...conditions))
+        .orderBy(
+          asc(schema.trackedClans.sortOrder),
+          asc(schema.trackedClans.clanTag),
+          desc(schema.warSnapshots.fetchedAt),
+        );
+
+      const newestByClan = new Map<string, (typeof rows)[number]>();
+      for (const row of rows) {
+        if (!newestByClan.has(row.trackedClanTag)) newestByClan.set(row.trackedClanTag, row);
+      }
+
+      return [...newestByClan.values()].map((row) => ({
+        clanTag: row.clanTag,
+        warKey: row.warKey,
         state: row.state,
         snapshot: row.snapshot,
         fetchedAt: row.fetchedAt,

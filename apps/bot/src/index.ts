@@ -93,6 +93,8 @@ const commandRegistry = createBotCommandRegistry({
       listLinkedClans: databaseTrackedClans.listLinkedClans,
       getLatestWarSnapshot: databaseWarSnapshots.getLatestWarSnapshot,
       getLatestWarSnapshotsForGuild: databaseWarSnapshots.getLatestWarSnapshotsForGuild,
+      getRetainedWarSnapshotsForGuild: (input) =>
+        databaseWarSnapshots.getRetainedWarSnapshotsForGuild?.(input) ?? Promise.resolve([]),
       getLinkedPlayerTags: databasePlayerLinks.listPlayerTagsForUser,
       listMissedWarAttacksForWar: (guildId, clanTag, warKey) =>
         databaseMissedWarAttacks.listMissedWarAttacksForWar?.(guildId, clanTag, warKey) ??
