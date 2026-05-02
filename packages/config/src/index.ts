@@ -11,10 +11,17 @@ const commaSeparatedIds = z
       .filter(Boolean),
   );
 
+const optionalUrl = z.preprocess((value) => {
+  if (typeof value !== 'string') return value;
+
+  const trimmedValue = value.trim();
+  return trimmedValue.length === 0 ? undefined : trimmedValue;
+}, z.string().url().optional());
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   LOG_LEVEL: z.string().default('info'),
-  PORT: z.coerce.number().int().positive().default(3000),
+  PORT: z.coerce.number().int().positive().max(65535).default(3000),
   PUBLIC_BASE_URL: z.string().url().default('http://localhost:3000'),
 
   DISCORD_TOKEN: z.string().min(1),
@@ -44,7 +51,7 @@ const envSchema = z.object({
   NOTIFICATION_DELIVERY_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
   NOTIFICATION_DELIVERY_RETRY_SECONDS: z.coerce.number().int().positive().default(30),
 
-  SENTRY_DSN: z.string().url().optional(),
+  SENTRY_DSN: optionalUrl,
 });
 
 export type ClashMateConfig = z.infer<typeof envSchema>;
