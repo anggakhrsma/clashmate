@@ -4,7 +4,11 @@ import {
   createBlacklistMessageCommand,
   createBlacklistSlashCommand,
 } from './blacklist.js';
-import { type ClanGamesCommandOptions, createClanGamesSlashCommand } from './clan-games.js';
+import {
+  type ClanGamesCommandOptions,
+  createClanGamesMessageCommand,
+  createClanGamesSlashCommand,
+} from './clan-games.js';
 import { type ClansCommandOptions, createClansSlashCommand } from './clans.js';
 import { createDebugSlashCommand, type DebugCommandOptions } from './debug.js';
 import {
@@ -63,6 +67,7 @@ export function createBotCommandRegistry(options: BotCommandRegistryOptions): Co
   registry.registerSlash(createUsageSlashCommand(options.usage));
   registry.registerSlash(createVerifySlashCommand(options.verify));
   registry.registerMessage(createBlacklistMessageCommand(options.blacklist));
+  registry.registerMessage(createClanGamesMessageCommand(options.clanGames));
   registry.registerMessage(createGuildBanMessageCommand(options.guildBan));
   registry.registerMessage(createHelpMessageCommand());
   registry.registerMessage(createInviteMessageCommand());
