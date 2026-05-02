@@ -35,6 +35,12 @@ export interface ClanGamesSeasonConfig {
   readonly eventMaxPoints: number;
 }
 
+export interface ClanGamesWindow {
+  readonly seasonId: string;
+  readonly startsAt: Date;
+  readonly endsAt: Date;
+}
+
 export type ClanGamesSeasonConfigProvider = (now: Date) => ClanGamesSeasonConfig | null;
 
 export interface PlayerPollerHandlerOptions {
@@ -100,12 +106,35 @@ export function createPlayerPollerHandler(options: PlayerPollerHandlerOptions) {
   };
 }
 
-export function defaultClanGamesSeasonConfig(now: Date): ClanGamesSeasonConfig {
+export function getClanGamesWindowForSeason(seasonId: string): ClanGamesWindow {
+  const match = /^(\d{4})-(\d{2})$/.exec(seasonId);
+  if (!match) throw new Error(`Invalid Clan Games season id: ${seasonId}`);
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+    throw new Error(`Invalid Clan Games season id: ${seasonId}`);
+  }
+
+  const startsAt = new Date(Date.UTC(year, month - 1, 22, 8, 0, 0, 0));
+  const endsAt = new Date(startsAt.getTime() + 6 * 24 * 60 * 60 * 1000);
+
+  return { seasonId, startsAt, endsAt };
+}
+
+export function getActiveClanGamesSeasonConfig(now: Date): ClanGamesSeasonConfig | null {
+  const seasonId = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+  const window = getClanGamesWindowForSeason(seasonId);
+
+  if (now < window.startsAt || now >= window.endsAt) return null;
+
   return {
-    seasonId: `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`,
+    seasonId,
     eventMaxPoints: DEFAULT_CLAN_GAMES_EVENT_MAX_POINTS,
   };
 }
+
+export const defaultClanGamesSeasonConfig = getActiveClanGamesSeasonConfig;
 
 export function extractGamesChampionAchievementValue(player: {
   readonly data?: unknown;
