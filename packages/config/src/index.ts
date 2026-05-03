@@ -80,11 +80,29 @@ const optionalUrl = z.preprocess((value) => {
   return trimmedValue.length === 0 ? undefined : trimmedValue;
 }, z.string().url().optional());
 
+const isHttpPublicBaseUrl = (value: string): boolean => {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
+const publicBaseUrl = z
+  .string()
+  .trim()
+  .min(1, { message: 'Public base URL must be a non-blank HTTP/HTTPS URL' })
+  .refine(isHttpPublicBaseUrl, {
+    message: 'Public base URL must be a valid HTTP/HTTPS URL',
+  })
+  .default('http://localhost:3000');
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   LOG_LEVEL: logLevel,
   PORT: z.coerce.number().int().positive().max(65535).default(3000),
-  PUBLIC_BASE_URL: z.string().url().default('http://localhost:3000'),
+  PUBLIC_BASE_URL: publicBaseUrl,
 
   DISCORD_TOKEN: requiredTrimmedString,
   DISCORD_CLIENT_ID: requiredTrimmedString,
