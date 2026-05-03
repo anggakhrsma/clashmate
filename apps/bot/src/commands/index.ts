@@ -40,7 +40,7 @@ import { createSetupClanSlashCommand, type SetupClanCommandOptions } from './set
 import { createStatsSlashCommand, type StatsCommandOptions } from './stats.js';
 import { createStatusSlashCommand, type StatusCommandOptions } from './status.js';
 import { createSummarySlashCommand, type SummaryCommandOptions } from './summary.js';
-import { createTimezoneSlashCommand } from './timezone.js';
+import { createTimezoneSlashCommand, type TimezoneCommandOptions } from './timezone.js';
 import { createUnitsSlashCommand, type UnitsCommandOptions } from './units.js';
 import { createUpgradesSlashCommand, type UpgradesCommandOptions } from './upgrades.js';
 import { createUsageSlashCommand, type UsageCommandOptions } from './usage.js';
@@ -86,6 +86,7 @@ export interface BotCommandRegistryOptions {
   setupClan: SetupClanCommandOptions;
   stats: StatsCommandOptions;
   summary: SummaryCommandOptions;
+  timezone: TimezoneCommandOptions;
   status: StatusCommandOptions;
   units: UnitsCommandOptions;
   upgrades: UpgradesCommandOptions;
@@ -140,7 +141,7 @@ export function createBotCommandRegistry(options: BotCommandRegistryOptions): Co
   registry.registerSlash(createStatsSlashCommand(options.stats));
   registry.registerSlash(createSummarySlashCommand(options.summary));
   registry.registerSlash(createStatusSlashCommand(options.status));
-  registry.registerSlash(createTimezoneSlashCommand());
+  registry.registerSlash(createTimezoneSlashCommand(options.timezone));
   registry.registerSlash(createUnitsSlashCommand(options.units));
   registry.registerSlash(createUpgradesSlashCommand(options.upgrades));
   registry.registerSlash(createUsageSlashCommand(options.usage));

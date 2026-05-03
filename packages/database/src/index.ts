@@ -103,6 +103,26 @@ export interface DatabaseConfigStore {
   updateGuildConfig: (input: UpdateGuildConfigInput) => Promise<GuildConfigRecord>;
 }
 
+export interface UserTimezonePreferenceRecord {
+  discordUserId: string;
+  timezone: string;
+  updatedAt: string;
+}
+
+export interface SetUserTimezonePreferenceInput {
+  guildId: string;
+  guildName: string | null;
+  actorDiscordUserId: string;
+  discordUserId: string;
+  timezone: string;
+}
+
+export interface DatabaseUserTimezonePreferenceStore {
+  setUserTimezonePreference: (
+    input: SetUserTimezonePreferenceInput,
+  ) => Promise<UserTimezonePreferenceRecord>;
+}
+
 export type NicknameChangePreferenceRecord = 'true' | 'false';
 export type NicknameAccountPreferenceRecord =
   | 'default-account'
@@ -1955,6 +1975,23 @@ const CALLER_BASE_CALLS_SETTING_KEY = 'caller_base_calls';
 const COMMAND_WHITELIST_SETTING_KEY = 'command_whitelist';
 const DEFAULT_CLAN_LINKS_SETTING_KEY = 'default_clan_links';
 const REMINDER_SETTINGS_KEY = 'reminders';
+const USER_TIMEZONE_PREFERENCES_SETTING_KEY = 'user_timezone_preferences';
+
+function readUserTimezonePreferencesSetting(
+  value: unknown,
+): Record<string, UserTimezonePreferenceRecord> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const preferences: Record<string, UserTimezonePreferenceRecord> = {};
+  for (const [discordUserId, rawPreference] of Object.entries(value)) {
+    if (!discordUserId || !rawPreference || typeof rawPreference !== 'object') continue;
+    const record = rawPreference as Record<string, unknown>;
+    const timezone = getRecordValue(record, 'timezone');
+    const updatedAt = getRecordValue(record, 'updatedAt');
+    if (typeof timezone !== 'string' || typeof updatedAt !== 'string') continue;
+    preferences[discordUserId] = { discordUserId, timezone, updatedAt };
+  }
+  return preferences;
+}
 
 function readCallerBaseCallsSetting(value: unknown): CallerBaseAssignmentRecord[] {
   if (!Array.isArray(value)) return [];
@@ -2445,6 +2482,62 @@ export function createDatabaseConfigStore(database: Database): DatabaseConfigSto
         });
 
         return readGuildConfig(tx, input.guildId);
+      }),
+  };
+}
+
+export function createDatabaseUserTimezonePreferenceStore(
+  database: Database,
+): DatabaseUserTimezonePreferenceStore {
+  return {
+    setUserTimezonePreference: async (input) =>
+      database.transaction(async (tx) => {
+        const now = new Date();
+        await upsertGuildForSettings(tx, input.guildId, input.guildName, now);
+
+        const [setting] = await tx
+          .select({ value: schema.guildSettings.value })
+          .from(schema.guildSettings)
+          .where(
+            and(
+              eq(schema.guildSettings.guildId, input.guildId),
+              eq(schema.guildSettings.key, USER_TIMEZONE_PREFERENCES_SETTING_KEY),
+            ),
+          )
+          .limit(1);
+
+        const preferences = readUserTimezonePreferencesSetting(setting?.value);
+        const preference = {
+          discordUserId: input.discordUserId,
+          timezone: input.timezone,
+          updatedAt: now.toISOString(),
+        } satisfies UserTimezonePreferenceRecord;
+        const value = { ...preferences, [input.discordUserId]: preference };
+
+        await tx
+          .insert(schema.guildSettings)
+          .values({
+            guildId: input.guildId,
+            key: USER_TIMEZONE_PREFERENCES_SETTING_KEY,
+            value,
+            updatedAt: now,
+          })
+          .onConflictDoUpdate({
+            target: [schema.guildSettings.guildId, schema.guildSettings.key],
+            set: { value, updatedAt: now },
+          });
+
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: 'user_timezone_preference.updated',
+          targetType: 'discord_user',
+          targetId: input.discordUserId,
+          metadata: { timezone: input.timezone },
+          createdAt: now,
+        });
+
+        return preference;
       }),
   };
 }

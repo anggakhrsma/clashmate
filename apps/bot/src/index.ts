@@ -20,6 +20,7 @@ import {
   createDatabaseStatusMetrics,
   createDatabaseTrackedClanStore,
   createDatabaseUsageMetrics,
+  createDatabaseUserTimezonePreferenceStore,
   createDonationHistoryReader,
   createDonationSnapshotReader,
   createGlobalAccessBlockStore,
@@ -59,6 +60,7 @@ const databaseDebugReader = createDatabaseDebugReader(database);
 const databaseLayoutConfigStore = createDatabaseLayoutConfigStore(database);
 const databaseStatusMetrics = createDatabaseStatusMetrics(database);
 const databaseUsageMetrics = createDatabaseUsageMetrics(database);
+const databaseUserTimezonePreferences = createDatabaseUserTimezonePreferenceStore(database);
 const databaseTrackedClans = createDatabaseTrackedClanStore(database);
 const databaseClanGamesScoreboards = createClanGamesScoreboardReader(database);
 const databaseClanGamesHistory = createClanGamesHistoryReader(database);
@@ -352,6 +354,9 @@ const commandRegistry = createBotCommandRegistry({
       listClanMemberSnapshotsForGuild: databaseClanMemberSnapshots.listClanMemberSnapshotsForGuild,
       listWarAttackHistoryForGuild: databaseWarAttackHistory.listWarAttackHistoryForGuild,
     },
+  },
+  timezone: {
+    store: databaseUserTimezonePreferences,
   },
   status: {
     metricReader: statusMetricReader,

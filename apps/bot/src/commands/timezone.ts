@@ -1,3 +1,4 @@
+import type { DatabaseUserTimezonePreferenceStore } from '@clashmate/database';
 import type { CommandContext, SlashCommandDefinition } from '@clashmate/discord';
 import {
   type ChatInputCommandInteraction,
@@ -9,8 +10,11 @@ import {
 export const TIMEZONE_COMMAND_NAME = 'timezone';
 export const TIMEZONE_COMMAND_DESCRIPTION = 'Show the current time for an IANA timezone.';
 export const DEFAULT_TIMEZONE_EMBED_COLOR = 0x5865f2;
-export const TIMEZONE_FIRST_PASS_NOTE =
-  'First pass: this command accepts IANA timezone identifiers directly and does not persist preferences or geocode locations yet.';
+export const TIMEZONE_FIRST_PASS_NOTE = 'Your timezone preference has been saved for this server.';
+
+export interface TimezoneCommandOptions {
+  store: DatabaseUserTimezonePreferenceStore;
+}
 
 export const timezoneCommandData = new SlashCommandBuilder()
   .setName(TIMEZONE_COMMAND_NAME)
@@ -53,13 +57,15 @@ const TIME_ZONE_DATE_PART_KEYS = new Set<string>([
   'second',
 ]);
 
-export function createTimezoneSlashCommand(): SlashCommandDefinition {
+export function createTimezoneSlashCommand(
+  options: TimezoneCommandOptions,
+): SlashCommandDefinition {
   return {
     name: TIMEZONE_COMMAND_NAME,
     data: timezoneCommandData,
     execute: async (interaction, context) => {
       if (!interaction.isChatInputCommand()) return;
-      await executeTimezoneInteraction(interaction, context);
+      await executeTimezoneInteraction(interaction, context, options);
     },
   };
 }
@@ -67,6 +73,7 @@ export function createTimezoneSlashCommand(): SlashCommandDefinition {
 export async function executeTimezoneInteraction(
   interaction: ChatInputCommandInteraction,
   context: CommandContext,
+  options: TimezoneCommandOptions,
 ): Promise<void> {
   if (!interaction.inGuild()) {
     await interaction.reply({
@@ -85,6 +92,14 @@ export async function executeTimezoneInteraction(
     });
     return;
   }
+
+  await options.store.setUserTimezonePreference({
+    guildId: interaction.guildId,
+    guildName: interaction.guild?.name ?? null,
+    actorDiscordUserId: interaction.user.id,
+    discordUserId: interaction.user.id,
+    timezone,
+  });
 
   await interaction.reply({
     embeds: [buildTimezoneEmbed(collectTimezoneView(timezone, interaction, context))],
