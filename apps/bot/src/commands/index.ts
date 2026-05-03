@@ -23,6 +23,7 @@ import { createRushedSlashCommand, type RushedCommandOptions } from './rushed.js
 import { createSearchSlashCommand, type SearchCommandOptions } from './search.js';
 import { createSetupClanSlashCommand, type SetupClanCommandOptions } from './setup-clan.js';
 import { createStatusSlashCommand, type StatusCommandOptions } from './status.js';
+import { createTimezoneSlashCommand } from './timezone.js';
 import { createUnitsSlashCommand, type UnitsCommandOptions } from './units.js';
 import { createUpgradesSlashCommand, type UpgradesCommandOptions } from './upgrades.js';
 import { createUsageSlashCommand, type UsageCommandOptions } from './usage.js';
@@ -87,6 +88,7 @@ export function createBotCommandRegistry(options: BotCommandRegistryOptions): Co
   registry.registerSlash(createSearchSlashCommand(options.search));
   registry.registerSlash(createSetupClanSlashCommand(options.setupClan));
   registry.registerSlash(createStatusSlashCommand(options.status));
+  registry.registerSlash(createTimezoneSlashCommand());
   registry.registerSlash(createUnitsSlashCommand(options.units));
   registry.registerSlash(createUpgradesSlashCommand(options.upgrades));
   registry.registerSlash(createUsageSlashCommand(options.usage));

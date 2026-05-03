@@ -258,6 +258,16 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     details: ['Displays ClashMate configuration diagnostics for troubleshooting.'],
   },
   {
+    name: 'timezone',
+    usage: '/timezone location:<IANA timezone identifier>',
+    description: 'Show the current time for an IANA timezone.',
+    category: 'Utility',
+    details: [
+      'Accepts IANA timezone identifiers such as UTC, America/New_York, or Asia/Jakarta.',
+      'First pass does not persist preferences or geocode free-form city names.',
+    ],
+  },
+  {
     name: 'status',
     usage: '/status',
     description: 'Show owner-only runtime and bot status metrics.',

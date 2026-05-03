@@ -216,6 +216,7 @@ const commandRegistry = createBotCommandRegistry({
       'search',
       'setup',
       'status',
+      'timezone',
       'units',
       'upgrades',
       'usage',
