@@ -50,9 +50,10 @@ export class ClashMateCocClient {
   private readonly retry: ResolvedRetryOptions;
 
   constructor(options: ClashMateCocClientOptions) {
-    this.token = normalizeApiToken(options.token);
-    this.client = options.client ?? new Client({ keys: [this.token] });
-    this.retry = resolveRetryOptions(options.retry);
+    const normalizedOptions = validateClientOptions(options);
+    this.token = normalizeApiToken(normalizedOptions.token);
+    this.client = normalizedOptions.client ?? new Client({ keys: [this.token] });
+    this.retry = resolveRetryOptions(normalizedOptions.retry);
   }
 
   normalizeTag(tag: string): string {
@@ -157,6 +158,30 @@ export class ClashMateCocClient {
         retryable: false,
       })
     );
+  }
+}
+
+function validateClientOptions(options: unknown): ClashMateCocClientOptions {
+  if (!isClientOptionsObject(options)) {
+    throw new Error('Clash API client options must be an object.');
+  }
+
+  const client = options.client;
+  if (client !== undefined) validateCustomClient(client);
+
+  return options as ClashMateCocClientOptions;
+}
+
+function validateCustomClient(client: unknown): asserts client is ClashOfClansApiClient {
+  if (!isPlainObject(client)) {
+    throw new Error('Clash API client custom client must be an object.');
+  }
+
+  const requiredMethods = ['getClan', 'getCurrentWar', 'getPlayer', 'verifyPlayerToken'] as const;
+  for (const methodName of requiredMethods) {
+    if (typeof client[methodName] !== 'function') {
+      throw new Error(`Clash API client custom client ${methodName} must be a function.`);
+    }
   }
 }
 
@@ -337,6 +362,18 @@ function isVerifyTokenResponse(value: unknown): value is { status: 'ok' | 'inval
     'status' in value &&
     (value.status === 'ok' || value.status === 'invalid')
   );
+}
+
+function isClientOptionsObject(value: unknown): value is {
+  readonly token?: unknown;
+  readonly client?: unknown;
+  readonly retry?: unknown;
+} {
+  return isPlainObject(value);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
