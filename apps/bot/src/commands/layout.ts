@@ -83,6 +83,11 @@ export interface LayoutSubmissionSummaryRecord {
   }>;
 }
 
+export interface LayoutLinkMetadata {
+  gameLayoutId: string;
+  townHall?: string;
+}
+
 export interface LayoutConfigStore {
   getLayoutConfig: (guildId: string) => Promise<LayoutConfigRecord>;
   getLayoutSubmissionSummary: (
@@ -183,6 +188,7 @@ export async function executeLayoutPost(
         view,
         screenshot,
         layoutLink,
+        ...(parseLayoutLinkMetadata(layoutLink) ?? {}),
         ...(notes ? { notes } : {}),
         submitterId: interaction.user.id,
         ...(submission ? { layoutId: submission.id } : {}),
@@ -251,6 +257,8 @@ export function buildLayoutPostEmbed(input: {
   view: LayoutView;
   screenshot: Attachment;
   layoutLink: string;
+  gameLayoutId?: string;
+  townHall?: string;
   notes?: string;
   submitterId: string;
   layoutId?: string;
@@ -259,6 +267,12 @@ export function buildLayoutPostEmbed(input: {
     { name: 'Layout Link', value: input.layoutLink, inline: false },
     { name: 'Submitter', value: `<@${input.submitterId}>`, inline: true },
   ];
+
+  if (input.gameLayoutId) {
+    fields.push({ name: 'Game Layout ID', value: input.gameLayoutId, inline: true });
+  }
+
+  if (input.townHall) fields.push({ name: 'Town Hall', value: input.townHall, inline: true });
 
   if (input.layoutId) fields.push({ name: 'Layout ID', value: input.layoutId, inline: true });
 
@@ -319,6 +333,22 @@ export function isPublicLayoutLink(value: string): boolean {
     );
   } catch {
     return false;
+  }
+}
+
+export function parseLayoutLinkMetadata(value: string): LayoutLinkMetadata | null {
+  try {
+    const url = new URL(value);
+    const gameLayoutId = url.searchParams.get('id')?.trim();
+    if (!gameLayoutId) return null;
+
+    const townHallMatch = /^TH(\d{1,2})(?:\D|$)/i.exec(gameLayoutId);
+    return {
+      gameLayoutId,
+      ...(townHallMatch?.[1] ? { townHall: `TH${townHallMatch[1]}` } : {}),
+    };
+  } catch {
+    return null;
   }
 }
 
