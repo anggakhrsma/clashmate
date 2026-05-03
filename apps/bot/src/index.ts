@@ -75,6 +75,9 @@ const commandRegistry = createBotCommandRegistry({
       listClanMemberSnapshotsForGuild: databaseClanMemberSnapshots.listClanMemberSnapshotsForGuild,
     },
   },
+  alias: {
+    store: databaseTrackedClans,
+  },
   blacklist: {
     accessBlocks: globalAccessBlocks,
   },
@@ -193,6 +196,7 @@ const commandRegistry = createBotCommandRegistry({
     metricReader: databaseUsageMetrics,
     loadedCommandNames: [
       'activity',
+      'alias',
       'army',
       'blacklist',
       'boosts',

@@ -1,5 +1,6 @@
 import { CommandRegistry } from '@clashmate/discord';
 import { type ActivityCommandOptions, createActivitySlashCommand } from './activity.js';
+import { type AliasCommandOptions, createAliasSlashCommand } from './alias.js';
 import { createArmySlashCommand } from './army.js';
 import { type BlacklistCommandOptions, createBlacklistSlashCommand } from './blacklist.js';
 import { type BoostsCommandOptions, createBoostsSlashCommand } from './boosts.js';
@@ -33,6 +34,7 @@ import { createWarlogSlashCommand, type WarlogCommandOptions } from './warlog.js
 
 export interface BotCommandRegistryOptions {
   activity: ActivityCommandOptions;
+  alias: AliasCommandOptions;
   blacklist: BlacklistCommandOptions;
   boosts: BoostsCommandOptions;
   clanGames: ClanGamesCommandOptions;
@@ -65,6 +67,7 @@ export function createBotCommandRegistry(options: BotCommandRegistryOptions): Co
   const registry = new CommandRegistry();
 
   registry.registerSlash(createActivitySlashCommand(options.activity));
+  registry.registerSlash(createAliasSlashCommand(options.alias));
   registry.registerSlash(createArmySlashCommand());
   registry.registerSlash(createBlacklistSlashCommand(options.blacklist));
   registry.registerSlash(createBoostsSlashCommand(options.boosts));

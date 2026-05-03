@@ -1215,6 +1215,25 @@ export interface DatabaseTrackedClanStore {
       snapshot?: unknown;
     }>
   >;
+  setAlias: (input: {
+    guildId: string;
+    actorDiscordUserId: string;
+    clanTag: string;
+    alias: string;
+  }) => Promise<
+    | {
+        status: 'updated';
+        clan: { id: string; clanTag: string; name: string; alias: string | null };
+      }
+    | { status: 'not_found' }
+  >;
+  clearAlias: (input: { guildId: string; actorDiscordUserId: string; clanTag: string }) => Promise<
+    | {
+        status: 'cleared';
+        clan: { id: string; clanTag: string; name: string; alias: string | null };
+      }
+    | { status: 'not_found' }
+  >;
   linkClan: (input: {
     guildId: string;
     guildName: string;
@@ -6227,6 +6246,70 @@ export function createDatabaseTrackedClanStore(database: Database): DatabaseTrac
           schema.trackedClans.clanTag,
         );
     },
+    setAlias: async (input) =>
+      database.transaction(async (tx) => {
+        const [clan] = await tx
+          .update(schema.trackedClans)
+          .set({ alias: input.alias, updatedAt: new Date() })
+          .where(
+            and(
+              eq(schema.trackedClans.guildId, input.guildId),
+              eq(schema.trackedClans.clanTag, input.clanTag),
+              eq(schema.trackedClans.isActive, true),
+            ),
+          )
+          .returning({
+            id: schema.trackedClans.id,
+            clanTag: schema.trackedClans.clanTag,
+            name: schema.trackedClans.name,
+            alias: schema.trackedClans.alias,
+          });
+        if (!clan) return { status: 'not_found' };
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: 'tracked_clan.alias_updated',
+          targetType: 'tracked_clan',
+          targetId: clan.id,
+          metadata: { clanTag: clan.clanTag, alias: input.alias },
+        });
+        return {
+          status: 'updated',
+          clan: { ...clan, name: clan.name ?? 'Unknown clan' },
+        };
+      }),
+    clearAlias: async (input) =>
+      database.transaction(async (tx) => {
+        const [clan] = await tx
+          .update(schema.trackedClans)
+          .set({ alias: null, updatedAt: new Date() })
+          .where(
+            and(
+              eq(schema.trackedClans.guildId, input.guildId),
+              eq(schema.trackedClans.clanTag, input.clanTag),
+              eq(schema.trackedClans.isActive, true),
+            ),
+          )
+          .returning({
+            id: schema.trackedClans.id,
+            clanTag: schema.trackedClans.clanTag,
+            name: schema.trackedClans.name,
+            alias: schema.trackedClans.alias,
+          });
+        if (!clan) return { status: 'not_found' };
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: 'tracked_clan.alias_deleted',
+          targetType: 'tracked_clan',
+          targetId: clan.id,
+          metadata: { clanTag: clan.clanTag },
+        });
+        return {
+          status: 'cleared',
+          clan: { ...clan, name: clan.name ?? 'Unknown clan' },
+        };
+      }),
     linkClan: async (input) =>
       database.transaction(async (tx) => {
         await tx

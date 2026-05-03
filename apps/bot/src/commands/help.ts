@@ -49,6 +49,16 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     ],
   },
   {
+    name: 'alias',
+    usage: '/alias create|list|delete',
+    description: 'Manage aliases for linked clans on this server.',
+    category: 'Setup & Logs',
+    details: [
+      'Create, list, or delete aliases stored on linked clan records.',
+      'Requires Manage Server permission.',
+    ],
+  },
+  {
     name: 'army',
     usage: '/army link:<copy army link> [army_name] [tips]',
     description: 'Share a Clash of Clans army copy link.',
