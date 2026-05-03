@@ -22,6 +22,12 @@ export interface ClanPollerResult {
   readonly roleChangeEvents?: number;
 }
 
+const MAX_MEMBER_EXP_LEVEL = 500;
+const MAX_LEAGUE_ID = 100_000_000;
+const MAX_MEMBER_TROPHIES = 100_000;
+const MAX_CLAN_RANK = 50;
+const MAX_MEMBER_DONATIONS = 1_000_000;
+
 export function createClanPollerHandler(options: ClanPollerHandlerOptions) {
   return async (lease: ClaimedPollingLease): Promise<ClanPollerResult> => {
     if (lease.resourceType !== 'clan') {
@@ -93,14 +99,20 @@ export function extractClanMemberSnapshots(clan: unknown): ClanMemberSnapshotInp
         playerTag,
         name: normalizeNonBlankString(member.name) ?? playerTag,
         role: normalizeNonBlankString(member.role),
-        expLevel: asNonNegativeInteger(member.expLevel),
+        expLevel: asPositiveIntegerInRange(member.expLevel, MAX_MEMBER_EXP_LEVEL),
         leagueId: extractLeagueId(member.league),
-        trophies: asNonNegativeInteger(member.trophies),
-        builderBaseTrophies: asNonNegativeInteger(member.builderBaseTrophies),
-        clanRank: asNonNegativeInteger(member.clanRank),
-        previousClanRank: asNonNegativeInteger(member.previousClanRank),
-        donations: asNonNegativeInteger(member.donations),
-        donationsReceived: asNonNegativeInteger(member.donationsReceived),
+        trophies: asNonNegativeIntegerInRange(member.trophies, MAX_MEMBER_TROPHIES),
+        builderBaseTrophies: asNonNegativeIntegerInRange(
+          member.builderBaseTrophies,
+          MAX_MEMBER_TROPHIES,
+        ),
+        clanRank: asPositiveIntegerInRange(member.clanRank, MAX_CLAN_RANK),
+        previousClanRank: asPositiveIntegerInRange(member.previousClanRank, MAX_CLAN_RANK),
+        donations: asNonNegativeIntegerInRange(member.donations, MAX_MEMBER_DONATIONS),
+        donationsReceived: asNonNegativeIntegerInRange(
+          member.donationsReceived,
+          MAX_MEMBER_DONATIONS,
+        ),
         rawMember: member,
       },
     ];
@@ -125,14 +137,23 @@ function getClanMemberList(clan: unknown): readonly RawClanMember[] {
 function extractLeagueId(value: unknown): number | null {
   if (!isRecord(value)) return null;
   const league = value as { readonly id?: unknown };
-  return asNonNegativeInteger(league.id);
+  return asPositiveIntegerInRange(league.id, MAX_LEAGUE_ID);
 }
 
-function asNonNegativeInteger(value: unknown): number | null {
+function asNonNegativeIntegerInRange(value: unknown, max: number): number | null {
+  return asIntegerInRange(value, 0, max);
+}
+
+function asPositiveIntegerInRange(value: unknown, max: number): number | null {
+  return asIntegerInRange(value, 1, max);
+}
+
+function asIntegerInRange(value: unknown, min: number, max: number): number | null {
   return typeof value === 'number' &&
     Number.isFinite(value) &&
     Number.isInteger(value) &&
-    value >= 0
+    value >= min &&
+    value <= max
     ? value
     : null;
 }
