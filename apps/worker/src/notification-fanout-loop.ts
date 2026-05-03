@@ -30,6 +30,27 @@ export interface NotificationFanOutLoopController {
   runOnce: () => Promise<void>;
 }
 
+const MAX_NOTIFICATION_FANOUT_BATCH_SIZE = 1000;
+
+function resolveNotificationFanOutIterationLimit(
+  batchSize: number | undefined,
+): number | undefined {
+  if (batchSize === undefined) return undefined;
+  if (!Number.isFinite(batchSize) || !Number.isInteger(batchSize) || batchSize <= 0) {
+    throw new Error('Notification fan-out batchSize must be a finite positive integer.');
+  }
+  if (batchSize > MAX_NOTIFICATION_FANOUT_BATCH_SIZE) {
+    throw new Error(
+      `Notification fan-out batchSize must not exceed ${MAX_NOTIFICATION_FANOUT_BATCH_SIZE}.`,
+    );
+  }
+  return batchSize;
+}
+
+function createNotificationFanOutInput(limit: number | undefined): { limit?: number } {
+  return limit === undefined ? {} : { limit };
+}
+
 export function computeNotificationFanOutLoopDelayMs(
   interval: NotificationFanOutLoopIntervalConfig,
   random = Math.random,
@@ -52,33 +73,34 @@ export function computeNotificationFanOutLoopDelayMs(
 export async function runNotificationFanOutIteration(
   options: NotificationFanOutLoopOptions,
 ): Promise<void> {
+  const limit = resolveNotificationFanOutIterationLimit(options.batchSize);
+
   try {
-    const input: FanOutClanMemberEventNotificationsInput = {};
-    if (options.batchSize !== undefined) input.limit = options.batchSize;
+    const input: FanOutClanMemberEventNotificationsInput = createNotificationFanOutInput(limit);
 
     const result = await options.fanOutStore.fanOutClanMemberEventNotifications(input);
-    const warAttackInput: FanOutWarAttackEventNotificationsInput = {};
-    if (options.batchSize !== undefined) warAttackInput.limit = options.batchSize;
+    const warAttackInput: FanOutWarAttackEventNotificationsInput =
+      createNotificationFanOutInput(limit);
     const warAttackResult =
       await options.fanOutStore.fanOutWarAttackEventNotifications(warAttackInput);
-    const warStateInput: FanOutWarStateEventNotificationsInput = {};
-    if (options.batchSize !== undefined) warStateInput.limit = options.batchSize;
+    const warStateInput: FanOutWarStateEventNotificationsInput =
+      createNotificationFanOutInput(limit);
     const warStateResult =
       await options.fanOutStore.fanOutWarStateEventNotifications(warStateInput);
-    const missedWarAttackInput: FanOutMissedWarAttackEventNotificationsInput = {};
-    if (options.batchSize !== undefined) missedWarAttackInput.limit = options.batchSize;
+    const missedWarAttackInput: FanOutMissedWarAttackEventNotificationsInput =
+      createNotificationFanOutInput(limit);
     const missedWarAttackResult =
       await options.fanOutStore.fanOutMissedWarAttackEventNotifications(missedWarAttackInput);
-    const donationInput: FanOutClanDonationEventNotificationsInput = {};
-    if (options.batchSize !== undefined) donationInput.limit = options.batchSize;
+    const donationInput: FanOutClanDonationEventNotificationsInput =
+      createNotificationFanOutInput(limit);
     const donationResult =
       await options.fanOutStore.fanOutClanDonationEventNotifications(donationInput);
-    const roleChangeInput: FanOutClanRoleChangeEventNotificationsInput = {};
-    if (options.batchSize !== undefined) roleChangeInput.limit = options.batchSize;
+    const roleChangeInput: FanOutClanRoleChangeEventNotificationsInput =
+      createNotificationFanOutInput(limit);
     const roleChangeResult =
       await options.fanOutStore.fanOutClanRoleChangeEventNotifications(roleChangeInput);
-    const clanGamesInput: FanOutClanGamesEventNotificationsInput = {};
-    if (options.batchSize !== undefined) clanGamesInput.limit = options.batchSize;
+    const clanGamesInput: FanOutClanGamesEventNotificationsInput =
+      createNotificationFanOutInput(limit);
     const fanOutClanGames = options.fanOutStore.fanOutClanGamesEventNotifications;
     const clanGamesResult =
       typeof fanOutClanGames === 'function'
