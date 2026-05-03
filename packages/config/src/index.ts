@@ -28,6 +28,27 @@ const logLevel = z
     message: 'Invalid log level. Expected one of: trace, debug, info, warn, error, fatal, silent',
   });
 
+const isValidTimeZone = (value: string): boolean => {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value });
+    return true;
+  } catch (error) {
+    if (error instanceof RangeError) return false;
+    throw error;
+  }
+};
+
+const defaultTimeZone = z
+  .string()
+  .trim()
+  .default('UTC')
+  .refine((value) => value.length > 0, {
+    message: 'Default timezone must be a non-blank IANA timezone identifier',
+  })
+  .refine(isValidTimeZone, {
+    message: 'Default timezone must be a valid IANA timezone identifier',
+  });
+
 const isPostgresqlDatabaseUrl = (value: string): boolean => {
   try {
     const url = new URL(value);
@@ -75,7 +96,7 @@ const envSchema = z.object({
   TEST_DATABASE_URL: optionalPostgresqlDatabaseUrl,
 
   COMMAND_REGISTRATION: z.enum(['global']).default('global'),
-  DEFAULT_TIMEZONE: z.string().default('UTC'),
+  DEFAULT_TIMEZONE: defaultTimeZone,
 
   POLL_CLAN_SECONDS: z.coerce.number().int().positive().default(300),
   POLL_CLAN_JITTER_SECONDS: z.coerce.number().int().nonnegative().default(60),
