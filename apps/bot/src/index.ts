@@ -141,6 +141,14 @@ const commandRegistry = createBotCommandRegistry({
     coc: cocClient,
     links: databasePlayerLinks,
   },
+  lineup: {
+    store: {
+      listLinkedClans: databaseTrackedClans.listLinkedClans,
+      getLatestWarSnapshot: databaseWarSnapshots.getLatestWarSnapshot,
+      getLatestWarSnapshotsForGuild: databaseWarSnapshots.getLatestWarSnapshotsForGuild,
+      getLinkedPlayerTags: databasePlayerLinks.listPlayerTagsForUser,
+    },
+  },
   lastSeen: {
     store: {
       listPlayerTagsForUser: databasePlayerLinks.listPlayerTagsForUser,
@@ -223,6 +231,7 @@ const commandRegistry = createBotCommandRegistry({
       'history',
       'invite',
       'lastseen',
+      'lineup',
       'link',
       'members',
       'player',
