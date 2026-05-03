@@ -21,8 +21,32 @@ export const HISTORY_NO_JOIN_LEAVE_EVENTS_MESSAGE =
   'No join/leave history is available yet. Link/configure a clan and wait for clan member events to be detected.';
 export const HISTORY_NO_CLAN_GAMES_EVENTS_MESSAGE =
   'No Clan Games history is available yet. Link/configure a clan and wait for Clan Games snapshots to be stored.';
+export const HISTORY_NO_CAPITAL_RAIDS_EVENTS_MESSAGE =
+  'Capital raid history is not available yet because raid-week attack logs are not stored. This command only reads stored data and does not query the Clash API.';
+export const HISTORY_NO_CAPITAL_CONTRIBUTION_EVENTS_MESSAGE =
+  'Capital contribution history is not available yet because contribution snapshots are not stored. This command only reads stored data and does not query the Clash API.';
+export const HISTORY_NO_ATTACKS_EVENTS_MESSAGE =
+  'Multiplayer attack/defense history is not available yet because seasonal attack-win snapshots are not stored. Use `war-attacks` for stored war attack history.';
+export const HISTORY_NO_LOOT_EVENTS_MESSAGE =
+  'Loot history is not available yet because loot snapshots are not stored. This command only reads stored data and does not query the Clash API.';
+export const HISTORY_NO_LEGEND_ATTACKS_EVENTS_MESSAGE =
+  'Legend attack history is not available yet because Legend attack/day data is not stored. This command only reads stored data and does not query the Clash API.';
+export const HISTORY_NO_EOS_TROPHIES_EVENTS_MESSAGE =
+  'End-of-season trophy history is not available yet because EOS trophy snapshots are not stored. This command only reads stored data and does not query the Clash API.';
 
-const HISTORY_OPTIONS = ['donations', 'war-attacks', 'join-leave', 'clan-games'] as const;
+const HISTORY_OPTIONS = [
+  'donations',
+  'war-attacks',
+  'join-leave',
+  'clan-games',
+  'capital-raids',
+  'capital-contribution',
+  'cwl-attacks',
+  'attacks',
+  'loot',
+  'legend-attacks',
+  'eos-trophies',
+] as const;
 type HistoryOption = (typeof HISTORY_OPTIONS)[number];
 const MAX_HISTORY_ROWS = 15;
 const EMBED_DESCRIPTION_LIMIT = 4096;
@@ -37,10 +61,17 @@ export const historyCommandData = new SlashCommandBuilder()
       .setDescription('Select a historical activity view.')
       .setRequired(true)
       .addChoices(
-        { name: 'Donations', value: 'donations' },
-        { name: 'War Attacks', value: 'war-attacks' },
-        { name: 'Join/Leave', value: 'join-leave' },
         { name: 'Clan Games', value: 'clan-games' },
+        { name: 'Capital Raids', value: 'capital-raids' },
+        { name: 'Capital Contribution', value: 'capital-contribution' },
+        { name: 'CWL Attacks', value: 'cwl-attacks' },
+        { name: 'War Attacks', value: 'war-attacks' },
+        { name: 'Donations', value: 'donations' },
+        { name: 'Attacks', value: 'attacks' },
+        { name: 'Loot', value: 'loot' },
+        { name: 'Join/Leave', value: 'join-leave' },
+        { name: 'Legend Attacks', value: 'legend-attacks' },
+        { name: 'EOS Trophies', value: 'eos-trophies' },
       ),
   )
   .addStringOption((option) =>
@@ -215,7 +246,7 @@ export async function executeHistory(
   if (!isHistoryOption(option)) {
     await interaction.editReply({
       content:
-        'Only donation, war attack, join/leave, and Clan Games history are available right now.',
+        'Only stored history options are available. Unsupported history options do not query the Clash API or start polling.',
     });
     return;
   }
@@ -253,7 +284,7 @@ export async function executeHistory(
     }
   }
 
-  if (option === 'war-attacks') {
+  if (option === 'cwl-attacks' || option === 'war-attacks') {
     const rows = await options.store.listWarAttackHistoryForGuild({
       guildId: interaction.guildId,
       ...(clanTags ? { clanTags } : {}),
@@ -266,8 +297,14 @@ export async function executeHistory(
     }
 
     await interaction.editReply({
-      embeds: [buildWarAttackHistoryEmbed(rows, clanLabel, userOption)],
+      embeds: [buildWarAttackHistoryEmbed(rows, clanLabel, userOption, option)],
     });
+    return;
+  }
+
+  const unavailableMessage = getUnavailableHistoryMessage(option);
+  if (unavailableMessage) {
+    await interaction.editReply({ content: unavailableMessage });
     return;
   }
 
@@ -419,6 +456,7 @@ export function buildWarAttackHistoryEmbed(
   rows: readonly WarAttackHistoryRow[],
   clanLabel: string | undefined,
   user: User | null,
+  option: 'war-attacks' | 'cwl-attacks' = 'war-attacks',
 ): EmbedBuilder {
   const selectedRows = rows.slice(0, MAX_HISTORY_ROWS);
   const totals = rows.reduce(
@@ -432,8 +470,9 @@ export function buildWarAttackHistoryEmbed(
   );
   const averageStars = totals.attacks > 0 ? totals.stars / totals.attacks : 0;
   const averageDestruction = totals.attacks > 0 ? totals.destruction / totals.attacks : 0;
+  const isCwlApproximation = option === 'cwl-attacks';
   const embed = new EmbedBuilder()
-    .setTitle('War Attack History')
+    .setTitle(isCwlApproximation ? 'CWL Attack History' : 'War Attack History')
     .setDescription(truncateEmbedDescription(formatWarAttackHistoryRows(selectedRows)))
     .addFields(
       {
@@ -445,7 +484,9 @@ export function buildWarAttackHistoryEmbed(
       },
       {
         name: 'Source',
-        value: 'Values are based on detected war attack events over the recent history window.',
+        value: isCwlApproximation
+          ? 'Values reuse stored war attack events over the recent history window. CWL-only classification is approximate because CWL metadata is not stored separately yet.'
+          : 'Values are based on detected war attack events over the recent history window.',
         inline: false,
       },
     )
@@ -469,6 +510,25 @@ function formatWarAttackHistoryRows(rows: readonly WarAttackHistoryRow[]): strin
 
 function isHistoryOption(value: string): value is HistoryOption {
   return HISTORY_OPTIONS.includes(value as HistoryOption);
+}
+
+function getUnavailableHistoryMessage(option: HistoryOption): string | undefined {
+  switch (option) {
+    case 'capital-raids':
+      return HISTORY_NO_CAPITAL_RAIDS_EVENTS_MESSAGE;
+    case 'capital-contribution':
+      return HISTORY_NO_CAPITAL_CONTRIBUTION_EVENTS_MESSAGE;
+    case 'attacks':
+      return HISTORY_NO_ATTACKS_EVENTS_MESSAGE;
+    case 'loot':
+      return HISTORY_NO_LOOT_EVENTS_MESSAGE;
+    case 'legend-attacks':
+      return HISTORY_NO_LEGEND_ATTACKS_EVENTS_MESSAGE;
+    case 'eos-trophies':
+      return HISTORY_NO_EOS_TROPHIES_EVENTS_MESSAGE;
+    default:
+      return undefined;
+  }
 }
 
 function formatNoLinkedPlayersMessage(user: User): string {

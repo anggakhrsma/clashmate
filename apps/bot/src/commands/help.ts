@@ -334,13 +334,14 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
   },
   {
     name: 'history',
-    usage: '/history option:donations|war-attacks|join-leave|clan-games [clans] [player] [user]',
-    description:
-      'Show tracked historical donation, war attack, join/leave, or Clan Games activity.',
+    usage:
+      '/history option:donations|war-attacks|cwl-attacks|join-leave|clan-games|capital-raids|capital-contribution|attacks|loot|legend-attacks|eos-trophies [clans] [player] [user]',
+    description: 'Show tracked historical activity from stored ClashMate data.',
     category: 'Player & Clan',
     details: [
       'Reads persisted donation delta, war attack, clan member join/leave, and Clan Games snapshot history for linked clans without querying the Clash API.',
-      'Only donation, war attack, join/leave, and Clan Games history are available right now.',
+      'CWL attacks reuse stored war attack history with approximate CWL-only classification until separate CWL metadata is stored.',
+      'Capital raids, capital contribution, loot, Legend attacks, EOS trophies, and multiplayer attacks return clear no-data messages until those snapshots are stored.',
     ],
   },
   {
