@@ -39,6 +39,16 @@ export interface HelpView {
 
 export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
   {
+    name: 'activity',
+    usage: '/activity [clans] [days] [limit] [timezone]',
+    description: 'Show active members from tracked clan snapshots.',
+    category: 'Player & Clan',
+    details: [
+      'Reads persisted last-seen member snapshots for linked clans without querying the Clash API.',
+      'First pass returns an embed summary instead of ClashPerk image charts.',
+    ],
+  },
+  {
     name: 'army',
     usage: '/army link:<copy army link> [army_name] [tips]',
     description: 'Share a Clash of Clans army copy link.',

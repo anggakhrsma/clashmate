@@ -69,6 +69,12 @@ const statusMetricReader: StatusMetricReader = {
 const { GIT_SHA: gitSha, SOURCE_REPOSITORY_URL: sourceRepositoryUrl } = process.env;
 
 const commandRegistry = createBotCommandRegistry({
+  activity: {
+    store: {
+      listLinkedClans: databaseTrackedClans.listLinkedClans,
+      listClanMemberSnapshotsForGuild: databaseClanMemberSnapshots.listClanMemberSnapshotsForGuild,
+    },
+  },
   blacklist: {
     accessBlocks: globalAccessBlocks,
   },
@@ -186,6 +192,7 @@ const commandRegistry = createBotCommandRegistry({
   usage: {
     metricReader: databaseUsageMetrics,
     loadedCommandNames: [
+      'activity',
       'army',
       'blacklist',
       'boosts',
