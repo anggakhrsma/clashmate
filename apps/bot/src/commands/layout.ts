@@ -69,13 +69,33 @@ export interface LayoutView {
   color?: ColorResolvable;
 }
 
-export function createLayoutSlashCommand(): SlashCommandDefinition {
+export interface LayoutConfigRecord {
+  allowVoting: boolean;
+  allowTracking: boolean;
+}
+
+export interface LayoutConfigStore {
+  getLayoutConfig: (guildId: string) => Promise<LayoutConfigRecord>;
+  updateLayoutConfig: (input: {
+    guildId: string;
+    guildName: string | null;
+    actorDiscordUserId: string;
+    allowVoting?: boolean;
+    allowTracking?: boolean;
+  }) => Promise<LayoutConfigRecord>;
+}
+
+export interface LayoutCommandOptions {
+  store: LayoutConfigStore;
+}
+
+export function createLayoutSlashCommand(options: LayoutCommandOptions): SlashCommandDefinition {
   return {
     name: LAYOUT_COMMAND_NAME,
     data: layoutCommandData,
     execute: async (interaction, context) => {
       if (!interaction.isChatInputCommand()) return;
-      await executeLayoutInteraction(interaction, context);
+      await executeLayoutInteraction(interaction, context, options);
     },
   };
 }
@@ -83,6 +103,7 @@ export function createLayoutSlashCommand(): SlashCommandDefinition {
 export async function executeLayoutInteraction(
   interaction: ChatInputCommandInteraction,
   context: CommandContext,
+  options: LayoutCommandOptions,
 ): Promise<void> {
   const subcommand = interaction.options.getSubcommand();
   if (subcommand === 'post') {
@@ -91,7 +112,7 @@ export async function executeLayoutInteraction(
   }
 
   if (subcommand === 'config') {
-    await executeLayoutConfig(interaction, context);
+    await executeLayoutConfig(interaction, context, options);
   }
 }
 
@@ -134,6 +155,7 @@ export async function executeLayoutPost(
 export async function executeLayoutConfig(
   interaction: ChatInputCommandInteraction,
   context: CommandContext,
+  options: LayoutCommandOptions,
 ): Promise<void> {
   if (!interaction.inGuild()) {
     await interaction.reply({
@@ -153,10 +175,20 @@ export async function executeLayoutConfig(
 
   const allowVoting = interaction.options.getBoolean('allow_voting');
   const allowTracking = interaction.options.getBoolean('allow_tracking');
+  const hasUpdates = typeof allowVoting === 'boolean' || typeof allowTracking === 'boolean';
+  const config = hasUpdates
+    ? await options.store.updateLayoutConfig({
+        guildId: interaction.guildId,
+        guildName: interaction.guild?.name ?? null,
+        actorDiscordUserId: interaction.user.id,
+        ...(typeof allowVoting === 'boolean' ? { allowVoting } : {}),
+        ...(typeof allowTracking === 'boolean' ? { allowTracking } : {}),
+      })
+    : await options.store.getLayoutConfig(interaction.guildId);
   const view = collectLayoutView(interaction, context);
 
   await interaction.reply({
-    embeds: [buildLayoutConfigEmbed({ view, allowVoting, allowTracking })],
+    embeds: [buildLayoutConfigEmbed({ view, config, updated: hasUpdates })],
     ephemeral: true,
   });
 }
@@ -202,12 +234,12 @@ export function buildLayoutPostEmbed(input: {
 
 export function buildLayoutConfigEmbed(input: {
   view: LayoutView;
-  allowVoting: boolean | null;
-  allowTracking: boolean | null;
+  config: LayoutConfigRecord;
+  updated: boolean;
 }): EmbedBuilder {
-  const requested = [
-    `Layout voting: ${formatRequestedBoolean(input.allowVoting)}`,
-    `Layout tracking: ${formatRequestedBoolean(input.allowTracking)}`,
+  const settings = [
+    `Layout voting: ${formatEnabledBoolean(input.config.allowVoting)}`,
+    `Layout tracking: ${formatEnabledBoolean(input.config.allowTracking)}`,
   ].join('\n');
 
   return new EmbedBuilder()
@@ -215,10 +247,10 @@ export function buildLayoutConfigEmbed(input: {
     .setTitle('Layout Config')
     .setDescription(
       [
-        'This first ClashMate pass registers `/layout config` for parity and permission checks.',
-        'Voting, download tracking, collectors, and layout persistence are not implemented yet.',
+        input.updated ? 'Layout configuration was saved.' : 'Current saved layout configuration.',
+        'Voting/tracking collectors and layout download tracking are not implemented yet.',
         '',
-        requested,
+        settings,
       ].join('\n'),
     )
     .setAuthor(
@@ -249,7 +281,6 @@ export function isImageAttachment(
   return /\.(?:png|jpe?g|gif|webp)$/i.test(fileName);
 }
 
-function formatRequestedBoolean(value: boolean | null): string {
-  if (typeof value === 'boolean') return value ? 'requested on' : 'requested off';
-  return 'not requested';
+function formatEnabledBoolean(value: boolean): string {
+  return value ? 'enabled' : 'disabled';
 }

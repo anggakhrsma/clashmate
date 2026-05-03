@@ -157,6 +157,24 @@ export interface DatabaseAutoroleSettingsStore {
   updateAutoroleSettings: (input: UpdateAutoroleSettingsInput) => Promise<AutoroleSettingsRecord>;
 }
 
+export interface LayoutConfigRecord {
+  allowVoting: boolean;
+  allowTracking: boolean;
+}
+
+export interface UpdateLayoutConfigInput {
+  guildId: string;
+  guildName: string | null;
+  actorDiscordUserId: string;
+  allowVoting?: boolean;
+  allowTracking?: boolean;
+}
+
+export interface DatabaseLayoutConfigStore {
+  getLayoutConfig: (guildId: string) => Promise<LayoutConfigRecord>;
+  updateLayoutConfig: (input: UpdateLayoutConfigInput) => Promise<LayoutConfigRecord>;
+}
+
 export interface CommandWhitelistEntryRecord {
   commandName: string;
   userOrRoleId: string;
@@ -1847,6 +1865,7 @@ const EMPTY_AUTOROLE_SETTINGS: AutoroleSettingsRecord = {
 };
 
 const NICKNAME_CONFIG_SETTING_KEY = 'nickname_config';
+const LAYOUT_CONFIG_SETTING_KEY = 'layout_config';
 const EMPTY_NICKNAME_CONFIG: NicknameConfigRecord = {
   familyNicknameFormat: null,
   nonFamilyNicknameFormat: null,
@@ -1961,6 +1980,23 @@ function mergeAutoroleSettings(
   };
 }
 
+const EMPTY_LAYOUT_CONFIG: LayoutConfigRecord = {
+  allowVoting: false,
+  allowTracking: false,
+};
+
+function readLayoutConfigSetting(value: unknown): LayoutConfigRecord {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return EMPTY_LAYOUT_CONFIG;
+  const record = value as Record<string, unknown>;
+  const allowVoting = getRecordValue(record, 'allowVoting');
+  const allowTracking = getRecordValue(record, 'allowTracking');
+
+  return {
+    allowVoting: typeof allowVoting === 'boolean' ? allowVoting : false,
+    allowTracking: typeof allowTracking === 'boolean' ? allowTracking : false,
+  };
+}
+
 function readNicknameConfigSetting(value: unknown): NicknameConfigRecord {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return EMPTY_NICKNAME_CONFIG;
   const record = value as Record<string, unknown>;
@@ -2005,6 +2041,24 @@ async function readNicknameConfig(
     .limit(1);
 
   return readNicknameConfigSetting(setting?.value);
+}
+
+async function readLayoutConfig(
+  database: Database | DatabaseTransaction,
+  guildId: string,
+): Promise<LayoutConfigRecord> {
+  const [setting] = await database
+    .select({ value: schema.guildSettings.value })
+    .from(schema.guildSettings)
+    .where(
+      and(
+        eq(schema.guildSettings.guildId, guildId),
+        eq(schema.guildSettings.key, LAYOUT_CONFIG_SETTING_KEY),
+      ),
+    )
+    .limit(1);
+
+  return readLayoutConfigSetting(setting?.value);
 }
 
 async function readCommandWhitelist(
@@ -2218,6 +2272,60 @@ export function createDatabaseNicknameConfigStore(database: Database): DatabaseN
         });
 
         return readNicknameConfig(tx, input.guildId);
+      }),
+  };
+}
+
+export function createDatabaseLayoutConfigStore(database: Database): DatabaseLayoutConfigStore {
+  return {
+    getLayoutConfig: async (guildId) => readLayoutConfig(database, guildId),
+    updateLayoutConfig: async (input) =>
+      database.transaction(async (tx) => {
+        const now = new Date();
+        const existing = await readLayoutConfig(tx, input.guildId);
+        const value: LayoutConfigRecord = {
+          allowVoting: input.allowVoting ?? existing.allowVoting,
+          allowTracking: input.allowTracking ?? existing.allowTracking,
+        };
+        const updatedKeys = [
+          ...(typeof input.allowVoting === 'boolean' ? ['allow_voting'] : []),
+          ...(typeof input.allowTracking === 'boolean' ? ['allow_tracking'] : []),
+        ];
+
+        await tx
+          .insert(schema.guilds)
+          .values({ id: input.guildId, name: input.guildName, updatedAt: now })
+          .onConflictDoUpdate({
+            target: schema.guilds.id,
+            set: { name: input.guildName, updatedAt: now },
+          });
+
+        await tx
+          .insert(schema.guildSettings)
+          .values({
+            guildId: input.guildId,
+            key: LAYOUT_CONFIG_SETTING_KEY,
+            value,
+            updatedAt: now,
+          })
+          .onConflictDoUpdate({
+            target: [schema.guildSettings.guildId, schema.guildSettings.key],
+            set: { value, updatedAt: now },
+          });
+
+        if (updatedKeys.length > 0) {
+          await tx.insert(schema.auditLogs).values({
+            guildId: input.guildId,
+            actorDiscordUserId: input.actorDiscordUserId,
+            action: 'layout_config.updated',
+            targetType: 'guild',
+            targetId: input.guildId,
+            metadata: { updatedKeys },
+            createdAt: now,
+          });
+        }
+
+        return value;
       }),
   };
 }

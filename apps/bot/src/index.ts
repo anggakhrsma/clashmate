@@ -13,6 +13,7 @@ import {
   createDatabaseCommandWhitelistStore,
   createDatabaseConfigStore,
   createDatabaseDebugReader,
+  createDatabaseLayoutConfigStore,
   createDatabaseNicknameConfigStore,
   createDatabasePlayerLinkStore,
   createDatabaseStatusMetrics,
@@ -54,6 +55,7 @@ const databaseCallerBaseStore = createDatabaseCallerBaseStore(database);
 const databaseConfigStore = createDatabaseConfigStore(database);
 const databaseNicknameConfigStore = createDatabaseNicknameConfigStore(database);
 const databaseDebugReader = createDatabaseDebugReader(database);
+const databaseLayoutConfigStore = createDatabaseLayoutConfigStore(database);
 const databaseStatusMetrics = createDatabaseStatusMetrics(database);
 const databaseUsageMetrics = createDatabaseUsageMetrics(database);
 const databaseTrackedClans = createDatabaseTrackedClanStore(database);
@@ -250,6 +252,9 @@ const commandRegistry = createBotCommandRegistry({
       listPlayerTagsForUser: databasePlayerLinks.listPlayerTagsForUser,
       listLastSeenSnapshots: databaseLastSeenSnapshots.listLastSeenSnapshots,
     },
+  },
+  layout: {
+    store: databaseLayoutConfigStore,
   },
   leaderboard: {
     store: {

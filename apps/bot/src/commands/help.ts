@@ -260,8 +260,9 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     category: 'Player & Clan',
     details: [
       'Post validates public Clash of Clans OpenLayout links and image screenshots.',
-      'Config requires Manage Server and reports that voting/tracking persistence is not implemented in this first pass.',
-      'Does not add collectors, message tracking, Clash API calls, or polling enrollment.',
+      'Config requires Manage Server and persists voting/tracking preferences for this server.',
+      'Voting/tracking collectors and layout download tracking are not active yet.',
+      'Does not add collectors, webhooks, Clash API calls, or polling enrollment.',
     ],
   },
   {
