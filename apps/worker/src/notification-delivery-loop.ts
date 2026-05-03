@@ -61,6 +61,12 @@ const MAX_NOTIFICATION_DELIVERY_BATCH_SIZE = 1000;
 const DEFAULT_NOTIFICATION_DELIVERY_MAX_ATTEMPTS = 5;
 const DEFAULT_NOTIFICATION_DELIVERY_LOCK_SECONDS = 60;
 const DEFAULT_NOTIFICATION_DELIVERY_RETRY_BASE_SECONDS = 30;
+const MAX_NOTIFICATION_DONATION_DELTA = 1_000_000;
+const MAX_CLAN_GAMES_EVENT_POINTS = 100_000;
+const MAX_WAR_ATTACK_STARS = 3;
+const MAX_DESTRUCTION_PERCENTAGE = 100;
+const MAX_WAR_ATTACK_DURATION_SECONDS = 3600;
+const MAX_MISSED_WAR_ATTACKS_AVAILABLE = 10;
 
 interface ResolvedNotificationDeliveryIterationOptions {
   readonly batchSize: number;
@@ -488,16 +494,38 @@ function parseClanGamesNotificationPayload(payload: unknown): {
   const eventType = readPayloadString(record, 'eventType');
   const playerTag = readPayloadString(record, 'playerTag');
   const playerName = readPayloadString(record, 'playerName');
-  const previousPoints = readNullablePayloadNumber(record, 'previousPoints');
-  const currentPoints = readPayloadNumber(record, 'currentPoints');
-  const pointsDelta = readPayloadNumber(record, 'pointsDelta');
-  const eventMaxPoints = readPayloadNumber(record, 'eventMaxPoints');
+  const previousPoints = readNullablePayloadIntegerInRange(
+    record,
+    'previousPoints',
+    0,
+    MAX_CLAN_GAMES_EVENT_POINTS,
+  );
+  const currentPoints = readPayloadIntegerInRange(
+    record,
+    'currentPoints',
+    0,
+    MAX_CLAN_GAMES_EVENT_POINTS,
+  );
+  const pointsDelta = readPayloadIntegerInRange(
+    record,
+    'pointsDelta',
+    0,
+    MAX_CLAN_GAMES_EVENT_POINTS,
+  );
+  const eventMaxPoints = readPayloadIntegerInRange(
+    record,
+    'eventMaxPoints',
+    1,
+    MAX_CLAN_GAMES_EVENT_POINTS,
+  );
 
-  if (currentPoints < 0 || pointsDelta < 0 || eventMaxPoints <= 0) {
-    throw new Error('Clan Games notification payload requires non-negative progress values.');
+  if (currentPoints > eventMaxPoints || pointsDelta > eventMaxPoints) {
+    throw new Error('Clan Games notification payload progress cannot exceed event max points.');
   }
-  if (previousPoints !== null && previousPoints < 0) {
-    throw new Error('Clan Games notification payload requires non-negative previous points.');
+  if (previousPoints !== null && previousPoints > eventMaxPoints) {
+    throw new Error(
+      'Clan Games notification payload previous points cannot exceed event max points.',
+    );
   }
 
   return {
@@ -528,8 +556,18 @@ function parseClanDonationNotificationPayload(payload: unknown): {
   const clanTag = readPayloadString(record, 'clanTag');
   const playerTag = readPayloadString(record, 'playerTag');
   const playerName = readPayloadString(record, 'playerName');
-  const donationDelta = readPayloadNumber(record, 'donationDelta');
-  const receivedDelta = readPayloadNumber(record, 'receivedDelta');
+  const donationDelta = readPayloadIntegerInRange(
+    record,
+    'donationDelta',
+    0,
+    MAX_NOTIFICATION_DONATION_DELTA,
+  );
+  const receivedDelta = readPayloadIntegerInRange(
+    record,
+    'receivedDelta',
+    0,
+    MAX_NOTIFICATION_DONATION_DELTA,
+  );
   if (donationDelta <= 0 && receivedDelta <= 0) {
     throw new Error('Clan donation notification payload requires a positive donation delta.');
   }
@@ -575,10 +613,18 @@ function parseWarAttackNotificationPayload(payload: unknown): {
   const clanTag = readPayloadString(record, 'clanTag');
   const attackerTag = readPayloadString(record, 'attackerTag');
   const defenderTag = readPayloadString(record, 'defenderTag');
-  const stars = readPayloadNumber(record, 'stars');
-  const destructionPercentage = readPayloadNumber(record, 'destructionPercentage');
+  const stars = readPayloadIntegerInRange(record, 'stars', 0, MAX_WAR_ATTACK_STARS);
+  const destructionPercentage = readPayloadIntegerInRange(
+    record,
+    'destructionPercentage',
+    0,
+    MAX_DESTRUCTION_PERCENTAGE,
+  );
   const { duration: durationValue } = record;
-  const duration = durationValue === null ? null : readPayloadNumber(record, 'duration');
+  const duration =
+    durationValue === null
+      ? null
+      : readPayloadIntegerInRange(record, 'duration', 0, MAX_WAR_ATTACK_DURATION_SECONDS);
   const freshAttack = readPayloadBoolean(record, 'freshAttack');
   return { clanTag, attackerTag, defenderTag, stars, destructionPercentage, duration, freshAttack };
 }
@@ -618,8 +664,13 @@ function parseMissedWarAttackNotificationPayload(payload: unknown): {
   const clanTag = readPayloadString(record, 'clanTag');
   const playerTag = readPayloadString(record, 'playerTag');
   const playerName = readPayloadString(record, 'playerName');
-  const attacksUsed = readPayloadNumber(record, 'attacksUsed');
-  const attacksAvailable = readPayloadNumber(record, 'attacksAvailable');
+  const attacksUsed = readPayloadIntegerInRange(record, 'attacksUsed', 0, Number.MAX_SAFE_INTEGER);
+  const attacksAvailable = readPayloadIntegerInRange(
+    record,
+    'attacksAvailable',
+    1,
+    MAX_MISSED_WAR_ATTACKS_AVAILABLE,
+  );
   if (attacksAvailable <= attacksUsed) {
     throw new Error('Missed war attack notification requires missed attacks.');
   }
@@ -673,13 +724,28 @@ function readPayloadNumber(record: Record<string, unknown>, key: string): number
   return value;
 }
 
-function readNullablePayloadNumber(record: Record<string, unknown>, key: string): number | null {
-  const value = record[key];
-  if (value === null) return null;
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new Error(`Notification payload requires ${key} to be null or a number.`);
+function readPayloadIntegerInRange(
+  record: Record<string, unknown>,
+  key: string,
+  min: number,
+  max: number,
+): number {
+  const value = readPayloadNumber(record, key);
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw new Error(`Notification payload requires ${key} to be an integer from ${min} to ${max}.`);
   }
   return value;
+}
+
+function readNullablePayloadIntegerInRange(
+  record: Record<string, unknown>,
+  key: string,
+  min: number,
+  max: number,
+): number | null {
+  const value = record[key];
+  if (value === null) return null;
+  return readPayloadIntegerInRange(record, key, min, max);
 }
 
 function formatNotificationNumber(value: number): string {
