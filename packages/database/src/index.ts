@@ -1641,12 +1641,42 @@ export type DeletePlayerLinkResult =
   | { status: 'not_found' }
   | { status: 'permission_denied'; discordUserId: string };
 
+export interface DefaultClanLinkRecord {
+  discordUserId: string;
+  clanTag: string;
+  clanName: string;
+  actorDiscordUserId: string;
+  updatedAt: string;
+}
+
+export interface SetDefaultClanLinkInput {
+  guildId: string;
+  actorDiscordUserId: string;
+  discordUserId: string;
+  clanTag: string;
+  clanName: string;
+}
+
+export interface DeleteDefaultClanLinkInput {
+  guildId: string;
+  actorDiscordUserId: string;
+  clanTag: string;
+  canDeleteOtherUsers: boolean;
+}
+
+export type DeleteDefaultClanLinkResult =
+  | { status: 'deleted'; discordUserId: string }
+  | { status: 'not_found' }
+  | { status: 'permission_denied'; discordUserId: string };
+
 export type VerifyPlayerLinkResult =
   | { status: 'verified'; wasDefault: boolean; transferredFromUserId?: string }
   | { status: 'max_accounts_reached'; maxAccounts: number };
 
 export interface DatabasePlayerLinkStore {
   linkPlayer: (input: LinkPlayerInput) => Promise<LinkPlayerResult>;
+  setDefaultClan: (input: SetDefaultClanLinkInput) => Promise<{ status: 'stored' }>;
+  deleteDefaultClan: (input: DeleteDefaultClanLinkInput) => Promise<DeleteDefaultClanLinkResult>;
   verifyPlayerLink: (input: VerifyPlayerLinkInput) => Promise<VerifyPlayerLinkResult>;
   listPlayerLinksByTags: (playerTags: readonly string[]) => Promise<PlayerLinkRecord[]>;
   listPlayerTagsForUser: (guildId: string, discordUserId: string) => Promise<string[]>;
@@ -1699,6 +1729,7 @@ function readStringArraySetting(value: unknown): string[] {
 
 const CALLER_BASE_CALLS_SETTING_KEY = 'caller_base_calls';
 const COMMAND_WHITELIST_SETTING_KEY = 'command_whitelist';
+const DEFAULT_CLAN_LINKS_SETTING_KEY = 'default_clan_links';
 
 function readCallerBaseCallsSetting(value: unknown): CallerBaseAssignmentRecord[] {
   if (!Array.isArray(value)) return [];
@@ -1766,6 +1797,29 @@ function readCommandWhitelistSetting(value: unknown): CommandWhitelistEntryRecor
     const userOrRoleId = userOrRoleIdValue.trim();
     if (!commandName || !userOrRoleId) return [];
     return [{ commandName, userOrRoleId, isRole: isRoleValue }];
+  });
+}
+
+function readDefaultClanLinksSetting(value: unknown): DefaultClanLinkRecord[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item): DefaultClanLinkRecord[] => {
+    if (!item || typeof item !== 'object') return [];
+    const record = item as Record<string, unknown>;
+    const discordUserId = getRecordValue(record, 'discordUserId');
+    const clanTag = getRecordValue(record, 'clanTag');
+    const clanName = getRecordValue(record, 'clanName');
+    const actorDiscordUserId = getRecordValue(record, 'actorDiscordUserId');
+    const updatedAt = getRecordValue(record, 'updatedAt');
+    if (
+      typeof discordUserId !== 'string' ||
+      typeof clanTag !== 'string' ||
+      typeof clanName !== 'string' ||
+      typeof actorDiscordUserId !== 'string' ||
+      typeof updatedAt !== 'string'
+    ) {
+      return [];
+    }
+    return [{ discordUserId, clanTag, clanName, actorDiscordUserId, updatedAt }];
   });
 }
 
@@ -2359,6 +2413,128 @@ export function createDatabaseCommandWhitelistStore(
 
 export function createDatabasePlayerLinkStore(database: Database): DatabasePlayerLinkStore {
   return {
+    setDefaultClan: async (input) => {
+      await database.transaction(async (tx) => {
+        const [setting] = await tx
+          .select({ value: schema.guildSettings.value })
+          .from(schema.guildSettings)
+          .where(
+            and(
+              eq(schema.guildSettings.guildId, input.guildId),
+              eq(schema.guildSettings.key, DEFAULT_CLAN_LINKS_SETTING_KEY),
+            ),
+          )
+          .limit(1);
+
+        const now = new Date();
+        const updatedAt = now.toISOString();
+        const links = readDefaultClanLinksSetting(setting?.value).filter(
+          (link) => link.discordUserId !== input.discordUserId,
+        );
+        links.push({
+          discordUserId: input.discordUserId,
+          clanTag: input.clanTag,
+          clanName: input.clanName,
+          actorDiscordUserId: input.actorDiscordUserId,
+          updatedAt,
+        });
+
+        await tx
+          .insert(schema.guildSettings)
+          .values({
+            guildId: input.guildId,
+            key: DEFAULT_CLAN_LINKS_SETTING_KEY,
+            value: links,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .onConflictDoUpdate({
+            target: [schema.guildSettings.guildId, schema.guildSettings.key],
+            set: { value: links, updatedAt: now },
+          });
+
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: 'default_clan_link_stored',
+          targetType: 'default_clan_link',
+          targetId: input.clanTag,
+          metadata: {
+            discordUserId: input.discordUserId,
+            clanName: input.clanName,
+          },
+          createdAt: now,
+        });
+      });
+
+      return { status: 'stored' };
+    },
+    deleteDefaultClan: async (input) => {
+      return database.transaction(async (tx) => {
+        const [setting] = await tx
+          .select({ value: schema.guildSettings.value })
+          .from(schema.guildSettings)
+          .where(
+            and(
+              eq(schema.guildSettings.guildId, input.guildId),
+              eq(schema.guildSettings.key, DEFAULT_CLAN_LINKS_SETTING_KEY),
+            ),
+          )
+          .limit(1);
+        const links = readDefaultClanLinksSetting(setting?.value);
+        const link = links.find(
+          (candidate) =>
+            candidate.clanTag === input.clanTag &&
+            (candidate.discordUserId === input.actorDiscordUserId || input.canDeleteOtherUsers),
+        );
+        const otherUserLink = links.find(
+          (candidate) =>
+            candidate.clanTag === input.clanTag &&
+            candidate.discordUserId !== input.actorDiscordUserId,
+        );
+
+        if (!link) {
+          if (otherUserLink && !input.canDeleteOtherUsers) {
+            return { status: 'permission_denied', discordUserId: otherUserLink.discordUserId };
+          }
+          return { status: 'not_found' };
+        }
+
+        const now = new Date();
+        const remaining = links.filter(
+          (candidate) =>
+            !(candidate.discordUserId === link.discordUserId && candidate.clanTag === link.clanTag),
+        );
+        await tx
+          .insert(schema.guildSettings)
+          .values({
+            guildId: input.guildId,
+            key: DEFAULT_CLAN_LINKS_SETTING_KEY,
+            value: remaining,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .onConflictDoUpdate({
+            target: [schema.guildSettings.guildId, schema.guildSettings.key],
+            set: { value: remaining, updatedAt: now },
+          });
+
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: 'default_clan_link_deleted',
+          targetType: 'default_clan_link',
+          targetId: input.clanTag,
+          metadata: {
+            discordUserId: link.discordUserId,
+            clanName: link.clanName,
+          },
+          createdAt: now,
+        });
+
+        return { status: 'deleted', discordUserId: link.discordUserId };
+      });
+    },
     verifyPlayerLink: async (input) => {
       return database.transaction(async (tx) => {
         const existingRows = await tx

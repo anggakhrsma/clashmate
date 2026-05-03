@@ -75,6 +75,13 @@ export type LinkCreateStoreResult =
   | { readonly status: 'already_linked_to_other_user'; readonly discordUserId: string }
   | { readonly status: 'max_accounts_reached'; readonly maxAccounts: number };
 
+export type LinkDefaultClanStoreResult = { readonly status: 'stored' };
+
+export type LinkDeleteDefaultClanStoreResult =
+  | { readonly status: 'deleted'; readonly discordUserId: string }
+  | { readonly status: 'not_found' }
+  | { readonly status: 'permission_denied'; readonly discordUserId: string };
+
 export interface LinkCreateStore {
   linkPlayer: (input: {
     guildId: string;
@@ -83,6 +90,19 @@ export interface LinkCreateStore {
     playerTag: string;
     isDefault: boolean;
   }) => Promise<LinkCreateStoreResult>;
+  setDefaultClan: (input: {
+    guildId: string;
+    actorDiscordUserId: string;
+    discordUserId: string;
+    clanTag: string;
+    clanName: string;
+  }) => Promise<LinkDefaultClanStoreResult>;
+  deleteDefaultClan: (input: {
+    guildId: string;
+    actorDiscordUserId: string;
+    clanTag: string;
+    canDeleteOtherUsers: boolean;
+  }) => Promise<LinkDeleteDefaultClanStoreResult>;
   listPlayerLinksByTags: (playerTags: readonly string[]) => Promise<LinkListPlayerLink[]>;
   deletePlayerLink: (input: LinkDeleteStoreInput) => Promise<LinkDeleteStoreResult>;
 }
@@ -172,16 +192,39 @@ export async function executeLinkDelete(
   }
 
   const clanTag = interaction.options.getString('clan_tag');
-  if (clanTag) {
+  const playerTagOption = interaction.options.getString('player_tag');
+  if (clanTag && playerTagOption) {
     await interaction.reply({
-      content:
-        '`clan_tag` support for `/link delete` is deferred until ClashMate has user default-clan storage.',
+      content: 'Please specify either a player tag or a clan tag, not both.',
       ephemeral: true,
     });
     return;
   }
 
-  const playerTagOption = interaction.options.getString('player_tag');
+  if (clanTag) {
+    let normalizedClanTag: string;
+    try {
+      normalizedClanTag = normalizeClashTag(clanTag);
+    } catch {
+      await interaction.reply({
+        content: 'This player or clan tag is not valid.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    await interaction.deferReply({ ephemeral: true });
+    const result = await options.links.deleteDefaultClan({
+      guildId: interaction.guildId,
+      actorDiscordUserId: interaction.user.id,
+      clanTag: normalizedClanTag,
+      canDeleteOtherUsers: await canManageLinks(interaction, options.config),
+    });
+
+    await interaction.editReply(formatLinkDeleteDefaultClanResult(result, normalizedClanTag));
+    return;
+  }
+
   if (!playerTagOption) {
     await interaction.reply({
       content: 'You must specify a player/clan tag to execute this command.',
@@ -223,17 +266,16 @@ export async function executeLinkCreate(
   }
 
   const clanTag = interaction.options.getString('clan_tag');
-  if (clanTag) {
+  const playerTagOption = interaction.options.getString('player_tag');
+  if (clanTag && playerTagOption) {
     await interaction.reply({
-      content:
-        '`clan_tag` support for `/link create` is deferred until ClashMate has user default-clan storage.',
+      content: 'Please specify either a player tag or a clan tag, not both.',
       ephemeral: true,
     });
     return;
   }
 
-  const playerTagOption = interaction.options.getString('player_tag');
-  if (!playerTagOption) {
+  if (!playerTagOption && !clanTag) {
     await interaction.reply({
       content: 'You must specify a player/clan tag to execute this command.',
       ephemeral: true,
@@ -261,6 +303,13 @@ export async function executeLinkCreate(
     });
     return;
   }
+
+  if (clanTag) {
+    await executeLinkCreateDefaultClan(interaction, options, targetUser, clanTag);
+    return;
+  }
+
+  if (!playerTagOption) return;
 
   let playerTag: string;
   try {
@@ -290,6 +339,41 @@ export async function executeLinkCreate(
   });
 
   await interaction.editReply(formatLinkCreateResult(result, player, targetUser));
+}
+
+async function executeLinkCreateDefaultClan(
+  interaction: ChatInputCommandInteraction<'cached'>,
+  options: LinkCommandOptions,
+  targetUser: User,
+  clanTagOption: string,
+): Promise<void> {
+  let clanTag: string;
+  try {
+    clanTag = normalizeClashTag(clanTagOption);
+  } catch {
+    await interaction.reply({ content: 'This player or clan tag is not valid.', ephemeral: true });
+    return;
+  }
+
+  await interaction.deferReply({ ephemeral: true });
+
+  let clan: ClashClan;
+  try {
+    clan = await options.coc.getClan(clanTag);
+  } catch {
+    await interaction.editReply('This player or clan tag is not valid.');
+    return;
+  }
+
+  const result = await options.links.setDefaultClan({
+    guildId: interaction.guildId,
+    actorDiscordUserId: interaction.user.id,
+    discordUserId: targetUser.id,
+    clanTag: clan.tag,
+    clanName: clan.name,
+  });
+
+  await interaction.editReply(formatLinkCreateDefaultClanResult(result, clan, targetUser));
 }
 
 export async function executeLinkList(
@@ -491,6 +575,25 @@ export function formatLinkDeleteResult(result: LinkDeleteStoreResult, playerTag:
   }
   if (result.status === 'not_found') return `No matches were found with the tag **${playerTag}**`;
   return 'You need the Manage Server permission to delete links for another user.';
+}
+
+export function formatLinkCreateDefaultClanResult(
+  _result: LinkDefaultClanStoreResult,
+  clan: Pick<ClashClan, 'name' | 'tag'>,
+  targetUser: Pick<User, 'displayName'>,
+): string {
+  return `Stored **${clan.name} (${clan.tag})** as **${targetUser.displayName}**'s default clan for ClashMate features. This does not enroll the clan for polling unless it is separately linked or configured.`;
+}
+
+export function formatLinkDeleteDefaultClanResult(
+  result: LinkDeleteDefaultClanStoreResult,
+  clanTag: string,
+): string {
+  if (result.status === 'deleted') {
+    return `Deleted the default clan link for **${clanTag}**. This does not unlink or unenroll any configured clan polling.`;
+  }
+  if (result.status === 'not_found') return `No default clan link was found for **${clanTag}**.`;
+  return 'You need the Manage Server permission to delete default clan links for another user.';
 }
 
 export async function canManageLinks(
