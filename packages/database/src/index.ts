@@ -79,6 +79,28 @@ export interface DatabaseDebugReader {
   getConfigDiagnostics: (guildId: string) => Promise<DatabaseConfigDiagnostics>;
 }
 
+export interface GuildConfigRecord {
+  embedColor: string | null;
+  webhookLimit: number;
+  botManagerRoleIds: string[];
+  linksManagerRoleIds: string[];
+}
+
+export interface UpdateGuildConfigInput {
+  guildId: string;
+  guildName: string | null;
+  actorDiscordUserId: string;
+  embedColor?: string;
+  webhookLimit?: number;
+  botManagerRoleIds?: readonly string[];
+  linksManagerRoleIds?: readonly string[];
+}
+
+export interface DatabaseConfigStore {
+  getGuildConfig: (guildId: string) => Promise<GuildConfigRecord>;
+  updateGuildConfig: (input: UpdateGuildConfigInput) => Promise<GuildConfigRecord>;
+}
+
 export interface LastSeenSnapshotRecord {
   playerTag: string;
   playerName: string;
@@ -1519,6 +1541,111 @@ export function createDatabase(databaseUrl: string) {
   });
 
   return drizzle(client, { schema });
+}
+
+async function readGuildConfig(
+  database: Database | DatabaseTransaction,
+  guildId: string,
+): Promise<GuildConfigRecord> {
+  const [guild] = await database
+    .select({ embedColor: schema.guilds.embedColor })
+    .from(schema.guilds)
+    .where(eq(schema.guilds.id, guildId))
+    .limit(1);
+
+  const settings = await database
+    .select({ key: schema.guildSettings.key, value: schema.guildSettings.value })
+    .from(schema.guildSettings)
+    .where(eq(schema.guildSettings.guildId, guildId));
+  const values = new Map(settings.map((setting) => [setting.key, setting.value]));
+
+  return {
+    embedColor: guild?.embedColor ?? null,
+    webhookLimit: readNumberSetting(values.get('webhook_limit'), 8),
+    botManagerRoleIds: readStringArraySetting(values.get('bot_manager_role_ids')),
+    linksManagerRoleIds: readStringArraySetting(values.get('links_manager_role_ids')),
+  };
+}
+
+function readNumberSetting(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function readStringArraySetting(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
+}
+
+export function createDatabaseConfigStore(database: Database): DatabaseConfigStore {
+  return {
+    getGuildConfig: async (guildId) => readGuildConfig(database, guildId),
+    updateGuildConfig: async (input) =>
+      database.transaction(async (tx) => {
+        const now = new Date();
+        await tx
+          .insert(schema.guilds)
+          .values({
+            id: input.guildId,
+            name: input.guildName,
+            ...(input.embedColor ? { embedColor: input.embedColor } : {}),
+            updatedAt: now,
+          })
+          .onConflictDoUpdate({
+            target: schema.guilds.id,
+            set: {
+              name: input.guildName,
+              ...(input.embedColor ? { embedColor: input.embedColor } : {}),
+              updatedAt: now,
+            },
+          });
+
+        const settingUpdates: Array<{ key: string; value: unknown }> = [];
+        if (typeof input.webhookLimit === 'number') {
+          settingUpdates.push({ key: 'webhook_limit', value: input.webhookLimit });
+        }
+        if (input.botManagerRoleIds) {
+          settingUpdates.push({ key: 'bot_manager_role_ids', value: [...input.botManagerRoleIds] });
+        }
+        if (input.linksManagerRoleIds) {
+          settingUpdates.push({
+            key: 'links_manager_role_ids',
+            value: [...input.linksManagerRoleIds],
+          });
+        }
+
+        for (const setting of settingUpdates) {
+          await tx
+            .insert(schema.guildSettings)
+            .values({
+              guildId: input.guildId,
+              key: setting.key,
+              value: setting.value,
+              updatedAt: now,
+            })
+            .onConflictDoUpdate({
+              target: [schema.guildSettings.guildId, schema.guildSettings.key],
+              set: { value: setting.value, updatedAt: now },
+            });
+        }
+
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: 'guild_config.updated',
+          targetType: 'guild',
+          targetId: input.guildId,
+          metadata: {
+            updatedKeys: [
+              ...(input.embedColor ? ['embed_color'] : []),
+              ...settingUpdates.map((setting) => setting.key),
+            ],
+          },
+          createdAt: now,
+        });
+
+        return readGuildConfig(tx, input.guildId);
+      }),
+  };
 }
 
 export function createDatabasePlayerLinkStore(database: Database): DatabasePlayerLinkStore {

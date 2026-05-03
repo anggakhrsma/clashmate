@@ -107,6 +107,17 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     ],
   },
   {
+    name: 'config',
+    usage: '/config [bot_manager_role] [links_manager_role] [color_code] [webhook_limit]',
+    description: 'Configure ClashMate server diagnostics and safe settings.',
+    category: 'Setup & Logs',
+    details: [
+      'Requires Manage Server permission.',
+      'Stores bot and links manager roles for future permission integration.',
+      'Stores embed color and webhook limit using normal guild configuration.',
+    ],
+  },
+  {
     name: 'clans',
     usage: '/clans [category]',
     description: 'List ClashMate clans linked to this server.',

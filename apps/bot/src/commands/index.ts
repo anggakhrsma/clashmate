@@ -10,6 +10,7 @@ import { type ClanCommandOptions, createClanSlashCommand } from './clan.js';
 import { type ClanGamesCommandOptions, createClanGamesSlashCommand } from './clan-games.js';
 import { type ClansCommandOptions, createClansSlashCommand } from './clans.js';
 import { type CompoCommandOptions, createCompoSlashCommand } from './compo.js';
+import { type ConfigCommandOptions, createConfigSlashCommand } from './config.js';
 import { createDebugSlashCommand, type DebugCommandOptions } from './debug.js';
 import { createDonationsSlashCommand, type DonationsCommandOptions } from './donations.js';
 import { createEventsSlashCommand } from './events.js';
@@ -48,6 +49,7 @@ export interface BotCommandRegistryOptions {
   clan: ClanCommandOptions;
   clans: ClansCommandOptions;
   compo: CompoCommandOptions;
+  config: ConfigCommandOptions;
   debug: DebugCommandOptions;
   donations: DonationsCommandOptions;
   guildBan: GuildBanCommandOptions;
@@ -86,6 +88,7 @@ export function createBotCommandRegistry(options: BotCommandRegistryOptions): Co
   registry.registerSlash(createClanSlashCommand(options.clan));
   registry.registerSlash(createClansSlashCommand(options.clans));
   registry.registerSlash(createCompoSlashCommand(options.compo));
+  registry.registerSlash(createConfigSlashCommand(options.config));
   registry.registerSlash(createDebugSlashCommand(options.debug));
   registry.registerSlash(createDonationsSlashCommand(options.donations));
   registry.registerSlash(createEventsSlashCommand());

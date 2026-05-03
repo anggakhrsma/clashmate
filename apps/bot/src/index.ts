@@ -8,6 +8,7 @@ import {
   createDatabase,
   createDatabaseClanMemberNotificationConfigStore,
   createDatabaseCommandUsageRecorder,
+  createDatabaseConfigStore,
   createDatabaseDebugReader,
   createDatabasePlayerLinkStore,
   createDatabaseStatusMetrics,
@@ -41,6 +42,7 @@ const config = loadConfig();
 const logger = createLogger('bot', config.LOG_LEVEL);
 const database = createDatabase(config.DATABASE_URL);
 const commandUsageRecorder = createDatabaseCommandUsageRecorder(database);
+const databaseConfigStore = createDatabaseConfigStore(database);
 const databaseDebugReader = createDatabaseDebugReader(database);
 const databaseStatusMetrics = createDatabaseStatusMetrics(database);
 const databaseUsageMetrics = createDatabaseUsageMetrics(database);
@@ -111,6 +113,9 @@ const commandRegistry = createBotCommandRegistry({
       listLinkedClans: databaseTrackedClans.listLinkedClans,
     },
     coc: cocClient,
+  },
+  config: {
+    store: databaseConfigStore,
   },
   debug: {
     dataReader: databaseDebugReader,
@@ -230,6 +235,7 @@ const commandRegistry = createBotCommandRegistry({
       'clan',
       'clans',
       'compo',
+      'config',
       'debug',
       'donations',
       'events',
