@@ -1,5 +1,7 @@
 import type { CommandContext, SlashCommandDefinition } from '@clashmate/discord';
 import {
+  type ApplicationCommandOptionChoiceData,
+  type AutocompleteInteraction,
   type ChatInputCommandInteraction,
   EmbedBuilder,
   escapeMarkdown,
@@ -24,7 +26,8 @@ export const leaderboardCommandData = new SlashCommandBuilder()
         option
           .setName('location')
           .setDescription('Location filter accepted for parity; linked snapshots are used.')
-          .setRequired(false),
+          .setRequired(false)
+          .setAutocomplete(true),
       )
       .addStringOption((option) =>
         option
@@ -41,7 +44,8 @@ export const leaderboardCommandData = new SlashCommandBuilder()
         option
           .setName('location')
           .setDescription('Location filter accepted for parity; linked snapshots are used.')
-          .setRequired(false),
+          .setRequired(false)
+          .setAutocomplete(true),
       )
       .addStringOption((option) =>
         option
@@ -58,7 +62,8 @@ export const leaderboardCommandData = new SlashCommandBuilder()
         option
           .setName('location')
           .setDescription('Location filter accepted for parity; linked snapshots are used.')
-          .setRequired(false),
+          .setRequired(false)
+          .setAutocomplete(true),
       )
       .addStringOption((option) =>
         option
@@ -120,7 +125,30 @@ export function createLeaderboardSlashCommand(
       if (interaction.commandName !== LEADERBOARD_COMMAND_NAME) return;
       await executeLeaderboard(interaction, context, options);
     },
+    autocomplete: async (interaction) => {
+      if (interaction.commandName !== LEADERBOARD_COMMAND_NAME) return;
+      await autocompleteLeaderboard(interaction, options);
+    },
   };
+}
+
+export async function autocompleteLeaderboard(
+  interaction: AutocompleteInteraction,
+  options: LeaderboardCommandOptions,
+): Promise<void> {
+  if (!interaction.guildId) {
+    await interaction.respond([]);
+    return;
+  }
+
+  const focused = interaction.options.getFocused(true);
+  if (focused.name !== 'location') {
+    await interaction.respond([]);
+    return;
+  }
+
+  const clans = await options.store.listClansForGuild(interaction.guildId);
+  await interaction.respond(buildLocationChoices(clans, String(focused.value ?? '')));
 }
 
 export async function executeLeaderboard(
@@ -143,11 +171,14 @@ export async function executeLeaderboard(
   const season = interaction.options.getString('season');
 
   if (subcommand === 'players') {
-    const snapshots = await options.store.listClanMemberSnapshotsForGuild({
-      guildId: interaction.guildId,
-    });
+    const [clans, snapshots] = await Promise.all([
+      options.store.listClansForGuild(interaction.guildId),
+      options.store.listClanMemberSnapshotsForGuild({
+        guildId: interaction.guildId,
+      }),
+    ]);
     await interaction.editReply({
-      embeds: [buildPlayersLeaderboardEmbed(snapshots, location, season)],
+      embeds: [buildPlayersLeaderboardEmbed(snapshots, location, season, clans)],
     });
     return;
   }
@@ -165,7 +196,8 @@ export function buildClansLeaderboardEmbed(
   location: string | null,
   season: string | null,
 ): EmbedBuilder {
-  const rows = clans
+  const filteredClans = filterClansByLocation(clans, location);
+  const rows = filteredClans
     .map((clan) => ({
       clan,
       points: readSnapshotNumber(clan.snapshot, 'clanPoints'),
@@ -177,7 +209,9 @@ export function buildClansLeaderboardEmbed(
   const embed = baseEmbed('Linked Clan Leaderboard', location, season);
   if (rows.length === 0) {
     return embed.setDescription(
-      'No linked-clan snapshot data is available yet. Link/configure a clan and wait for clan polling to store snapshots.',
+      location?.trim() && !isAllLocations(location)
+        ? 'No linked-clan snapshot data is available for that stored location. Autocomplete locations come from persisted linked-clan snapshots only.'
+        : 'No linked-clan snapshot data is available yet. Link/configure a clan and wait for clan polling to store snapshots.',
     );
   }
 
@@ -198,8 +232,17 @@ export function buildPlayersLeaderboardEmbed(
   snapshots: readonly LeaderboardClanSnapshots[],
   location: string | null,
   season: string | null,
+  linkedClans: readonly LeaderboardLinkedClan[] = [],
 ): EmbedBuilder {
-  const rows = snapshots
+  const linkedClanTags = new Set(
+    filterClansByLocation(linkedClans, location).map((clan) => clan.clanTag),
+  );
+  const shouldFilterByLocation =
+    Boolean(location?.trim()) && !isAllLocations(location) && linkedClans.length > 0;
+  const filteredSnapshots = shouldFilterByLocation
+    ? snapshots.filter((snapshot) => linkedClanTags.has(snapshot.clan.clanTag))
+    : snapshots;
+  const rows = filteredSnapshots
     .flatMap((snapshot) => snapshot.members.map((member) => ({ member, clan: snapshot.clan })))
     .filter((row) => row.member.trophies !== null)
     .sort(
@@ -211,7 +254,9 @@ export function buildPlayersLeaderboardEmbed(
   const embed = baseEmbed('Linked Player Leaderboard', location, season);
   if (rows.length === 0) {
     return embed.setDescription(
-      'No current member snapshot trophies are available yet. Link/configure a clan and wait for clan polling to observe members.',
+      shouldFilterByLocation
+        ? 'No current member snapshot trophies are available for linked clans with that stored location. Player rows are grouped by linked-clan snapshots only.'
+        : 'No current member snapshot trophies are available yet. Link/configure a clan and wait for clan polling to observe members.',
     );
   }
 
@@ -233,7 +278,8 @@ export function buildCapitalLeaderboardEmbed(
   location: string | null,
   season: string | null,
 ): EmbedBuilder {
-  const rows = clans
+  const filteredClans = filterClansByLocation(clans, location);
+  const rows = filteredClans
     .map((clan) => ({
       clan,
       hall: readNestedSnapshotNumber(clan.snapshot, ['clanCapital', 'capitalHallLevel']),
@@ -246,7 +292,9 @@ export function buildCapitalLeaderboardEmbed(
   const embed = baseEmbed('Linked Capital Leaderboard', location, season);
   if (rows.length === 0) {
     return embed.setDescription(
-      'No clan capital snapshot data is available for linked clans yet. Wait for clan polling to store capital hall or capital league data.',
+      location?.trim() && !isAllLocations(location)
+        ? 'No clan capital snapshot data is available for that stored location. Autocomplete locations come from persisted linked-clan snapshots only.'
+        : 'No clan capital snapshot data is available for linked clans yet. Wait for clan polling to store capital hall or capital league data.',
     );
   }
 
@@ -265,10 +313,89 @@ export function buildCapitalLeaderboardEmbed(
 
 function baseEmbed(title: string, location: string | null, season: string | null): EmbedBuilder {
   const notes = ['Uses linked-clan current persisted snapshots only.'];
-  if (location?.trim())
-    notes.push(`Location option accepted but not filtered: ${location.trim()}.`);
+  if (location?.trim() && !isAllLocations(location))
+    notes.push(`Filtered by stored linked-clan location: ${location.trim()}.`);
+  if (isAllLocations(location)) notes.push('Location: all linked clans.');
   if (season?.trim()) notes.push(`Season option accepted but not filtered: ${season.trim()}.`);
   return new EmbedBuilder().setTitle(title).addFields({ name: 'Source', value: notes.join('\n') });
+}
+
+export function buildLocationChoices(
+  clans: readonly LeaderboardLinkedClan[],
+  query: string,
+): ApplicationCommandOptionChoiceData<string>[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  const locations = new Map<string, { name: string; value: string; count: number }>();
+
+  for (const clan of clans) {
+    const location = readSnapshotLocation(clan.snapshot);
+    if (!location) continue;
+    const value = location.id ?? location.countryCode ?? location.name;
+    const key = value.toLowerCase();
+    const existing = locations.get(key);
+    if (existing) {
+      existing.count += 1;
+      continue;
+    }
+    const suffix =
+      location.countryCode && location.countryCode !== location.name
+        ? ` (${location.countryCode})`
+        : '';
+    locations.set(key, { name: `${location.name}${suffix}`, value, count: 1 });
+  }
+
+  const choices = [...locations.values()]
+    .map((location) => ({
+      name: `${location.name} · ${location.count} linked clan${location.count === 1 ? '' : 's'}`,
+      value: location.value,
+    }))
+    .filter(
+      (choice) =>
+        choice.name.toLowerCase().includes(normalizedQuery) ||
+        choice.value.toLowerCase().includes(normalizedQuery),
+    )
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const allChoice = { name: 'All linked clans', value: 'all' };
+  return [allChoice, ...choices].slice(0, 25);
+}
+
+function filterClansByLocation(
+  clans: readonly LeaderboardLinkedClan[],
+  location: string | null,
+): LeaderboardLinkedClan[] {
+  if (!location?.trim() || isAllLocations(location)) return [...clans];
+  const normalizedLocation = location.trim().toLowerCase();
+  return clans.filter((clan) => {
+    const snapshotLocation = readSnapshotLocation(clan.snapshot);
+    if (!snapshotLocation) return false;
+    return [snapshotLocation.id, snapshotLocation.countryCode, snapshotLocation.name]
+      .filter((value): value is string => Boolean(value?.trim()))
+      .some((value) => value.toLowerCase() === normalizedLocation);
+  });
+}
+
+function isAllLocations(location: string | null): boolean {
+  return location?.trim().toLowerCase() === 'all';
+}
+
+function readSnapshotLocation(
+  snapshot: unknown,
+): { readonly id?: string; readonly name: string; readonly countryCode?: string } | null {
+  if (!isRecord(snapshot)) return null;
+  const location = getRecordValue(snapshot, 'location');
+  if (!isRecord(location)) return null;
+  const name = readString(getRecordValue(location, 'name'));
+  if (!name) return null;
+  const id = readString(getRecordValue(location, 'id'));
+  const countryCode = readString(getRecordValue(location, 'countryCode'));
+  return { name, ...(id ? { id } : {}), ...(countryCode ? { countryCode } : {}) };
+}
+
+function readString(value: unknown): string | null {
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return null;
 }
 
 function formatClanLink(clan: LeaderboardLinkedClan): string {
@@ -310,6 +437,10 @@ function readNestedSnapshotValue(snapshot: unknown, path: readonly string[]): un
     value = value[key];
   }
   return value;
+}
+
+function getRecordValue(record: Record<string, unknown>, key: string): unknown {
+  return record[key];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
