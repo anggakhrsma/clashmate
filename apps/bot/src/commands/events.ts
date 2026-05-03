@@ -10,7 +10,7 @@ export const EVENTS_COMMAND_NAME = 'events';
 export const EVENTS_COMMAND_DESCRIPTION = 'Show upcoming Clash of Clans game events.';
 export const DEFAULT_EVENTS_EMBED_COLOR = 0x5865f2;
 export const EVENTS_FIRST_PASS_NOTE =
-  "First pass: this calendar uses approximate recurring UTC windows instead of ClashPerk's live event feed.";
+  'First pass: this calendar uses approximate recurring UTC windows; it is not a live event feed.';
 
 export const eventsCommandData = new SlashCommandBuilder()
   .setName(EVENTS_COMMAND_NAME)
@@ -21,6 +21,7 @@ export interface EventCalendarItem {
   name: string;
   startsAt: Date;
   endsAt?: Date;
+  status: 'Active now' | 'Starts' | 'Next';
   description: string;
 }
 
@@ -106,11 +107,13 @@ export function buildApproximateEventCalendar(now = new Date()): EventCalendarIt
 function nextClanGamesWindow(now: Date): EventCalendarItem {
   const current = utcDate(now.getUTCFullYear(), now.getUTCMonth(), 22);
   const startsAt = isBeforeWindowEnd(now, current, 6) ? current : addUtcMonths(current, 1);
+  const endsAt = addUtcDays(startsAt, 6);
 
   return {
     name: 'Clan Games',
     startsAt,
-    endsAt: addUtcDays(startsAt, 6),
+    endsAt,
+    status: getWindowStatus(now, startsAt, endsAt),
     description: 'Approximate monthly Clan Games window around days 22–28 UTC.',
   };
 }
@@ -118,30 +121,35 @@ function nextClanGamesWindow(now: Date): EventCalendarItem {
 function nextCwlWindow(now: Date): EventCalendarItem {
   const current = utcDate(now.getUTCFullYear(), now.getUTCMonth(), 1);
   const startsAt = isBeforeWindowEnd(now, current, 10) ? current : addUtcMonths(current, 1);
+  const endsAt = addUtcDays(startsAt, 10);
 
   return {
     name: 'Clan War Leagues',
     startsAt,
-    endsAt: addUtcDays(startsAt, 10),
+    endsAt,
+    status: getWindowStatus(now, startsAt, endsAt),
     description: 'Approximate signup and early-month CWL window around days 1–11 UTC.',
   };
 }
 
 function nextRaidWeekendWindow(now: Date): EventCalendarItem {
   const day = now.getUTCDay();
-  const daysUntilFriday = (5 - day + 7) % 7;
-  const thisFriday = utcDate(
+  const daysSinceFriday = (day - 5 + 7) % 7;
+  const latestFriday = utcDate(
     now.getUTCFullYear(),
     now.getUTCMonth(),
-    now.getUTCDate() + daysUntilFriday,
+    now.getUTCDate() - daysSinceFriday,
   );
-  const thisMonday = addUtcDays(thisFriday, 3);
-  const startsAt = now.getTime() < thisMonday.getTime() ? thisFriday : addUtcDays(thisFriday, 7);
+  const latestMonday = addUtcDays(latestFriday, 3);
+  const startsAt =
+    now.getTime() < latestMonday.getTime() ? latestFriday : addUtcDays(latestFriday, 7);
+  const endsAt = addUtcDays(startsAt, 3);
 
   return {
     name: 'Raid Weekend',
     startsAt,
-    endsAt: addUtcDays(startsAt, 3),
+    endsAt,
+    status: getWindowStatus(now, startsAt, endsAt),
     description: 'Approximate weekly Clan Capital Raid Weekend from Friday to Monday UTC.',
   };
 }
@@ -152,6 +160,7 @@ function nextSeasonReset(now: Date): EventCalendarItem {
   return {
     name: 'Season Reset',
     startsAt,
+    status: 'Next',
     description: 'Approximate current season reset at the next UTC month boundary.',
   };
 }
@@ -160,7 +169,13 @@ function formatCalendarItem(event: EventCalendarItem): string {
   const range = event.endsAt
     ? `${formatTimestamp(event.startsAt)} → ${formatTimestamp(event.endsAt)}`
     : formatTimestamp(event.startsAt);
-  return `${range}\n${event.description}`;
+  return `**${event.status}:** ${range}\n${event.description}`;
+}
+
+function getWindowStatus(now: Date, startsAt: Date, endsAt: Date): EventCalendarItem['status'] {
+  return now.getTime() >= startsAt.getTime() && now.getTime() < endsAt.getTime()
+    ? 'Active now'
+    : 'Starts';
 }
 
 function formatTimestamp(date: Date): string {
