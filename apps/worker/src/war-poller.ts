@@ -13,6 +13,10 @@ import type {
 
 export const CURRENT_WAR_RESOURCE_PREFIX = 'current-war:';
 
+const MAX_WAR_ATTACK_STARS = 3;
+const MAX_DESTRUCTION_PERCENTAGE = 100;
+const MAX_WAR_ATTACK_DURATION_SECONDS = 3600;
+
 export interface WarPollerHandlerOptions {
   readonly coc: Pick<ClashMateCocClient, 'getCurrentWar'>;
   readonly snapshots: WarSnapshotStore;
@@ -127,7 +131,7 @@ export function detectWarAttackEvents(
   const defenderBestOrder = new Map<string, number>();
   for (const member of getWarMembers(data.opponent)) {
     const defenderTag = normalizeTag(member.tag);
-    const bestOrder = asNonNegativeInteger(member.bestOpponentAttack?.order);
+    const bestOrder = asPositiveInteger(member.bestOpponentAttack?.order);
     if (defenderTag && bestOrder !== null) {
       defenderBestOrder.set(defenderTag, bestOrder);
     }
@@ -297,10 +301,17 @@ function normalizeWarAttack(attack: WarAttack): {
 } | null {
   const attackerTag = normalizeTag(attack.attackerTag);
   const defenderTag = normalizeTag(attack.defenderTag);
-  const order = asNonNegativeInteger(attack.order);
-  const stars = asNonNegativeInteger(attack.stars);
-  const destructionPercentage = asNonNegativeInteger(attack.destructionPercentage);
-  const duration = attack.duration === undefined ? null : asNonNegativeInteger(attack.duration);
+  const order = asPositiveInteger(attack.order);
+  const stars = asIntegerInRange(attack.stars, 0, MAX_WAR_ATTACK_STARS);
+  const destructionPercentage = asIntegerInRange(
+    attack.destructionPercentage,
+    0,
+    MAX_DESTRUCTION_PERCENTAGE,
+  );
+  const duration =
+    attack.duration === undefined
+      ? null
+      : asIntegerInRange(attack.duration, 0, MAX_WAR_ATTACK_DURATION_SECONDS);
   const hasMalformedDuration = attack.duration !== undefined && duration === null;
 
   if (
@@ -324,10 +335,19 @@ function normalizeAttacksPerMember(value: unknown): number | null {
 }
 
 function asNonNegativeInteger(value: unknown): number | null {
+  return asIntegerInRange(value, 0, Number.MAX_SAFE_INTEGER);
+}
+
+function asPositiveInteger(value: unknown): number | null {
+  return asIntegerInRange(value, 1, Number.MAX_SAFE_INTEGER);
+}
+
+function asIntegerInRange(value: unknown, min: number, max: number): number | null {
   return typeof value === 'number' &&
     Number.isFinite(value) &&
     Number.isInteger(value) &&
-    value >= 0
+    value >= min &&
+    value <= max
     ? value
     : null;
 }
