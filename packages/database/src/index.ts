@@ -172,6 +172,27 @@ export interface DonationHistoryReader {
   }) => Promise<DonationHistoryListRow[]>;
 }
 
+export interface WarAttackHistoryListRow {
+  attackerTag: string;
+  attackerName: string | null;
+  attackCount: number;
+  totalStars: number;
+  averageStars: number;
+  totalDestruction: number;
+  averageDestruction: number;
+  freshAttackCount: number;
+  lastAttackedAt: Date;
+}
+
+export interface WarAttackHistoryReader {
+  listWarAttackHistoryForGuild: (input: {
+    guildId: string;
+    clanTags?: readonly string[];
+    attackerTags?: readonly string[];
+    since?: Date;
+  }) => Promise<WarAttackHistoryListRow[]>;
+}
+
 export type PollingResourceType = 'clan' | 'player' | 'war';
 
 export const TOP_LEVEL_POLLING_RESOURCE_TYPES = ['clan', 'player', 'war'] as const;
@@ -1863,6 +1884,71 @@ export function createDonationHistoryReader(database: Database): DonationHistory
         received: Number(row.received),
         eventCount: Number(row.eventCount),
         lastDetectedAt: row.lastDetectedAt,
+      }));
+    },
+  };
+}
+
+export function createWarAttackHistoryReader(database: Database): WarAttackHistoryReader {
+  return {
+    listWarAttackHistoryForGuild: async (input) => {
+      const since = input.since ?? new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
+      const filters = [
+        eq(schema.warAttackEvents.guildId, input.guildId),
+        eq(schema.trackedClans.guildId, input.guildId),
+        eq(schema.trackedClans.isActive, true),
+        gte(schema.warAttackEvents.detectedAt, since),
+      ];
+
+      if (input.clanTags?.length) {
+        filters.push(inArray(schema.warAttackEvents.clanTag, [...input.clanTags]));
+      }
+      if (input.attackerTags?.length) {
+        filters.push(inArray(schema.warAttackEvents.attackerTag, [...input.attackerTags]));
+      }
+
+      const rows = await database
+        .select({
+          attackerTag: schema.warAttackEvents.attackerTag,
+          attackerName: sql<string | null>`max(${schema.clanMemberSnapshots.name})`,
+          attackCount: count(schema.warAttackEvents.id),
+          totalStars: sql<number>`coalesce(sum(${schema.warAttackEvents.stars}), 0)`,
+          averageStars: sql<number>`coalesce(avg(${schema.warAttackEvents.stars}), 0)`,
+          totalDestruction: sql<number>`coalesce(sum(${schema.warAttackEvents.destructionPercentage}), 0)`,
+          averageDestruction: sql<number>`coalesce(avg(${schema.warAttackEvents.destructionPercentage}), 0)`,
+          freshAttackCount: sql<number>`coalesce(sum(case when ${schema.warAttackEvents.freshAttack} then 1 else 0 end), 0)`,
+          lastAttackedAt: sql<Date>`max(${schema.warAttackEvents.occurredAt})`,
+        })
+        .from(schema.warAttackEvents)
+        .innerJoin(
+          schema.trackedClans,
+          eq(schema.trackedClans.id, schema.warAttackEvents.trackedClanId),
+        )
+        .leftJoin(
+          schema.clanMemberSnapshots,
+          and(
+            eq(schema.clanMemberSnapshots.clanTag, schema.warAttackEvents.clanTag),
+            eq(schema.clanMemberSnapshots.playerTag, schema.warAttackEvents.attackerTag),
+          ),
+        )
+        .where(and(...filters))
+        .groupBy(schema.warAttackEvents.attackerTag)
+        .orderBy(
+          desc(sql<number>`coalesce(sum(${schema.warAttackEvents.stars}), 0)`),
+          desc(count(schema.warAttackEvents.id)),
+          asc(schema.warAttackEvents.attackerTag),
+        );
+
+      return rows.map((row) => ({
+        attackerTag: row.attackerTag,
+        attackerName: row.attackerName,
+        attackCount: Number(row.attackCount),
+        totalStars: Number(row.totalStars),
+        averageStars: Number(row.averageStars),
+        totalDestruction: Number(row.totalDestruction),
+        averageDestruction: Number(row.averageDestruction),
+        freshAttackCount: Number(row.freshAttackCount),
+        lastAttackedAt: row.lastAttackedAt,
       }));
     },
   };

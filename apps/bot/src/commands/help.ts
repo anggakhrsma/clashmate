@@ -122,12 +122,12 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
   },
   {
     name: 'history',
-    usage: '/history option:donations [clans] [player] [user]',
-    description: 'Show tracked historical donation activity.',
+    usage: '/history option:donations|war-attacks [clans] [player] [user]',
+    description: 'Show tracked historical donation or war attack activity.',
     category: 'Player & Clan',
     details: [
-      'Reads persisted donation delta events for linked clans without querying the Clash API.',
-      'Only donation history is available right now.',
+      'Reads persisted donation delta and war attack events for linked clans without querying the Clash API.',
+      'Only donation and war attack history are available right now.',
     ],
   },
   {

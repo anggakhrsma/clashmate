@@ -15,8 +15,10 @@ export const HISTORY_COMMAND_NAME = 'history';
 export const HISTORY_COMMAND_DESCRIPTION = 'Show tracked historical activity.';
 export const HISTORY_NO_DONATION_EVENTS_MESSAGE =
   'No donation history is available yet. Link/configure a clan and wait for donation events to be detected.';
+export const HISTORY_NO_WAR_ATTACK_EVENTS_MESSAGE =
+  'No war attack history is available yet. Link/configure a clan and wait for war attacks to be detected.';
 
-const HISTORY_OPTIONS = ['donations'] as const;
+const HISTORY_OPTIONS = ['donations', 'war-attacks'] as const;
 type HistoryOption = (typeof HISTORY_OPTIONS)[number];
 const MAX_HISTORY_ROWS = 15;
 const EMBED_DESCRIPTION_LIMIT = 4096;
@@ -30,7 +32,10 @@ export const historyCommandData = new SlashCommandBuilder()
       .setName('option')
       .setDescription('Select a historical activity view.')
       .setRequired(true)
-      .addChoices({ name: 'Donations', value: 'donations' }),
+      .addChoices(
+        { name: 'Donations', value: 'donations' },
+        { name: 'War Attacks', value: 'war-attacks' },
+      ),
   )
   .addStringOption((option) =>
     option
@@ -69,6 +74,18 @@ export interface DonationHistoryRow {
   readonly lastDetectedAt: Date;
 }
 
+export interface WarAttackHistoryRow {
+  readonly attackerTag: string;
+  readonly attackerName: string | null;
+  readonly attackCount: number;
+  readonly totalStars: number;
+  readonly averageStars: number;
+  readonly totalDestruction: number;
+  readonly averageDestruction: number;
+  readonly freshAttackCount: number;
+  readonly lastAttackedAt: Date;
+}
+
 export interface HistoryStore {
   readonly listLinkedClans: (guildId: string) => Promise<HistoryLinkedClan[]>;
   readonly listPlayerTagsForUser: (guildId: string, discordUserId: string) => Promise<string[]>;
@@ -78,6 +95,12 @@ export interface HistoryStore {
     playerTags?: readonly string[];
     since?: Date;
   }) => Promise<DonationHistoryRow[]>;
+  readonly listWarAttackHistoryForGuild: (input: {
+    guildId: string;
+    clanTags?: readonly string[];
+    attackerTags?: readonly string[];
+    since?: Date;
+  }) => Promise<WarAttackHistoryRow[]>;
 }
 
 export interface HistoryCommandOptions {
@@ -149,7 +172,9 @@ export async function executeHistory(
 
   const option = interaction.options.getString('option', true);
   if (!isHistoryOption(option)) {
-    await interaction.editReply({ content: 'Only donation history is available right now.' });
+    await interaction.editReply({
+      content: 'Only donation and war attack history are available right now.',
+    });
     return;
   }
 
@@ -186,6 +211,24 @@ export async function executeHistory(
     }
   }
 
+  if (option === 'war-attacks') {
+    const rows = await options.store.listWarAttackHistoryForGuild({
+      guildId: interaction.guildId,
+      ...(clanTags ? { clanTags } : {}),
+      ...(playerTags ? { attackerTags: playerTags } : {}),
+    });
+
+    if (rows.length === 0) {
+      await interaction.editReply({ content: HISTORY_NO_WAR_ATTACK_EVENTS_MESSAGE });
+      return;
+    }
+
+    await interaction.editReply({
+      embeds: [buildWarAttackHistoryEmbed(rows, clanLabel, userOption)],
+    });
+    return;
+  }
+
   const rows = await options.store.listDonationHistoryForGuild({
     guildId: interaction.guildId,
     ...(clanTags ? { clanTags } : {}),
@@ -198,6 +241,58 @@ export async function executeHistory(
   }
 
   await interaction.editReply({ embeds: [buildDonationHistoryEmbed(rows, clanLabel, userOption)] });
+}
+
+export function buildWarAttackHistoryEmbed(
+  rows: readonly WarAttackHistoryRow[],
+  clanLabel: string | undefined,
+  user: User | null,
+): EmbedBuilder {
+  const selectedRows = rows.slice(0, MAX_HISTORY_ROWS);
+  const totals = rows.reduce(
+    (acc, row) => ({
+      attacks: acc.attacks + row.attackCount,
+      stars: acc.stars + row.totalStars,
+      destruction: acc.destruction + row.totalDestruction,
+      fresh: acc.fresh + row.freshAttackCount,
+    }),
+    { attacks: 0, stars: 0, destruction: 0, fresh: 0 },
+  );
+  const averageStars = totals.attacks > 0 ? totals.stars / totals.attacks : 0;
+  const averageDestruction = totals.attacks > 0 ? totals.destruction / totals.attacks : 0;
+  const embed = new EmbedBuilder()
+    .setTitle('War Attack History')
+    .setDescription(truncateEmbedDescription(formatWarAttackHistoryRows(selectedRows)))
+    .addFields(
+      {
+        name: 'Totals',
+        value: `${totals.attacks} attacks · ${totals.stars} stars · ${averageStars.toFixed(
+          2,
+        )} avg stars · ${averageDestruction.toFixed(2)}% avg destruction · ${totals.fresh} fresh hits`,
+        inline: false,
+      },
+      {
+        name: 'Source',
+        value: 'Values are based on detected war attack events over the recent history window.',
+        inline: false,
+      },
+    )
+    .setFooter({
+      text: `Showing ${selectedRows.length}/${rows.length} attackers from stored events`,
+    });
+
+  if (clanLabel) embed.addFields({ name: 'Clan filter', value: clanLabel, inline: false });
+  if (user) embed.setAuthor({ name: user.displayName, iconURL: user.displayAvatarURL() });
+  return embed;
+}
+
+function formatWarAttackHistoryRows(rows: readonly WarAttackHistoryRow[]): string {
+  return rows
+    .map((row, index) => {
+      const label = row.attackerName?.trim() || row.attackerTag;
+      return `${index + 1}. **${escapeMarkdown(label)}** (\`${row.attackerTag}\`) · ${row.attackCount} attacks · ${row.totalStars} stars · ${row.averageStars.toFixed(2)} avg stars · ${row.averageDestruction.toFixed(2)}% avg destruction · ${row.freshAttackCount} fresh · ${time(row.lastAttackedAt, 'R')}`;
+    })
+    .join('\n');
 }
 
 function isHistoryOption(value: string): value is HistoryOption {

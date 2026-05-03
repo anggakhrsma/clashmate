@@ -16,6 +16,7 @@ import {
   createGlobalAccessBlockStore,
   createLastSeenSnapshotReader,
   createMissedWarAttackEventStore,
+  createWarAttackHistoryReader,
   createWarSnapshotStore,
 } from '@clashmate/database';
 import {
@@ -44,6 +45,7 @@ const databaseLastSeenSnapshots = createLastSeenSnapshotReader(database);
 const databaseClanMemberSnapshots = createClanMemberSnapshotReader(database);
 const databaseDonationSnapshots = createDonationSnapshotReader(database);
 const databaseDonationHistory = createDonationHistoryReader(database);
+const databaseWarAttackHistory = createWarAttackHistoryReader(database);
 const databaseWarSnapshots = createWarSnapshotStore(database);
 const databaseMissedWarAttacks = createMissedWarAttackEventStore(database);
 const globalAccessBlocks = createGlobalAccessBlockStore(database);
@@ -89,6 +91,7 @@ const commandRegistry = createBotCommandRegistry({
       listLinkedClans: databaseTrackedClans.listLinkedClans,
       listPlayerTagsForUser: databasePlayerLinks.listPlayerTagsForUser,
       listDonationHistoryForGuild: databaseDonationHistory.listDonationHistoryForGuild,
+      listWarAttackHistoryForGuild: databaseWarAttackHistory.listWarAttackHistoryForGuild,
     },
   },
   link: {
