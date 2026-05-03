@@ -3,6 +3,7 @@ import { type ActivityCommandOptions, createActivitySlashCommand } from './activ
 import { type AliasCommandOptions, createAliasSlashCommand } from './alias.js';
 import { createArmySlashCommand } from './army.js';
 import { type AttacksCommandOptions, createAttacksSlashCommand } from './attacks.js';
+import { type AutoroleCommandOptions, createAutoroleSlashCommand } from './autorole.js';
 import { type BlacklistCommandOptions, createBlacklistSlashCommand } from './blacklist.js';
 import { type BoostsCommandOptions, createBoostsSlashCommand } from './boosts.js';
 import { type CallerCommandOptions, createCallerSlashCommand } from './caller.js';
@@ -52,6 +53,7 @@ export interface BotCommandRegistryOptions {
   activity: ActivityCommandOptions;
   alias: AliasCommandOptions;
   attacks: AttacksCommandOptions;
+  autorole: AutoroleCommandOptions;
   blacklist: BlacklistCommandOptions;
   boosts: BoostsCommandOptions;
   capital: CapitalCommandOptions;
@@ -100,6 +102,7 @@ export function createBotCommandRegistry(options: BotCommandRegistryOptions): Co
   registry.registerSlash(createAliasSlashCommand(options.alias));
   registry.registerSlash(createArmySlashCommand());
   registry.registerSlash(createAttacksSlashCommand(options.attacks));
+  registry.registerSlash(createAutoroleSlashCommand(options.autorole));
   registry.registerSlash(createBlacklistSlashCommand(options.blacklist));
   registry.registerSlash(createBoostsSlashCommand(options.boosts));
   registry.registerSlash(createCapitalSlashCommand(options.capital));

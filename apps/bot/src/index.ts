@@ -6,6 +6,7 @@ import {
   createClanMemberJoinLeaveHistoryReader,
   createClanMemberSnapshotReader,
   createDatabase,
+  createDatabaseAutoroleSettingsStore,
   createDatabaseCallerBaseStore,
   createDatabaseClanMemberNotificationConfigStore,
   createDatabaseCommandUsageRecorder,
@@ -48,6 +49,7 @@ const logger = createLogger('bot', config.LOG_LEVEL);
 const database = createDatabase(config.DATABASE_URL);
 const commandUsageRecorder = createDatabaseCommandUsageRecorder(database);
 const commandWhitelistStore = createDatabaseCommandWhitelistStore(database);
+const databaseAutoroleSettingsStore = createDatabaseAutoroleSettingsStore(database);
 const databaseCallerBaseStore = createDatabaseCallerBaseStore(database);
 const databaseConfigStore = createDatabaseConfigStore(database);
 const databaseNicknameConfigStore = createDatabaseNicknameConfigStore(database);
@@ -83,6 +85,7 @@ const loadedCommandNames = [
   'alias',
   'army',
   'attacks',
+  'autorole',
   'blacklist',
   'boosts',
   'capital',
@@ -147,6 +150,9 @@ const commandRegistry = createBotCommandRegistry({
       listLinkedClans: databaseTrackedClans.listLinkedClans,
     },
     coc: cocClient,
+  },
+  autorole: {
+    store: databaseAutoroleSettingsStore,
   },
   boosts: {
     store: {

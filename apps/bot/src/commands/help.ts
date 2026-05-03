@@ -80,6 +80,17 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     ],
   },
   {
+    name: 'autorole',
+    usage: '/autorole clan-roles|town-hall|leagues|family|list|disable|config',
+    description: 'Store first-pass autorole mappings and flags for this server.',
+    category: 'Setup & Logs',
+    details: [
+      'Requires Manage Server permission for configuration changes.',
+      'Stores role IDs and behavior flags in guild settings with audit logs.',
+      'Does not mutate Discord roles, refresh members, call the Clash API, or enroll polling.',
+    ],
+  },
+  {
     name: 'player',
     usage: '/player tag:<tag> or user:<user>',
     description: 'Look up a Clash of Clans player or linked Discord user.',

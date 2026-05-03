@@ -125,6 +125,38 @@ export interface DatabaseNicknameConfigStore {
   updateNicknameConfig: (input: UpdateNicknameConfigInput) => Promise<NicknameConfigRecord>;
 }
 
+export interface AutoroleSettingsRecord {
+  clanRoles: Record<string, Record<string, string>>;
+  clanRolesOnlyVerified: boolean | null;
+  townHallRoles: Record<string, string>;
+  townHallAllowNonFamilyAccounts: boolean | null;
+  leagueRoles: Record<string, string>;
+  leagueAllowNonFamilyAccounts: boolean | null;
+  familyRoles: Record<string, string>;
+  config: {
+    autoUpdateRoles: boolean | null;
+    roleRemovalDelay: string | null;
+    roleAdditionDelay: string | null;
+    alwaysForceRefreshRoles: boolean | null;
+    allowNotLinked: boolean | null;
+    verifiedOnlyClanRoles: boolean | null;
+  };
+}
+
+export interface UpdateAutoroleSettingsInput {
+  guildId: string;
+  guildName: string | null;
+  actorDiscordUserId: string;
+  patch: Partial<AutoroleSettingsRecord>;
+  action: 'updated' | 'disabled' | 'configured';
+  metadata?: Record<string, unknown>;
+}
+
+export interface DatabaseAutoroleSettingsStore {
+  getAutoroleSettings: (guildId: string) => Promise<AutoroleSettingsRecord>;
+  updateAutoroleSettings: (input: UpdateAutoroleSettingsInput) => Promise<AutoroleSettingsRecord>;
+}
+
 export interface CommandWhitelistEntryRecord {
   commandName: string;
   userOrRoleId: string;
@@ -1741,6 +1773,25 @@ function getRecordValue(record: Record<string, unknown>, key: string): unknown {
   return record[key];
 }
 
+const AUTOROLE_SETTINGS_KEY = 'autorole_settings';
+const EMPTY_AUTOROLE_SETTINGS: AutoroleSettingsRecord = {
+  clanRoles: {},
+  clanRolesOnlyVerified: null,
+  townHallRoles: {},
+  townHallAllowNonFamilyAccounts: null,
+  leagueRoles: {},
+  leagueAllowNonFamilyAccounts: null,
+  familyRoles: {},
+  config: {
+    autoUpdateRoles: null,
+    roleRemovalDelay: null,
+    roleAdditionDelay: null,
+    alwaysForceRefreshRoles: null,
+    allowNotLinked: null,
+    verifiedOnlyClanRoles: null,
+  },
+};
+
 const NICKNAME_CONFIG_SETTING_KEY = 'nickname_config';
 const EMPTY_NICKNAME_CONFIG: NicknameConfigRecord = {
   familyNicknameFormat: null,
@@ -1748,6 +1799,113 @@ const EMPTY_NICKNAME_CONFIG: NicknameConfigRecord = {
   changeNicknames: null,
   accountPreferenceForNaming: null,
 };
+
+function readStringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string',
+    ),
+  );
+}
+
+function readNestedStringRecord(value: unknown): Record<string, Record<string, string>> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, nested]) => [
+      key,
+      readStringRecord(nested),
+    ]),
+  );
+}
+
+function readNullableBoolean(value: unknown): boolean | null {
+  return typeof value === 'boolean' ? value : null;
+}
+
+function readAutoroleSettings(value: unknown): AutoroleSettingsRecord {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return EMPTY_AUTOROLE_SETTINGS;
+  const record = value as Record<string, unknown>;
+  const configValue = getRecordValue(record, 'config');
+  const config =
+    configValue && typeof configValue === 'object' && !Array.isArray(configValue)
+      ? (configValue as Record<string, unknown>)
+      : {};
+  return {
+    clanRoles: readNestedStringRecord(getRecordValue(record, 'clanRoles')),
+    clanRolesOnlyVerified: readNullableBoolean(getRecordValue(record, 'clanRolesOnlyVerified')),
+    townHallRoles: readStringRecord(getRecordValue(record, 'townHallRoles')),
+    townHallAllowNonFamilyAccounts: readNullableBoolean(
+      getRecordValue(record, 'townHallAllowNonFamilyAccounts'),
+    ),
+    leagueRoles: readStringRecord(getRecordValue(record, 'leagueRoles')),
+    leagueAllowNonFamilyAccounts: readNullableBoolean(
+      getRecordValue(record, 'leagueAllowNonFamilyAccounts'),
+    ),
+    familyRoles: readStringRecord(getRecordValue(record, 'familyRoles')),
+    config: {
+      autoUpdateRoles: readNullableBoolean(getRecordValue(config, 'autoUpdateRoles')),
+      roleRemovalDelay: readNullableString(getRecordValue(config, 'roleRemovalDelay')),
+      roleAdditionDelay: readNullableString(getRecordValue(config, 'roleAdditionDelay')),
+      alwaysForceRefreshRoles: readNullableBoolean(
+        getRecordValue(config, 'alwaysForceRefreshRoles'),
+      ),
+      allowNotLinked: readNullableBoolean(getRecordValue(config, 'allowNotLinked')),
+      verifiedOnlyClanRoles: readNullableBoolean(getRecordValue(config, 'verifiedOnlyClanRoles')),
+    },
+  };
+}
+
+async function readAutoroleConfig(
+  database: Database | DatabaseTransaction,
+  guildId: string,
+): Promise<AutoroleSettingsRecord> {
+  const [setting] = await database
+    .select({ value: schema.guildSettings.value })
+    .from(schema.guildSettings)
+    .where(
+      and(
+        eq(schema.guildSettings.guildId, guildId),
+        eq(schema.guildSettings.key, AUTOROLE_SETTINGS_KEY),
+      ),
+    )
+    .limit(1);
+
+  return readAutoroleSettings(setting?.value);
+}
+
+function mergeAutoroleSettings(
+  current: AutoroleSettingsRecord,
+  patch: Partial<AutoroleSettingsRecord>,
+): AutoroleSettingsRecord {
+  return {
+    ...current,
+    ...patch,
+    clanRoles: patch.clanRoles
+      ? Object.keys(patch.clanRoles).length === 0
+        ? {}
+        : { ...current.clanRoles, ...patch.clanRoles }
+      : current.clanRoles,
+    townHallRoles: patch.townHallRoles
+      ? Object.keys(patch.townHallRoles).length === 0
+        ? {}
+        : { ...current.townHallRoles, ...patch.townHallRoles }
+      : current.townHallRoles,
+    leagueRoles: patch.leagueRoles
+      ? Object.keys(patch.leagueRoles).length === 0
+        ? {}
+        : { ...current.leagueRoles, ...patch.leagueRoles }
+      : current.leagueRoles,
+    familyRoles: patch.familyRoles
+      ? Object.fromEntries(
+          Object.entries({ ...current.familyRoles, ...patch.familyRoles }).filter(
+            ([, value]) => value,
+          ),
+        )
+      : current.familyRoles,
+    config: patch.config ? { ...current.config, ...patch.config } : current.config,
+  };
+}
 
 function readNicknameConfigSetting(value: unknown): NicknameConfigRecord {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return EMPTY_NICKNAME_CONFIG;
@@ -1910,6 +2068,53 @@ export function createDatabaseConfigStore(database: Database): DatabaseConfigSto
         });
 
         return readGuildConfig(tx, input.guildId);
+      }),
+  };
+}
+
+export function createDatabaseAutoroleSettingsStore(
+  database: Database,
+): DatabaseAutoroleSettingsStore {
+  return {
+    getAutoroleSettings: async (guildId) => readAutoroleConfig(database, guildId),
+    updateAutoroleSettings: async (input) =>
+      database.transaction(async (tx) => {
+        const now = new Date();
+        const current = await readAutoroleConfig(tx, input.guildId);
+        const value = mergeAutoroleSettings(current, input.patch);
+
+        await tx
+          .insert(schema.guilds)
+          .values({ id: input.guildId, name: input.guildName, updatedAt: now })
+          .onConflictDoUpdate({
+            target: schema.guilds.id,
+            set: { name: input.guildName, updatedAt: now },
+          });
+
+        await tx
+          .insert(schema.guildSettings)
+          .values({
+            guildId: input.guildId,
+            key: AUTOROLE_SETTINGS_KEY,
+            value,
+            updatedAt: now,
+          })
+          .onConflictDoUpdate({
+            target: [schema.guildSettings.guildId, schema.guildSettings.key],
+            set: { value, updatedAt: now },
+          });
+
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: `autorole.${input.action}`,
+          targetType: 'guild',
+          targetId: input.guildId,
+          metadata: input.metadata ?? {},
+          createdAt: now,
+        });
+
+        return value;
       }),
   };
 }
