@@ -2121,9 +2121,25 @@ export function createDatabaseStatusMetrics(database: Database): DatabaseStatusM
   };
 }
 
+const MAX_RECENT_USAGE_METRICS_LIMIT = 365;
+
+function validateRecentUsageMetricsLimit(limit: number): number {
+  if (!Number.isFinite(limit) || !Number.isInteger(limit) || limit < 1) {
+    throw new Error('Database usage metrics limit must be a finite positive integer.');
+  }
+  if (limit > MAX_RECENT_USAGE_METRICS_LIMIT) {
+    throw new Error(
+      `Database usage metrics limit must be between 1 and ${MAX_RECENT_USAGE_METRICS_LIMIT}.`,
+    );
+  }
+
+  return limit;
+}
+
 export function createDatabaseUsageMetrics(database: Database): DatabaseUsageMetrics {
   return {
     listRecentDailyUsage: async (limit) => {
+      const validatedLimit = validateRecentUsageMetricsLimit(limit);
       const rows = await database
         .select({
           date: schema.commandUsageDaily.usageDate,
@@ -2132,7 +2148,7 @@ export function createDatabaseUsageMetrics(database: Database): DatabaseUsageMet
         .from(schema.commandUsageDaily)
         .groupBy(schema.commandUsageDaily.usageDate)
         .orderBy(desc(schema.commandUsageDaily.usageDate))
-        .limit(limit);
+        .limit(validatedLimit);
 
       return rows.map((row) => ({ date: row.date, uses: Number(row.uses) }));
     },
@@ -2148,6 +2164,7 @@ export function createDatabaseUsageMetrics(database: Database): DatabaseUsageMet
       return rows.map((row) => ({ commandName: row.commandName, uses: Number(row.uses) }));
     },
     listRecentGrowth: async (limit) => {
+      const validatedLimit = validateRecentUsageMetricsLimit(limit);
       return database
         .select({
           date: schema.botGrowthDaily.usageDate,
@@ -2156,7 +2173,7 @@ export function createDatabaseUsageMetrics(database: Database): DatabaseUsageMet
         })
         .from(schema.botGrowthDaily)
         .orderBy(desc(schema.botGrowthDaily.usageDate))
-        .limit(limit);
+        .limit(validatedLimit);
     },
   };
 }
