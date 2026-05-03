@@ -18,6 +18,14 @@ const commaSeparatedDiscordOwnerIds = z
 
 const requiredTrimmedString = z.string().trim().min(1);
 
+const discordClientId = z
+  .string()
+  .trim()
+  .min(1, { message: 'Discord client ID is required' })
+  .refine((id) => discordSnowflakePattern.test(id), {
+    message: 'Discord client ID must be a decimal string with 17 to 20 digits',
+  });
+
 const acceptedLogLevels = ['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent'];
 
 const logLevel = z
@@ -105,7 +113,7 @@ const envSchema = z.object({
   PUBLIC_BASE_URL: publicBaseUrl,
 
   DISCORD_TOKEN: requiredTrimmedString,
-  DISCORD_CLIENT_ID: requiredTrimmedString,
+  DISCORD_CLIENT_ID: discordClientId,
   DISCORD_OWNER_IDS: commaSeparatedDiscordOwnerIds,
 
   CLASH_OF_CLANS_API_TOKEN: requiredTrimmedString,
