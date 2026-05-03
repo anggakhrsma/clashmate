@@ -1,7 +1,12 @@
 import type { ClashPlayer } from '@clashmate/coc';
 import type { CommandContext, SlashCommandDefinition } from '@clashmate/discord';
 import { normalizeClashTag } from '@clashmate/shared';
-import { type ChatInputCommandInteraction, SlashCommandBuilder } from 'discord.js';
+import {
+  type AutocompleteInteraction,
+  type ChatInputCommandInteraction,
+  SlashCommandBuilder,
+} from 'discord.js';
+import { filterPlayerTagAutocompleteChoices } from './player.js';
 
 export const VERIFY_COMMAND_NAME = 'verify';
 export const VERIFY_COMMAND_DESCRIPTION = 'Verify and link a player account using an API token.';
@@ -33,6 +38,7 @@ export interface VerifyCocApi {
 }
 
 export interface VerifyPlayerLinkStore {
+  listPlayerTagsForUser?: (guildId: string, discordUserId: string) => Promise<string[]>;
   verifyPlayerLink: (input: {
     guildId: string;
     discordUserId: string;
@@ -62,7 +68,44 @@ export function createVerifySlashCommand(options: VerifyCommandOptions): SlashCo
       if (interaction.commandName !== VERIFY_COMMAND_NAME) return;
       await executeVerify(interaction, context, options);
     },
+    autocomplete: async (interaction) => {
+      if (interaction.commandName !== VERIFY_COMMAND_NAME) return;
+      await autocompleteVerify(interaction, options);
+    },
   };
+}
+
+export async function autocompleteVerify(
+  interaction: AutocompleteInteraction,
+  options: { readonly links: Pick<VerifyPlayerLinkStore, 'listPlayerTagsForUser'> },
+): Promise<void> {
+  if (!interaction.inCachedGuild()) {
+    await interaction.respond([]);
+    return;
+  }
+
+  const focused = interaction.options.getFocused(true);
+  if (focused.name !== 'player') {
+    await interaction.respond([]);
+    return;
+  }
+
+  if (!options.links.listPlayerTagsForUser) {
+    await interaction.respond([]);
+    return;
+  }
+
+  try {
+    const tags = await options.links.listPlayerTagsForUser(
+      interaction.guildId,
+      interaction.user.id,
+    );
+    await interaction.respond(
+      filterPlayerTagAutocompleteChoices(tags, String(focused.value ?? '')),
+    );
+  } catch {
+    await interaction.respond([]);
+  }
 }
 
 export async function executeVerify(
@@ -125,9 +168,21 @@ export async function executeVerify(
     return;
   }
 
-  await interaction.editReply(formatVerifySuccess(player));
+  await interaction.editReply(formatVerifySuccess(player, result));
 }
 
-export function formatVerifySuccess(player: Pick<ClashPlayer, 'name' | 'tag'>): string {
-  return `Verification successful! **${player.name} (${player.tag})** ✅`;
+export function formatVerifySuccess(
+  player: Pick<ClashPlayer, 'name' | 'tag'>,
+  result: Extract<VerifyPlayerLinkResult, { status: 'verified' }> = {
+    status: 'verified',
+    wasDefault: false,
+  },
+): string {
+  const details = [];
+  if (result.transferredFromUserId) {
+    details.push(`This verified link was transferred from <@${result.transferredFromUserId}>.`);
+  }
+
+  const suffix = details.length ? ` ${details.join(' ')}` : '';
+  return `Verification successful! **${player.name} (${player.tag})** ✅${suffix}`;
 }
