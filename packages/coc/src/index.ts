@@ -50,8 +50,8 @@ export class ClashMateCocClient {
   private readonly retry: ResolvedRetryOptions;
 
   constructor(options: ClashMateCocClientOptions) {
-    this.token = options.token;
-    this.client = options.client ?? new Client({ keys: [options.token] });
+    this.token = normalizeApiToken(options.token);
+    this.client = options.client ?? new Client({ keys: [this.token] });
     this.retry = resolveRetryOptions(options.retry);
   }
 
@@ -74,7 +74,11 @@ export class ClashMateCocClient {
       });
     }
 
-    return { tag: this.normalizeTag(data.tag), name: data.name, data };
+    return {
+      tag: normalizeResponseTag(data.tag, 'Clash API returned an invalid clan response.'),
+      name: data.name,
+      data,
+    };
   }
 
   async getCurrentWar(clanTag: string): Promise<ClashWar> {
@@ -103,7 +107,11 @@ export class ClashMateCocClient {
       });
     }
 
-    return { tag: this.normalizeTag(data.tag), name: data.name, data };
+    return {
+      tag: normalizeResponseTag(data.tag, 'Clash API returned an invalid player response.'),
+      name: data.name,
+      data,
+    };
   }
 
   async verifyPlayerToken(tag: string, token: string): Promise<boolean> {
@@ -147,6 +155,32 @@ export class ClashMateCocClient {
         retryable: false,
       })
     );
+  }
+}
+
+function normalizeApiToken(token: string): string {
+  if (typeof token !== 'string') {
+    throw new Error('Clash API token must be a non-empty string.');
+  }
+
+  const normalizedToken = token.trim();
+
+  if (normalizedToken.length === 0) {
+    throw new Error('Clash API token must be a non-empty string.');
+  }
+
+  return normalizedToken;
+}
+
+function normalizeResponseTag(tag: string, message: string): string {
+  try {
+    return normalizeClashTag(tag);
+  } catch {
+    throw new ClashApiError({
+      reason: 'invalid_response',
+      message,
+      retryable: false,
+    });
   }
 }
 
