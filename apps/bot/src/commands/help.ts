@@ -258,6 +258,16 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     details: ['Server setup command for clan tracking and log notifications.'],
   },
   {
+    name: 'events',
+    usage: '/events',
+    description: 'Show upcoming Clash of Clans game events.',
+    category: 'Utility',
+    details: [
+      'Shows an approximate recurring UTC calendar for Clan Games, CWL, Raid Weekend, and season reset.',
+      "First pass uses recurring windows instead of ClashPerk's live event feed.",
+    ],
+  },
+  {
     name: 'help',
     usage: '/help [command]',
     description: 'Show ClashMate help.',

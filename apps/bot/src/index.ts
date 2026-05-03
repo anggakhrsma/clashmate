@@ -213,6 +213,7 @@ const commandRegistry = createBotCommandRegistry({
       'compo',
       'debug',
       'donations',
+      'events',
       'guild-ban',
       'help',
       'history',

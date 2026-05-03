@@ -11,6 +11,7 @@ import { type ClansCommandOptions, createClansSlashCommand } from './clans.js';
 import { type CompoCommandOptions, createCompoSlashCommand } from './compo.js';
 import { createDebugSlashCommand, type DebugCommandOptions } from './debug.js';
 import { createDonationsSlashCommand, type DonationsCommandOptions } from './donations.js';
+import { createEventsSlashCommand } from './events.js';
 import { createGuildBanSlashCommand, type GuildBanCommandOptions } from './guild-ban.js';
 import { createHelpSlashCommand } from './help.js';
 import { createHistorySlashCommand, type HistoryCommandOptions } from './history.js';
@@ -80,6 +81,7 @@ export function createBotCommandRegistry(options: BotCommandRegistryOptions): Co
   registry.registerSlash(createCompoSlashCommand(options.compo));
   registry.registerSlash(createDebugSlashCommand(options.debug));
   registry.registerSlash(createDonationsSlashCommand(options.donations));
+  registry.registerSlash(createEventsSlashCommand());
   registry.registerSlash(createGuildBanSlashCommand(options.guildBan));
   registry.registerSlash(createHelpSlashCommand());
   registry.registerSlash(createHistorySlashCommand(options.history));
