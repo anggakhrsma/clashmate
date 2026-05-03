@@ -78,9 +78,49 @@ export function computeWorkerLoopDelayMs(
   return (baseSeconds + jitter) * 1000;
 }
 
+function validateWorkerPollingLoopOptions(options: WorkerPollingLoopOptions): void {
+  if (!options || typeof options !== 'object') {
+    throw new Error('Worker polling loop options must be an object.');
+  }
+
+  if (typeof options.ownerId !== 'string' || !options.ownerId.trim()) {
+    throw new Error('Worker polling loop ownerId must be a non-empty string.');
+  }
+
+  if (
+    !Number.isFinite(options.lockForSeconds) ||
+    !Number.isInteger(options.lockForSeconds) ||
+    options.lockForSeconds <= 0
+  ) {
+    throw new Error('Worker polling loop lockForSeconds must be a finite positive integer.');
+  }
+
+  if (!options.handlers || typeof options.handlers !== 'object') {
+    throw new Error('Worker polling loop handlers must include clan, player, and war functions.');
+  }
+
+  for (const resourceType of ['clan', 'player', 'war'] as const) {
+    if (typeof options.handlers[resourceType] !== 'function') {
+      throw new Error(`Worker polling loop ${resourceType} handler must be a function.`);
+    }
+  }
+
+  if (options.random !== undefined && typeof options.random !== 'function') {
+    throw new Error('Worker polling loop random must be a function when provided.');
+  }
+  if (options.setTimeout !== undefined && typeof options.setTimeout !== 'function') {
+    throw new Error('Worker polling loop setTimeout must be a function when provided.');
+  }
+  if (options.clearTimeout !== undefined && typeof options.clearTimeout !== 'function') {
+    throw new Error('Worker polling loop clearTimeout must be a function when provided.');
+  }
+}
+
 export async function runWorkerPollingIteration(
   options: WorkerPollingLoopOptions,
 ): Promise<ProcessDuePollingLeaseResult[]> {
+  validateWorkerPollingLoopOptions(options);
+
   try {
     const orchestrationOptions = {
       leaseStore: options.leaseStore,
@@ -103,6 +143,8 @@ export async function runWorkerPollingIteration(
 export function startWorkerPollingLoop(
   options: WorkerPollingLoopOptions,
 ): WorkerPollingLoopController {
+  validateWorkerPollingLoopOptions(options);
+
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const scheduleTimeout = options.setTimeout ?? setTimeout;
