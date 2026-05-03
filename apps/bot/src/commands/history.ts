@@ -19,8 +19,10 @@ export const HISTORY_NO_WAR_ATTACK_EVENTS_MESSAGE =
   'No war attack history is available yet. Link/configure a clan and wait for war attacks to be detected.';
 export const HISTORY_NO_JOIN_LEAVE_EVENTS_MESSAGE =
   'No join/leave history is available yet. Link/configure a clan and wait for clan member events to be detected.';
+export const HISTORY_NO_CLAN_GAMES_EVENTS_MESSAGE =
+  'No Clan Games history is available yet. Link/configure a clan and wait for Clan Games snapshots to be stored.';
 
-const HISTORY_OPTIONS = ['donations', 'war-attacks', 'join-leave'] as const;
+const HISTORY_OPTIONS = ['donations', 'war-attacks', 'join-leave', 'clan-games'] as const;
 type HistoryOption = (typeof HISTORY_OPTIONS)[number];
 const MAX_HISTORY_ROWS = 15;
 const EMBED_DESCRIPTION_LIMIT = 4096;
@@ -38,6 +40,7 @@ export const historyCommandData = new SlashCommandBuilder()
         { name: 'Donations', value: 'donations' },
         { name: 'War Attacks', value: 'war-attacks' },
         { name: 'Join/Leave', value: 'join-leave' },
+        { name: 'Clan Games', value: 'clan-games' },
       ),
   )
   .addStringOption((option) =>
@@ -99,6 +102,19 @@ export interface JoinLeaveHistoryRow {
   readonly detectedAt: Date;
 }
 
+export interface ClanGamesHistoryRow {
+  readonly playerTag: string;
+  readonly playerName: string;
+  readonly seasonCount: number;
+  readonly totalPoints: number;
+  readonly averagePoints: number;
+  readonly bestPoints: number;
+  readonly latestSeasonId: string;
+  readonly latestClanTag: string;
+  readonly latestClanName: string | null;
+  readonly latestUpdatedAt: Date;
+}
+
 export interface HistoryStore {
   readonly listLinkedClans: (guildId: string) => Promise<HistoryLinkedClan[]>;
   readonly listPlayerTagsForUser: (guildId: string, discordUserId: string) => Promise<string[]>;
@@ -120,6 +136,12 @@ export interface HistoryStore {
     playerTags?: readonly string[];
     since?: Date;
   }) => Promise<JoinLeaveHistoryRow[]>;
+  readonly listClanGamesHistoryForGuild: (input: {
+    guildId: string;
+    clanTags?: readonly string[];
+    playerTags?: readonly string[];
+    since?: Date;
+  }) => Promise<ClanGamesHistoryRow[]>;
 }
 
 export interface HistoryCommandOptions {
@@ -192,7 +214,8 @@ export async function executeHistory(
   const option = interaction.options.getString('option', true);
   if (!isHistoryOption(option)) {
     await interaction.editReply({
-      content: 'Only donation, war attack, and join/leave history are available right now.',
+      content:
+        'Only donation, war attack, join/leave, and Clan Games history are available right now.',
     });
     return;
   }
@@ -266,6 +289,24 @@ export async function executeHistory(
     return;
   }
 
+  if (option === 'clan-games') {
+    const rows = await options.store.listClanGamesHistoryForGuild({
+      guildId: interaction.guildId,
+      ...(clanTags ? { clanTags } : {}),
+      ...(playerTags ? { playerTags } : {}),
+    });
+
+    if (rows.length === 0) {
+      await interaction.editReply({ content: HISTORY_NO_CLAN_GAMES_EVENTS_MESSAGE });
+      return;
+    }
+
+    await interaction.editReply({
+      embeds: [buildClanGamesHistoryEmbed(rows, clanLabel, userOption)],
+    });
+    return;
+  }
+
   const rows = await options.store.listDonationHistoryForGuild({
     guildId: interaction.guildId,
     ...(clanTags ? { clanTags } : {}),
@@ -278,6 +319,53 @@ export async function executeHistory(
   }
 
   await interaction.editReply({ embeds: [buildDonationHistoryEmbed(rows, clanLabel, userOption)] });
+}
+
+export function buildClanGamesHistoryEmbed(
+  rows: readonly ClanGamesHistoryRow[],
+  clanLabel: string | undefined,
+  user: User | null,
+): EmbedBuilder {
+  const selectedRows = rows.slice(0, MAX_HISTORY_ROWS);
+  const totals = rows.reduce(
+    (acc, row) => ({
+      seasons: acc.seasons + row.seasonCount,
+      points: acc.points + row.totalPoints,
+    }),
+    { seasons: 0, points: 0 },
+  );
+  const average = totals.seasons > 0 ? totals.points / totals.seasons : 0;
+  const embed = new EmbedBuilder()
+    .setTitle('Clan Games History')
+    .setDescription(truncateEmbedDescription(formatClanGamesHistoryRows(selectedRows)))
+    .addFields(
+      {
+        name: 'Totals',
+        value: `${totals.seasons} seasons · ${totals.points.toLocaleString()} points · ${average.toFixed(1)} avg points`,
+        inline: false,
+      },
+      {
+        name: 'Source',
+        value: 'Values are based on stored Clan Games snapshots over the recent history window.',
+        inline: false,
+      },
+    )
+    .setFooter({
+      text: `Showing ${selectedRows.length}/${rows.length} players from stored snapshots`,
+    });
+
+  if (clanLabel) embed.addFields({ name: 'Clan filter', value: clanLabel, inline: false });
+  if (user) embed.setAuthor({ name: user.displayName, iconURL: user.displayAvatarURL() });
+  return embed;
+}
+
+function formatClanGamesHistoryRows(rows: readonly ClanGamesHistoryRow[]): string {
+  return rows
+    .map((row, index) => {
+      const clanLabel = row.latestClanName?.trim() || row.latestClanTag;
+      return `${index + 1}. **${escapeMarkdown(row.playerName)}** (\`${row.playerTag}\`) · ${row.seasonCount} seasons · ${row.totalPoints.toLocaleString()} points · ${row.averagePoints.toFixed(1)} avg · ${row.bestPoints.toLocaleString()} best · latest ${escapeMarkdown(row.latestSeasonId)} / ${escapeMarkdown(clanLabel)} (\`${row.latestClanTag}\`) · ${time(row.latestUpdatedAt, 'R')}`;
+    })
+    .join('\n');
 }
 
 export function buildJoinLeaveHistoryEmbed(

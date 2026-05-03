@@ -214,6 +214,28 @@ export interface ClanMemberJoinLeaveHistoryReader {
   }) => Promise<ClanMemberJoinLeaveHistoryListRow[]>;
 }
 
+export interface ClanGamesHistoryListRow {
+  playerTag: string;
+  playerName: string;
+  seasonCount: number;
+  totalPoints: number;
+  averagePoints: number;
+  bestPoints: number;
+  latestSeasonId: string;
+  latestClanTag: string;
+  latestClanName: string | null;
+  latestUpdatedAt: Date;
+}
+
+export interface ClanGamesHistoryReader {
+  listClanGamesHistoryForGuild: (input: {
+    guildId: string;
+    clanTags?: readonly string[];
+    playerTags?: readonly string[];
+    since?: Date;
+  }) => Promise<ClanGamesHistoryListRow[]>;
+}
+
 export type PollingResourceType = 'clan' | 'player' | 'war';
 
 export const TOP_LEVEL_POLLING_RESOURCE_TYPES = ['clan', 'player', 'war'] as const;
@@ -5002,6 +5024,117 @@ export function createClanGamesScoreboardReader(database: Database): ClanGamesSc
           updatedAt: row.updatedAt,
         }));
     },
+  };
+}
+
+export function createClanGamesHistoryReader(database: Database): ClanGamesHistoryReader {
+  return {
+    listClanGamesHistoryForGuild: async (input) => {
+      const since = input.since ?? new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+      const filters = [
+        eq(schema.clanGamesClanSnapshots.guildId, input.guildId),
+        eq(schema.trackedClans.guildId, input.guildId),
+        eq(schema.trackedClans.isActive, true),
+        gte(schema.clanGamesClanSnapshots.updatedAt, since),
+      ];
+
+      if (input.clanTags?.length) {
+        filters.push(inArray(schema.clanGamesClanSnapshots.clanTag, [...input.clanTags]));
+      }
+
+      const rows = await database
+        .select({
+          guildId: schema.clanGamesClanSnapshots.guildId,
+          clanTag: schema.clanGamesClanSnapshots.clanTag,
+          seasonId: schema.clanGamesClanSnapshots.seasonId,
+          snapshot: schema.clanGamesClanSnapshots.snapshot,
+          sourceFetchedAt: schema.clanGamesClanSnapshots.sourceFetchedAt,
+          updatedAt: schema.clanGamesClanSnapshots.updatedAt,
+          clanName: schema.trackedClans.name,
+          clanAlias: schema.trackedClans.alias,
+        })
+        .from(schema.clanGamesClanSnapshots)
+        .innerJoin(
+          schema.trackedClans,
+          eq(schema.clanGamesClanSnapshots.trackedClanId, schema.trackedClans.id),
+        )
+        .where(and(...filters));
+
+      const playerTagFilter = input.playerTags?.length ? new Set(input.playerTags) : null;
+      const players = new Map<string, ClanGamesHistoryAccumulator>();
+
+      for (const row of rows) {
+        const snapshot = parseClanGamesScoreboardSnapshot(row);
+        for (const member of snapshot.members) {
+          if (playerTagFilter && !playerTagFilter.has(member.playerTag)) continue;
+          const existing = players.get(member.playerTag);
+          if (!existing) {
+            players.set(member.playerTag, createClanGamesHistoryAccumulator(member, snapshot));
+            continue;
+          }
+          existing.playerName = member.playerName;
+          existing.seasonCount += 1;
+          existing.totalPoints += member.points;
+          existing.bestPoints = Math.max(existing.bestPoints, member.points);
+          if (snapshot.updatedAt > existing.latestUpdatedAt) {
+            existing.latestSeasonId = snapshot.seasonId;
+            existing.latestClanTag = snapshot.clanTag;
+            existing.latestClanName = snapshot.clanName;
+            existing.latestUpdatedAt = snapshot.updatedAt;
+          }
+        }
+      }
+
+      return [...players.values()]
+        .map((row) => ({
+          playerTag: row.playerTag,
+          playerName: row.playerName,
+          seasonCount: row.seasonCount,
+          totalPoints: row.totalPoints,
+          averagePoints: row.totalPoints / row.seasonCount,
+          bestPoints: row.bestPoints,
+          latestSeasonId: row.latestSeasonId,
+          latestClanTag: row.latestClanTag,
+          latestClanName: row.latestClanName,
+          latestUpdatedAt: row.latestUpdatedAt,
+        }))
+        .sort(
+          (a, b) =>
+            b.seasonCount - a.seasonCount ||
+            b.totalPoints - a.totalPoints ||
+            a.playerName.localeCompare(b.playerName) ||
+            a.playerTag.localeCompare(b.playerTag),
+        );
+    },
+  };
+}
+
+interface ClanGamesHistoryAccumulator {
+  playerTag: string;
+  playerName: string;
+  seasonCount: number;
+  totalPoints: number;
+  bestPoints: number;
+  latestSeasonId: string;
+  latestClanTag: string;
+  latestClanName: string | null;
+  latestUpdatedAt: Date;
+}
+
+function createClanGamesHistoryAccumulator(
+  member: ClanGamesScoreboardMember,
+  snapshot: ClanGamesScoreboardSnapshot,
+): ClanGamesHistoryAccumulator {
+  return {
+    playerTag: member.playerTag,
+    playerName: member.playerName,
+    seasonCount: 1,
+    totalPoints: member.points,
+    bestPoints: member.points,
+    latestSeasonId: snapshot.seasonId,
+    latestClanTag: snapshot.clanTag,
+    latestClanName: snapshot.clanName,
+    latestUpdatedAt: snapshot.updatedAt,
   };
 }
 

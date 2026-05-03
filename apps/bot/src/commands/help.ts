@@ -122,12 +122,13 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
   },
   {
     name: 'history',
-    usage: '/history option:donations|war-attacks|join-leave [clans] [player] [user]',
-    description: 'Show tracked historical donation, war attack, or join/leave activity.',
+    usage: '/history option:donations|war-attacks|join-leave|clan-games [clans] [player] [user]',
+    description:
+      'Show tracked historical donation, war attack, join/leave, or Clan Games activity.',
     category: 'Player & Clan',
     details: [
-      'Reads persisted donation delta, war attack, and clan member join/leave events for linked clans without querying the Clash API.',
-      'Only donation, war attack, and join/leave history are available right now.',
+      'Reads persisted donation delta, war attack, clan member join/leave, and Clan Games snapshot history for linked clans without querying the Clash API.',
+      'Only donation, war attack, join/leave, and Clan Games history are available right now.',
     ],
   },
   {
