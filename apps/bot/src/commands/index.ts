@@ -32,6 +32,7 @@ import { createNicknameSlashCommand, type NicknameCommandOptions } from './nickn
 import { createPlayerSlashCommand, type PlayerCommandOptions } from './player.js';
 import { createProfileSlashCommand, type ProfileCommandOptions } from './profile.js';
 import { createRemainingSlashCommand, type RemainingCommandOptions } from './remaining.js';
+import { createRemindersSlashCommand, type RemindersCommandOptions } from './reminders.js';
 import { createRushedSlashCommand, type RushedCommandOptions } from './rushed.js';
 import { createSearchSlashCommand, type SearchCommandOptions } from './search.js';
 import { createSetupClanSlashCommand, type SetupClanCommandOptions } from './setup-clan.js';
@@ -76,6 +77,7 @@ export interface BotCommandRegistryOptions {
   player: PlayerCommandOptions;
   profile: ProfileCommandOptions;
   remaining: RemainingCommandOptions;
+  reminders: RemindersCommandOptions;
   rushed: RushedCommandOptions;
   search: SearchCommandOptions;
   setupClan: SetupClanCommandOptions;
@@ -127,6 +129,7 @@ export function createBotCommandRegistry(options: BotCommandRegistryOptions): Co
   registry.registerSlash(createPlayerSlashCommand(options.player));
   registry.registerSlash(createProfileSlashCommand(options.profile));
   registry.registerSlash(createRemainingSlashCommand(options.remaining));
+  registry.registerSlash(createRemindersSlashCommand(options.reminders));
   registry.registerSlash(createRushedSlashCommand(options.rushed));
   registry.registerSlash(createSearchSlashCommand(options.search));
   registry.registerSlash(createSetupClanSlashCommand(options.setupClan));

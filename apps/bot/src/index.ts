@@ -112,6 +112,7 @@ const loadedCommandNames = [
   'player',
   'profile',
   'remaining',
+  'reminders',
   'rushed',
   'search',
   'setup',
@@ -291,6 +292,13 @@ const commandRegistry = createBotCommandRegistry({
       listMissedWarAttacksForWar: (guildId, clanTag, warKey) =>
         databaseMissedWarAttacks.listMissedWarAttacksForWar?.(guildId, clanTag, warKey) ??
         Promise.resolve([]),
+    },
+  },
+  reminders: {
+    store: {
+      listLinkedClans: databaseTrackedClans.listLinkedClans,
+      listClanMemberSnapshotsForGuild: databaseClanMemberSnapshots.listClanMemberSnapshotsForGuild,
+      listPlayerLinksByTags: databasePlayerLinks.listPlayerLinksByTags,
     },
   },
   search: {

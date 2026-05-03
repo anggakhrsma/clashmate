@@ -221,6 +221,17 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     details: ['Works with linked clans and player links where available.'],
   },
   {
+    name: 'reminders',
+    usage: '/reminders create|edit|list|delete|now|config',
+    description: 'Manage reminders and send immediate snapshot-based reminder pings.',
+    category: 'Setup & Logs',
+    details: [
+      'Scheduled reminder storage and delivery are not implemented in this first pass.',
+      '`/reminders now` reads persisted linked-clan member snapshots and player links without calling the Clash API.',
+      'Requires Manage Server permission.',
+    ],
+  },
+  {
     name: 'lineup',
     usage: '/lineup [clan] [user]',
     description: 'Show current war lineup from tracked war snapshots.',
