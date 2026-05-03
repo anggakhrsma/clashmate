@@ -80,6 +80,16 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     details: ['Performs a one-off public Clash API search without tracking returned clans.'],
   },
   {
+    name: 'boosts',
+    usage: '/boosts [clan]',
+    description: 'Show currently boosted Super Troops for a linked clan.',
+    category: 'Player & Clan',
+    details: [
+      'Uses linked-clan member snapshots and one-off player lookups through the ClashMate Clash API client.',
+      'Does not enroll players or clans into additional polling.',
+    ],
+  },
+  {
     name: 'clan-games',
     usage: '/clan-games [clan] [season]',
     description: 'Show Clan Games progress for a linked clan.',

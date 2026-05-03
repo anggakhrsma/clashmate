@@ -72,6 +72,13 @@ const commandRegistry = createBotCommandRegistry({
   blacklist: {
     accessBlocks: globalAccessBlocks,
   },
+  boosts: {
+    store: {
+      listLinkedClans: databaseTrackedClans.listLinkedClans,
+      listClanMemberSnapshotsForGuild: databaseClanMemberSnapshots.listClanMemberSnapshotsForGuild,
+    },
+    coc: cocClient,
+  },
   clanGames: {
     reader: databaseClanGamesScoreboards,
   },
@@ -175,6 +182,7 @@ const commandRegistry = createBotCommandRegistry({
     loadedCommandNames: [
       'army',
       'blacklist',
+      'boosts',
       'clan-games',
       'clan',
       'clans',
