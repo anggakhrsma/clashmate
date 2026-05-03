@@ -13,12 +13,29 @@ const commaSeparatedIds = z
 
 const requiredTrimmedString = z.string().trim().min(1);
 
-const optionalTrimmedString = z.preprocess((value) => {
+const isPostgresqlDatabaseUrl = (value: string): boolean => {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'postgres:' || url.protocol === 'postgresql:';
+  } catch {
+    return false;
+  }
+};
+
+const postgresqlDatabaseUrl = z
+  .string()
+  .trim()
+  .min(1, { message: 'PostgreSQL database URL is required' })
+  .refine(isPostgresqlDatabaseUrl, {
+    message: 'Expected a valid PostgreSQL database URL using postgres: or postgresql: protocol',
+  });
+
+const optionalPostgresqlDatabaseUrl = z.preprocess((value) => {
   if (typeof value !== 'string') return value;
 
   const trimmedValue = value.trim();
   return trimmedValue.length === 0 ? undefined : trimmedValue;
-}, z.string().optional());
+}, postgresqlDatabaseUrl.optional());
 
 const optionalUrl = z.preprocess((value) => {
   if (typeof value !== 'string') return value;
@@ -39,8 +56,8 @@ const envSchema = z.object({
 
   CLASH_OF_CLANS_API_TOKEN: requiredTrimmedString,
 
-  DATABASE_URL: requiredTrimmedString,
-  TEST_DATABASE_URL: optionalTrimmedString,
+  DATABASE_URL: postgresqlDatabaseUrl,
+  TEST_DATABASE_URL: optionalPostgresqlDatabaseUrl,
 
   COMMAND_REGISTRATION: z.enum(['global']).default('global'),
   DEFAULT_TIMEZONE: z.string().default('UTC'),
