@@ -15,6 +15,7 @@ import {
   createWarSnapshotStore,
   createWarStateEventStore,
 } from '@clashmate/database';
+import type { Logger } from '@clashmate/logger';
 import { createLogger } from '@clashmate/logger';
 
 import { createClanPollerHandler } from './clan-poller.js';
@@ -25,6 +26,47 @@ import { createPlayerPollerHandler } from './player-poller.js';
 import { startPollingEnrollmentLoop, syncPollingLeases } from './polling-enrollment.js';
 import { createWarPollerHandler } from './war-poller.js';
 import { createWorkerOwnerId, startWorkerPollingLoop } from './worker-loop.js';
+
+interface ShutdownController {
+  readonly stop: () => void;
+}
+
+function registerShutdownHandlers(
+  controllers: readonly ShutdownController[],
+  shutdownLogger: Pick<Logger, 'error' | 'info'>,
+): void {
+  let shuttingDown = false;
+
+  const handleShutdown = (signal: NodeJS.Signals) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+
+    shutdownLogger.info({ signal }, 'Worker shutdown started');
+
+    let failed = false;
+
+    for (const controller of controllers) {
+      try {
+        controller.stop();
+      } catch (error) {
+        failed = true;
+        shutdownLogger.error({ error, signal }, 'Worker shutdown controller stop failed');
+      }
+    }
+
+    process.exitCode = failed ? 1 : 0;
+
+    if (failed) {
+      shutdownLogger.error({ signal }, 'Worker shutdown completed with errors');
+      return;
+    }
+
+    shutdownLogger.info({ signal }, 'Worker shutdown completed');
+  };
+
+  process.once('SIGTERM', handleShutdown);
+  process.once('SIGINT', handleShutdown);
+}
 
 const config = loadConfig();
 const logger = createLogger('worker', config.LOG_LEVEL);
@@ -89,13 +131,13 @@ const pollingEnrollmentInterval = {
 };
 const pollingEnrollmentResult = await syncPollingLeases(pollingEnrollment);
 
-startPollingEnrollmentLoop({
+const pollingEnrollmentLoop = startPollingEnrollmentLoop({
   enrollment: pollingEnrollment,
   interval: pollingEnrollmentInterval,
   logger,
 });
 
-startNotificationFanOutLoop({
+const notificationFanOutLoop = startNotificationFanOutLoop({
   fanOutStore: notificationFanOut,
   interval: {
     baseSeconds: config.NOTIFICATION_FANOUT_SECONDS,
@@ -105,7 +147,7 @@ startNotificationFanOutLoop({
   logger,
 });
 
-startNotificationDeliveryLoop({
+const notificationDeliveryLoop = startNotificationDeliveryLoop({
   deliveryStore: notificationDelivery,
   sender: notificationSender,
   ownerId: workerOwnerId,
@@ -120,7 +162,7 @@ startNotificationDeliveryLoop({
   logger,
 });
 
-startWorkerPollingLoop({
+const workerPollingLoop = startWorkerPollingLoop({
   leaseStore: pollingLeases,
   ownerId: workerOwnerId,
   lockForSeconds: 60,
@@ -132,6 +174,11 @@ startWorkerPollingLoop({
   },
   logger,
 });
+
+registerShutdownHandlers(
+  [pollingEnrollmentLoop, notificationFanOutLoop, notificationDeliveryLoop, workerPollingLoop],
+  logger,
+);
 
 logger.info(
   {
