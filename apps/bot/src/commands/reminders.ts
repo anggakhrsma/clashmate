@@ -19,6 +19,7 @@ const REMINDER_TYPES = [
 ] as const;
 
 const DURATION_CHOICES = ['30m', '1h', '2h', '6h', '12h', '1d', '2d', '3d'];
+const MAX_REMINDER_DURATION_MINUTES = 30 * 24 * 60;
 const MAX_MENTIONS = 40;
 const MAX_MESSAGE_LENGTH = 1_800;
 const STORAGE_ONLY_NOTE =
@@ -367,6 +368,14 @@ async function handleCreateReminder(
   interaction: ChatInputCommandInteraction<'cached'>,
   options: RemindersCommandOptions,
 ): Promise<void> {
+  const duration = parseReminderDuration(interaction.options.getString('duration', true));
+  if (!duration) {
+    await interaction.reply({
+      content: 'Provide a positive duration like `30m`, `1h`, `6h`, or `2d` up to 30 days.',
+      ephemeral: true,
+    });
+    return;
+  }
   const clans = await options.store.listLinkedClans(interaction.guildId);
   const clanInputs = splitClanInputs(interaction.options.getString('clans', true));
   const schedule = await options.store.createReminderSchedule({
@@ -376,7 +385,7 @@ async function handleCreateReminder(
     schedule: {
       id: createReminderId(),
       type: parseReminderType(interaction.options.getString('type', true)),
-      duration: interaction.options.getString('duration', true),
+      duration: duration.normalized,
       clans: clanInputs.map((input) => toScheduleClan(input, clans)),
       message: interaction.options.getString('message', true),
       excludeParticipantList: interaction.options.getBoolean('exclude_participant_list') ?? false,
@@ -396,7 +405,7 @@ async function handleCreateReminder(
       ' in <#' +
       schedule.channelId +
       '> at ' +
-      schedule.duration +
+      formatReminderDurationForDisplay(schedule.duration) +
       '. ' +
       STORAGE_ONLY_NOTE,
     ephemeral: true,
@@ -439,6 +448,14 @@ async function handleEditReminder(
     await interaction.reply({ content: 'Provide a new duration to update.', ephemeral: true });
     return;
   }
+  const parsedDuration = parseReminderDuration(duration);
+  if (!parsedDuration) {
+    await interaction.reply({
+      content: 'Provide a positive duration like `30m`, `1h`, `6h`, or `2d` up to 30 days.',
+      ephemeral: true,
+    });
+    return;
+  }
   const type = parseReminderType(interaction.options.getString('type', true));
   const id = interaction.options.getString('id', true).trim();
   const updated = await options.store.updateReminderScheduleDuration({
@@ -447,11 +464,11 @@ async function handleEditReminder(
     actorDiscordUserId: interaction.user.id,
     type,
     id,
-    duration,
+    duration: parsedDuration.normalized,
   });
   await interaction.reply({
     content: updated
-      ? `Updated reminder ${inlineCode(id)} duration to ${duration}. ${STORAGE_ONLY_NOTE}`
+      ? `Updated reminder ${inlineCode(id)} duration to ${formatReminderDurationForDisplay(updated.duration)}. ${STORAGE_ONLY_NOTE}`
       : `No ${formatReminderType(type)} reminder was found with ID ${inlineCode(id)}.`,
     ephemeral: true,
   });
@@ -583,6 +600,26 @@ function parseReminderType(type: string): ReminderScheduleType {
   return 'clan-wars';
 }
 
+function parseReminderDuration(
+  value: string,
+): { normalized: string; amount: number; unit: string } | null {
+  const match = /^(\d+)([mhd])$/i.exec(value.trim());
+  if (!match) return null;
+  const amount = Number.parseInt(match[1] ?? '', 10);
+  const unit = (match[2] ?? '').toLowerCase();
+  if (!Number.isSafeInteger(amount) || amount <= 0) return null;
+  const minutes = unit === 'm' ? amount : unit === 'h' ? amount * 60 : amount * 24 * 60;
+  if (minutes > MAX_REMINDER_DURATION_MINUTES) return null;
+  return { normalized: `${amount}${unit}`, amount, unit };
+}
+
+function formatReminderDurationForDisplay(value: string): string {
+  const duration = parseReminderDuration(value);
+  if (!duration) return `unverified duration ${inlineCode(value)}`;
+  const unitName = duration.unit === 'm' ? 'minute' : duration.unit === 'h' ? 'hour' : 'day';
+  return `${duration.amount} ${unitName}${duration.amount === 1 ? '' : 's'} (${duration.normalized})`;
+}
+
 function createReminderId(): string {
   return `r${Date.now().toString(36).slice(-5)}${Math.random().toString(36).slice(2, 5)}`;
 }
@@ -631,10 +668,10 @@ function formatReminderList(schedules: readonly ReminderSchedule[], compact: boo
     .slice(0, 20)
     .map((schedule) =>
       compact
-        ? `\`${schedule.id}\` ${schedule.duration} <#${schedule.channelId}> ${formatScheduleClans(schedule.clans)}`
+        ? `\`${schedule.id}\` ${formatReminderDurationForDisplay(schedule.duration)} <#${schedule.channelId}> ${formatScheduleClans(schedule.clans)}`
         : [
             `**${formatReminderType(schedule.type)}** \`${schedule.id}\``,
-            `Duration: ${schedule.duration} • Channel: <#${schedule.channelId}>`,
+            `Duration: ${formatReminderDurationForDisplay(schedule.duration)} • Channel: <#${schedule.channelId}>`,
             `Clans: ${formatScheduleClans(schedule.clans)}`,
             `Exclude participant list: ${schedule.excludeParticipantList ? 'yes' : 'no'}`,
             `Message: ${schedule.message.slice(0, 180)}`,
