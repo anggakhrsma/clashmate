@@ -27,6 +27,7 @@ import { createLegendSlashCommand, type LegendCommandOptions } from './legend.js
 import { createLineupSlashCommand, type LineupCommandOptions } from './lineup.js';
 import { createLinkSlashCommand, type LinkCommandOptions } from './link.js';
 import { createMembersSlashCommand, type MembersCommandOptions } from './members.js';
+import { createNicknameSlashCommand, type NicknameCommandOptions } from './nickname.js';
 import { createPlayerSlashCommand, type PlayerCommandOptions } from './player.js';
 import { createProfileSlashCommand, type ProfileCommandOptions } from './profile.js';
 import { createRemainingSlashCommand, type RemainingCommandOptions } from './remaining.js';
@@ -69,6 +70,7 @@ export interface BotCommandRegistryOptions {
   lineup: LineupCommandOptions;
   link: LinkCommandOptions;
   members: MembersCommandOptions;
+  nickname: NicknameCommandOptions;
   player: PlayerCommandOptions;
   profile: ProfileCommandOptions;
   remaining: RemainingCommandOptions;
@@ -118,6 +120,7 @@ export function createBotCommandRegistry(options: BotCommandRegistryOptions): Co
   registry.registerSlash(createLineupSlashCommand(options.lineup));
   registry.registerSlash(createLinkSlashCommand(options.link));
   registry.registerSlash(createMembersSlashCommand(options.members));
+  registry.registerSlash(createNicknameSlashCommand(options.nickname));
   registry.registerSlash(createPlayerSlashCommand(options.player));
   registry.registerSlash(createProfileSlashCommand(options.profile));
   registry.registerSlash(createRemainingSlashCommand(options.remaining));

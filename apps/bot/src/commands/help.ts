@@ -354,6 +354,17 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     ],
   },
   {
+    name: 'nickname',
+    usage:
+      '/nickname config [family_nickname_format] [non_family_nickname_format] [change_nicknames] [account_preference_for_naming]',
+    description: 'Configure server nickname preferences.',
+    category: 'Setup & Logs',
+    details: [
+      'Requires Manage Server permission.',
+      'Stores preferences only; Discord nickname mutation and autorole refresh are not implemented yet.',
+    ],
+  },
+  {
     name: 'link',
     usage: '/link create|list|delete',
     description: 'Manage Discord user links to Clash player or clan tags.',

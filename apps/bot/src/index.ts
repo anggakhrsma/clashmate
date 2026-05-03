@@ -11,6 +11,7 @@ import {
   createDatabaseCommandWhitelistStore,
   createDatabaseConfigStore,
   createDatabaseDebugReader,
+  createDatabaseNicknameConfigStore,
   createDatabasePlayerLinkStore,
   createDatabaseStatusMetrics,
   createDatabaseTrackedClanStore,
@@ -47,6 +48,7 @@ const database = createDatabase(config.DATABASE_URL);
 const commandUsageRecorder = createDatabaseCommandUsageRecorder(database);
 const commandWhitelistStore = createDatabaseCommandWhitelistStore(database);
 const databaseConfigStore = createDatabaseConfigStore(database);
+const databaseNicknameConfigStore = createDatabaseNicknameConfigStore(database);
 const databaseDebugReader = createDatabaseDebugReader(database);
 const databaseStatusMetrics = createDatabaseStatusMetrics(database);
 const databaseUsageMetrics = createDatabaseUsageMetrics(database);
@@ -103,6 +105,7 @@ const loadedCommandNames = [
   'lineup',
   'link',
   'members',
+  'nickname',
   'player',
   'profile',
   'remaining',
@@ -248,6 +251,9 @@ const commandRegistry = createBotCommandRegistry({
       listPlayerTagsForUser: databasePlayerLinks.listPlayerTagsForUser,
       listClanMemberSnapshotsForGuild: databaseClanMemberSnapshots.listClanMemberSnapshotsForGuild,
     },
+  },
+  nickname: {
+    store: databaseNicknameConfigStore,
   },
   player: {
     coc: cocClient,

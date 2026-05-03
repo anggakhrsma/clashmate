@@ -101,6 +101,30 @@ export interface DatabaseConfigStore {
   updateGuildConfig: (input: UpdateGuildConfigInput) => Promise<GuildConfigRecord>;
 }
 
+export type NicknameChangePreferenceRecord = 'true' | 'false';
+export type NicknameAccountPreferenceRecord =
+  | 'default-account'
+  | 'best-account'
+  | 'default-or-best-account';
+
+export interface NicknameConfigRecord {
+  familyNicknameFormat: string | null;
+  nonFamilyNicknameFormat: string | null;
+  changeNicknames: NicknameChangePreferenceRecord | null;
+  accountPreferenceForNaming: NicknameAccountPreferenceRecord | null;
+}
+
+export interface UpdateNicknameConfigInput extends NicknameConfigRecord {
+  guildId: string;
+  guildName: string | null;
+  actorDiscordUserId: string;
+}
+
+export interface DatabaseNicknameConfigStore {
+  getNicknameConfig: (guildId: string) => Promise<NicknameConfigRecord>;
+  updateNicknameConfig: (input: UpdateNicknameConfigInput) => Promise<NicknameConfigRecord>;
+}
+
 export interface CommandWhitelistEntryRecord {
   commandName: string;
   userOrRoleId: string;
@@ -1627,6 +1651,60 @@ function getRecordValue(record: Record<string, unknown>, key: string): unknown {
   return record[key];
 }
 
+const NICKNAME_CONFIG_SETTING_KEY = 'nickname_config';
+const EMPTY_NICKNAME_CONFIG: NicknameConfigRecord = {
+  familyNicknameFormat: null,
+  nonFamilyNicknameFormat: null,
+  changeNicknames: null,
+  accountPreferenceForNaming: null,
+};
+
+function readNicknameConfigSetting(value: unknown): NicknameConfigRecord {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return EMPTY_NICKNAME_CONFIG;
+  const record = value as Record<string, unknown>;
+  const familyNicknameFormat = getRecordValue(record, 'familyNicknameFormat');
+  const nonFamilyNicknameFormat = getRecordValue(record, 'nonFamilyNicknameFormat');
+  const changeNicknames = getRecordValue(record, 'changeNicknames');
+  const accountPreferenceForNaming = getRecordValue(record, 'accountPreferenceForNaming');
+
+  return {
+    familyNicknameFormat:
+      typeof familyNicknameFormat === 'string' && familyNicknameFormat.trim()
+        ? familyNicknameFormat.trim()
+        : null,
+    nonFamilyNicknameFormat:
+      typeof nonFamilyNicknameFormat === 'string' && nonFamilyNicknameFormat.trim()
+        ? nonFamilyNicknameFormat.trim()
+        : null,
+    changeNicknames:
+      changeNicknames === 'true' || changeNicknames === 'false' ? changeNicknames : null,
+    accountPreferenceForNaming:
+      accountPreferenceForNaming === 'default-account' ||
+      accountPreferenceForNaming === 'best-account' ||
+      accountPreferenceForNaming === 'default-or-best-account'
+        ? accountPreferenceForNaming
+        : null,
+  };
+}
+
+async function readNicknameConfig(
+  database: Database | DatabaseTransaction,
+  guildId: string,
+): Promise<NicknameConfigRecord> {
+  const [setting] = await database
+    .select({ value: schema.guildSettings.value })
+    .from(schema.guildSettings)
+    .where(
+      and(
+        eq(schema.guildSettings.guildId, guildId),
+        eq(schema.guildSettings.key, NICKNAME_CONFIG_SETTING_KEY),
+      ),
+    )
+    .limit(1);
+
+  return readNicknameConfigSetting(setting?.value);
+}
+
 async function readCommandWhitelist(
   database: Database | DatabaseTransaction,
   guildId: string,
@@ -1742,6 +1820,55 @@ export function createDatabaseConfigStore(database: Database): DatabaseConfigSto
         });
 
         return readGuildConfig(tx, input.guildId);
+      }),
+  };
+}
+
+export function createDatabaseNicknameConfigStore(database: Database): DatabaseNicknameConfigStore {
+  return {
+    getNicknameConfig: async (guildId) => readNicknameConfig(database, guildId),
+    updateNicknameConfig: async (input) =>
+      database.transaction(async (tx) => {
+        const now = new Date();
+        const value: NicknameConfigRecord = {
+          familyNicknameFormat: input.familyNicknameFormat,
+          nonFamilyNicknameFormat: input.nonFamilyNicknameFormat,
+          changeNicknames: input.changeNicknames,
+          accountPreferenceForNaming: input.accountPreferenceForNaming,
+        };
+
+        await tx
+          .insert(schema.guilds)
+          .values({ id: input.guildId, name: input.guildName, updatedAt: now })
+          .onConflictDoUpdate({
+            target: schema.guilds.id,
+            set: { name: input.guildName, updatedAt: now },
+          });
+
+        await tx
+          .insert(schema.guildSettings)
+          .values({
+            guildId: input.guildId,
+            key: NICKNAME_CONFIG_SETTING_KEY,
+            value,
+            updatedAt: now,
+          })
+          .onConflictDoUpdate({
+            target: [schema.guildSettings.guildId, schema.guildSettings.key],
+            set: { value, updatedAt: now },
+          });
+
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: 'nickname_config.updated',
+          targetType: 'guild',
+          targetId: input.guildId,
+          metadata: { updatedKeys: Object.keys(value) },
+          createdAt: now,
+        });
+
+        return readNicknameConfig(tx, input.guildId);
       }),
   };
 }
