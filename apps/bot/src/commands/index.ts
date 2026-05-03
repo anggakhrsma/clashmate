@@ -16,6 +16,7 @@ import { createSetupClanSlashCommand, type SetupClanCommandOptions } from './set
 import { createStatusSlashCommand, type StatusCommandOptions } from './status.js';
 import { createUsageSlashCommand, type UsageCommandOptions } from './usage.js';
 import { createVerifySlashCommand, type VerifyCommandOptions } from './verify.js';
+import { createWarSlashCommand, type WarCommandOptions } from './war.js';
 import { createWarlogSlashCommand, type WarlogCommandOptions } from './warlog.js';
 
 export interface BotCommandRegistryOptions {
@@ -34,6 +35,7 @@ export interface BotCommandRegistryOptions {
   status: StatusCommandOptions;
   usage: UsageCommandOptions;
   verify: VerifyCommandOptions;
+  war: WarCommandOptions;
   warlog: WarlogCommandOptions;
 }
 
@@ -57,6 +59,7 @@ export function createBotCommandRegistry(options: BotCommandRegistryOptions): Co
   registry.registerSlash(createStatusSlashCommand(options.status));
   registry.registerSlash(createUsageSlashCommand(options.usage));
   registry.registerSlash(createVerifySlashCommand(options.verify));
+  registry.registerSlash(createWarSlashCommand(options.war));
   registry.registerSlash(createWarlogSlashCommand(options.warlog));
 
   return registry;

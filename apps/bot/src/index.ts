@@ -133,6 +133,7 @@ const commandRegistry = createBotCommandRegistry({
       'status',
       'usage',
       'verify',
+      'war',
       'warlog',
     ],
     logger,
@@ -140,6 +141,16 @@ const commandRegistry = createBotCommandRegistry({
   verify: {
     coc: cocClient,
     links: databasePlayerLinks,
+  },
+  war: {
+    store: {
+      listLinkedClans: databaseTrackedClans.listLinkedClans,
+      getLatestWarSnapshot: databaseWarSnapshots.getLatestWarSnapshot,
+      getLatestWarSnapshotsForGuild: databaseWarSnapshots.getLatestWarSnapshotsForGuild,
+      getRetainedWarSnapshotsForGuild: (input) =>
+        databaseWarSnapshots.getRetainedWarSnapshotsForGuild?.(input) ?? Promise.resolve([]),
+      getLinkedPlayerTags: databasePlayerLinks.listPlayerTagsForUser,
+    },
   },
   warlog: {
     store: {

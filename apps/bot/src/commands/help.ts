@@ -77,6 +77,15 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     details: ['Works with linked clans and player links where available.'],
   },
   {
+    name: 'war',
+    usage: '/war [clan] [user] [war_id]',
+    description: 'Show current or historical war status for a linked clan.',
+    category: 'Player & Clan',
+    details: [
+      'Reads current and retained war snapshots for linked clans without querying the Clash API.',
+    ],
+  },
+  {
     name: 'warlog',
     usage: '/warlog [clan] [user]',
     description: 'Show recent wars from tracked war history.',
