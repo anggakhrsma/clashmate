@@ -1,7 +1,9 @@
 import 'dotenv/config';
 import { z } from 'zod';
 
-const commaSeparatedIds = z
+const discordSnowflakePattern = /^\d{17,20}$/;
+
+const commaSeparatedDiscordOwnerIds = z
   .string()
   .default('')
   .transform((value) =>
@@ -9,7 +11,10 @@ const commaSeparatedIds = z
       .split(',')
       .map((id) => id.trim())
       .filter(Boolean),
-  );
+  )
+  .refine((ids) => ids.every((id) => discordSnowflakePattern.test(id)), {
+    message: 'Discord owner IDs must be decimal strings with 17 to 20 digits',
+  });
 
 const requiredTrimmedString = z.string().trim().min(1);
 
@@ -62,7 +67,7 @@ const envSchema = z.object({
 
   DISCORD_TOKEN: requiredTrimmedString,
   DISCORD_CLIENT_ID: requiredTrimmedString,
-  DISCORD_OWNER_IDS: commaSeparatedIds,
+  DISCORD_OWNER_IDS: commaSeparatedDiscordOwnerIds,
 
   CLASH_OF_CLANS_API_TOKEN: requiredTrimmedString,
 
