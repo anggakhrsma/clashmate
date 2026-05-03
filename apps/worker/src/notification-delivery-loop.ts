@@ -75,6 +75,10 @@ interface ResolvedNotificationDeliveryIterationOptions {
   readonly retryBaseSeconds: number;
 }
 
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object';
+}
+
 export function computeNotificationDeliveryLoopDelayMs(
   interval: NotificationDeliveryLoopIntervalConfig,
   random = Math.random,
@@ -128,6 +132,62 @@ function resolveNotificationDeliveryIterationOptions(
   return { batchSize, maxAttempts, lockForSeconds, retryBaseSeconds };
 }
 
+function validateNotificationDeliveryLoopOptions(options: NotificationDeliveryLoopOptions): void {
+  if (!isObjectRecord(options)) {
+    throw new Error('Notification delivery options must be an object.');
+  }
+
+  const { deliveryStore, logger, ownerId, random, sender } = options;
+  if (!isObjectRecord(deliveryStore)) {
+    throw new Error('Notification delivery deliveryStore must be an object.');
+  }
+
+  for (const method of [
+    'claimDueNotificationOutboxEntries',
+    'markNotificationOutboxSent',
+    'markNotificationOutboxFailed',
+  ] as const) {
+    if (typeof deliveryStore[method] !== 'function') {
+      throw new Error(`Notification delivery deliveryStore.${method} must be a function.`);
+    }
+  }
+
+  if (!isObjectRecord(sender)) {
+    throw new Error('Notification delivery sender must be an object.');
+  }
+  if (typeof sender.sendChannelMessage !== 'function') {
+    throw new Error('Notification delivery sender.sendChannelMessage must be a function.');
+  }
+  if (
+    sender.sendDiscordNotificationMessage !== undefined &&
+    typeof sender.sendDiscordNotificationMessage !== 'function'
+  ) {
+    throw new Error(
+      'Notification delivery sender.sendDiscordNotificationMessage must be a function when provided.',
+    );
+  }
+
+  if (typeof ownerId !== 'string' || !ownerId.trim()) {
+    throw new Error('Notification delivery ownerId must be a non-empty string.');
+  }
+
+  if (random !== undefined && typeof random !== 'function') {
+    throw new Error('Notification delivery random must be a function when provided.');
+  }
+
+  if (logger !== undefined) {
+    if (!isObjectRecord(logger)) {
+      throw new Error('Notification delivery logger must be an object when provided.');
+    }
+
+    for (const method of ['debug', 'info', 'error'] as const) {
+      if (logger[method] !== undefined && typeof logger[method] !== 'function') {
+        throw new Error(`Notification delivery logger.${method} must be a function when provided.`);
+      }
+    }
+  }
+}
+
 function assertFinitePositiveInteger(name: string, value: number): void {
   if (!Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
     throw new Error(`Notification delivery ${name} must be a finite positive integer.`);
@@ -137,6 +197,7 @@ function assertFinitePositiveInteger(name: string, value: number): void {
 export async function runNotificationDeliveryIteration(
   options: NotificationDeliveryLoopOptions,
 ): Promise<void> {
+  validateNotificationDeliveryLoopOptions(options);
   const { batchSize, lockForSeconds, maxAttempts, retryBaseSeconds } =
     resolveNotificationDeliveryIterationOptions(options);
   const claimed = await options.deliveryStore.claimDueNotificationOutboxEntries({
@@ -214,6 +275,8 @@ export function formatDiscordNotificationMessage(entry: {
 export function startNotificationDeliveryLoop(
   options: NotificationDeliveryLoopOptions,
 ): NotificationDeliveryLoopController {
+  validateNotificationDeliveryLoopOptions(options);
+
   let stopped = false;
   let timer: NodeJS.Timeout | null = null;
 
