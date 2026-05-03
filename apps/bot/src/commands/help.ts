@@ -73,6 +73,13 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     details: ['Filter by configured category when your server tracks multiple clan groups.'],
   },
   {
+    name: 'search',
+    usage: '/search [name]',
+    description: 'Search for Clash of Clans clans by name.',
+    category: 'Player & Clan',
+    details: ['Performs a one-off public Clash API search without tracking returned clans.'],
+  },
+  {
     name: 'clan-games',
     usage: '/clan-games [clan] [season]',
     description: 'Show Clan Games progress for a linked clan.',

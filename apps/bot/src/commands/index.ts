@@ -16,6 +16,7 @@ import { createMembersSlashCommand, type MembersCommandOptions } from './members
 import { createPlayerSlashCommand, type PlayerCommandOptions } from './player.js';
 import { createProfileSlashCommand, type ProfileCommandOptions } from './profile.js';
 import { createRemainingSlashCommand, type RemainingCommandOptions } from './remaining.js';
+import { createSearchSlashCommand, type SearchCommandOptions } from './search.js';
 import { createSetupClanSlashCommand, type SetupClanCommandOptions } from './setup-clan.js';
 import { createStatusSlashCommand, type StatusCommandOptions } from './status.js';
 import { createUnitsSlashCommand, type UnitsCommandOptions } from './units.js';
@@ -40,6 +41,7 @@ export interface BotCommandRegistryOptions {
   player: PlayerCommandOptions;
   profile: ProfileCommandOptions;
   remaining: RemainingCommandOptions;
+  search: SearchCommandOptions;
   setupClan: SetupClanCommandOptions;
   status: StatusCommandOptions;
   units: UnitsCommandOptions;
@@ -70,6 +72,7 @@ export function createBotCommandRegistry(options: BotCommandRegistryOptions): Co
   registry.registerSlash(createPlayerSlashCommand(options.player));
   registry.registerSlash(createProfileSlashCommand(options.profile));
   registry.registerSlash(createRemainingSlashCommand(options.remaining));
+  registry.registerSlash(createSearchSlashCommand(options.search));
   registry.registerSlash(createSetupClanSlashCommand(options.setupClan));
   registry.registerSlash(createStatusSlashCommand(options.status));
   registry.registerSlash(createUnitsSlashCommand(options.units));

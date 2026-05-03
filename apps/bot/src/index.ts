@@ -151,6 +151,9 @@ const commandRegistry = createBotCommandRegistry({
         Promise.resolve([]),
     },
   },
+  search: {
+    coc: cocClient,
+  },
   setupClan: {
     clans: databaseTrackedClans,
     coc: cocClient,
@@ -183,6 +186,7 @@ const commandRegistry = createBotCommandRegistry({
       'player',
       'profile',
       'remaining',
+      'search',
       'setup',
       'status',
       'units',

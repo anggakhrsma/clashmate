@@ -15,6 +15,7 @@ export interface ClashApiRetryOptions {
 
 export interface ClashOfClansApiClient {
   getClan: (tag: string) => Promise<unknown>;
+  getClans?: (query: { name: string; limit?: number }) => Promise<unknown>;
   getCurrentWar: (tag: string) => Promise<unknown | null>;
   getPlayer: (tag: string) => Promise<unknown>;
   verifyPlayerToken: (tag: string, token: string) => Promise<unknown>;
@@ -78,6 +79,35 @@ export class ClashMateCocClient {
     return {
       tag: normalizeResponseTag(data.tag, 'Clash API returned an invalid clan response.'),
       name: data.name,
+      data,
+    };
+  }
+
+  async getClans(input: ClashClanSearchInput): Promise<ClashClanSearchResult> {
+    const query = normalizeClanSearchInput(input);
+    if (typeof this.client.getClans !== 'function') {
+      throw new ClashApiError({
+        reason: 'unsupported_client',
+        message: 'Clash API client does not support clan search.',
+        retryable: false,
+      });
+    }
+
+    const data = await this.request(() => this.client.getClans?.(query) ?? Promise.resolve(null));
+    if (!isClanSearchResponse(data)) {
+      throw new ClashApiError({
+        reason: 'invalid_response',
+        message: 'Clash API returned an invalid clan search response.',
+        retryable: false,
+      });
+    }
+
+    return {
+      items: data.items.map((item) => ({
+        tag: normalizeResponseTag(item.tag, 'Clash API returned an invalid clan search response.'),
+        name: item.name,
+        data: item,
+      })),
       data,
     };
   }
@@ -213,6 +243,24 @@ function normalizePlayerToken(token: unknown): string {
   return normalizedToken;
 }
 
+function normalizeClanSearchInput(input: ClashClanSearchInput): ClashClanSearchInput {
+  if (!isPlainObject(input)) {
+    throw new Error('Clash API clan search input must be an object.');
+  }
+
+  const name = typeof input.name === 'string' ? input.name.trim() : '';
+  if (name.length === 0) {
+    throw new Error('Clash API clan search name must be a non-empty string.');
+  }
+
+  const limit = input.limit ?? 100;
+  if (!Number.isInteger(limit) || limit <= 0) {
+    throw new Error('Clash API clan search limit must be a positive integer.');
+  }
+
+  return { name, limit };
+}
+
 function normalizeResponseTag(tag: string, message: string): string {
   try {
     return normalizeClashTag(tag);
@@ -248,6 +296,16 @@ function normalizeOptionalWarClanTag(value: unknown): string | null {
 export interface ClashClan {
   readonly tag: string;
   readonly name: string;
+  readonly data: unknown;
+}
+
+export interface ClashClanSearchInput {
+  readonly name: string;
+  readonly limit?: number;
+}
+
+export interface ClashClanSearchResult {
+  readonly items: readonly ClashClan[];
   readonly data: unknown;
 }
 
@@ -326,6 +384,11 @@ function isClanResponse(value: unknown): value is { tag: string; name: string } 
     'name' in value &&
     typeof value.name === 'string'
   );
+}
+
+function isClanSearchResponse(value: unknown): value is { items: { tag: string; name: string }[] } {
+  const items = getRecordValue(value, 'items');
+  return Array.isArray(items) && items.every(isClanResponse);
 }
 
 function isWarResponse(value: unknown): value is {
