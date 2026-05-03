@@ -2,6 +2,7 @@ import { ClashMateCocClient } from '@clashmate/coc';
 import { loadConfig } from '@clashmate/config';
 import {
   createClanGamesScoreboardReader,
+  createClanMemberSnapshotReader,
   createDatabase,
   createDatabaseClanMemberNotificationConfigStore,
   createDatabaseCommandUsageRecorder,
@@ -38,6 +39,7 @@ const databaseClanGamesScoreboards = createClanGamesScoreboardReader(database);
 const databaseClanMemberNotifications = createDatabaseClanMemberNotificationConfigStore(database);
 const databasePlayerLinks = createDatabasePlayerLinkStore(database);
 const databaseLastSeenSnapshots = createLastSeenSnapshotReader(database);
+const databaseClanMemberSnapshots = createClanMemberSnapshotReader(database);
 const databaseWarSnapshots = createWarSnapshotStore(database);
 const databaseMissedWarAttacks = createMissedWarAttackEventStore(database);
 const globalAccessBlocks = createGlobalAccessBlockStore(database);
@@ -79,6 +81,13 @@ const commandRegistry = createBotCommandRegistry({
     store: {
       listPlayerTagsForUser: databasePlayerLinks.listPlayerTagsForUser,
       listLastSeenSnapshots: databaseLastSeenSnapshots.listLastSeenSnapshots,
+    },
+  },
+  members: {
+    store: {
+      listLinkedClans: databaseTrackedClans.listLinkedClans,
+      listPlayerTagsForUser: databasePlayerLinks.listPlayerTagsForUser,
+      listClanMemberSnapshotsForGuild: databaseClanMemberSnapshots.listClanMemberSnapshotsForGuild,
     },
   },
   player: {
@@ -126,6 +135,7 @@ const commandRegistry = createBotCommandRegistry({
       'invite',
       'lastseen',
       'link',
+      'members',
       'player',
       'profile',
       'remaining',

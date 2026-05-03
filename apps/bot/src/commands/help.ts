@@ -102,6 +102,15 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     details: ['Reads existing linked-clan polling snapshots without querying the Clash API.'],
   },
   {
+    name: 'members',
+    usage: '/members [clan] [user] [option]',
+    description: 'Show tracked clan members from polling snapshots.',
+    category: 'Player & Clan',
+    details: [
+      'Reads stored clan member snapshots for linked clans without querying the Clash API.',
+    ],
+  },
+  {
     name: 'profile',
     usage: '/profile [user] [player]',
     description: 'Show linked Clash player accounts for a Discord user.',

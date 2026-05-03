@@ -96,6 +96,39 @@ export interface LastSeenSnapshotReader {
   ) => Promise<LastSeenSnapshotRecord[]>;
 }
 
+export interface ClanMemberSnapshotListRow {
+  playerTag: string;
+  name: string;
+  role: string | null;
+  expLevel: number | null;
+  leagueId: number | null;
+  trophies: number | null;
+  clanRank: number | null;
+  previousClanRank: number | null;
+  donations: number | null;
+  donationsReceived: number | null;
+  firstSeenAt: Date;
+  lastSeenAt: Date;
+  lastFetchedAt: Date;
+}
+
+export interface ClanMemberSnapshotListResult {
+  clan: {
+    id: string;
+    clanTag: string;
+    name: string | null;
+    alias: string | null;
+  };
+  members: ClanMemberSnapshotListRow[];
+}
+
+export interface ClanMemberSnapshotReader {
+  listClanMemberSnapshotsForGuild: (input: {
+    guildId: string;
+    clanTag?: string;
+  }) => Promise<ClanMemberSnapshotListResult[]>;
+}
+
 export type PollingResourceType = 'clan' | 'player' | 'war';
 
 export const TOP_LEVEL_POLLING_RESOURCE_TYPES = ['clan', 'player', 'war'] as const;
@@ -1639,6 +1672,84 @@ export function createLastSeenSnapshotReader(database: Database): LastSeenSnapsh
           desc(schema.clanMemberSnapshots.lastSeenAt),
           desc(schema.clanMemberSnapshots.lastFetchedAt),
         );
+    },
+  };
+}
+
+export function createClanMemberSnapshotReader(database: Database): ClanMemberSnapshotReader {
+  return {
+    listClanMemberSnapshotsForGuild: async (input) => {
+      const filters = [
+        eq(schema.trackedClans.guildId, input.guildId),
+        eq(schema.trackedClans.isActive, true),
+      ];
+      if (input.clanTag) filters.push(eq(schema.trackedClans.clanTag, input.clanTag));
+
+      const rows = await database
+        .select({
+          trackedClanId: schema.trackedClans.id,
+          trackedClanTag: schema.trackedClans.clanTag,
+          trackedClanName: schema.trackedClans.name,
+          trackedClanAlias: schema.trackedClans.alias,
+          playerTag: schema.clanMemberSnapshots.playerTag,
+          name: schema.clanMemberSnapshots.name,
+          role: schema.clanMemberSnapshots.role,
+          expLevel: schema.clanMemberSnapshots.expLevel,
+          leagueId: schema.clanMemberSnapshots.leagueId,
+          trophies: schema.clanMemberSnapshots.trophies,
+          clanRank: schema.clanMemberSnapshots.clanRank,
+          previousClanRank: schema.clanMemberSnapshots.previousClanRank,
+          donations: schema.clanMemberSnapshots.donations,
+          donationsReceived: schema.clanMemberSnapshots.donationsReceived,
+          firstSeenAt: schema.clanMemberSnapshots.firstSeenAt,
+          lastSeenAt: schema.clanMemberSnapshots.lastSeenAt,
+          lastFetchedAt: schema.clanMemberSnapshots.lastFetchedAt,
+        })
+        .from(schema.trackedClans)
+        .innerJoin(
+          schema.clanMemberSnapshots,
+          eq(schema.clanMemberSnapshots.clanTag, schema.trackedClans.clanTag),
+        )
+        .where(and(...filters))
+        .orderBy(
+          asc(schema.trackedClans.sortOrder),
+          asc(schema.trackedClans.name),
+          asc(schema.trackedClans.clanTag),
+          asc(schema.clanMemberSnapshots.clanRank),
+          asc(schema.clanMemberSnapshots.name),
+          asc(schema.clanMemberSnapshots.playerTag),
+        );
+
+      const byClan = new Map<string, ClanMemberSnapshotListResult>();
+      for (const row of rows) {
+        const clan = byClan.get(row.trackedClanId) ?? {
+          clan: {
+            id: row.trackedClanId,
+            clanTag: row.trackedClanTag,
+            name: row.trackedClanName,
+            alias: row.trackedClanAlias,
+          },
+          members: [],
+        };
+        clan.members.push({
+          playerTag: row.playerTag,
+          name: row.name,
+          role: row.role,
+          expLevel: row.expLevel,
+          leagueId: row.leagueId,
+          trophies: row.trophies,
+          clanRank: row.clanRank,
+          previousClanRank: row.previousClanRank,
+          donations: row.donations,
+          donationsReceived: row.donationsReceived,
+          firstSeenAt: row.firstSeenAt,
+          lastSeenAt: row.lastSeenAt,
+          lastFetchedAt: row.lastFetchedAt,
+        });
+        byClan.set(row.trackedClanId, clan);
+      }
+
+      return [...byClan.values()];
     },
   };
 }
