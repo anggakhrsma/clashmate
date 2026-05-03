@@ -69,6 +69,17 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     ],
   },
   {
+    name: 'attacks',
+    usage: '/attacks [clan] [user] [season]',
+    description: 'Show attack and defense wins for a linked clan.',
+    category: 'Player & Clan',
+    details: [
+      'Uses a one-off Clash API clan lookup, then one-off player lookups for up to 50 current clan members.',
+      'The `user` option is accepted for parity but first-pass clan resolution uses the explicit clan or first linked clan.',
+      'The `season` option is accepted for parity, but first-pass output shows current public API attack/defense wins only.',
+    ],
+  },
+  {
     name: 'player',
     usage: '/player tag:<tag> or user:<user>',
     description: 'Look up a Clash of Clans player or linked Discord user.',
