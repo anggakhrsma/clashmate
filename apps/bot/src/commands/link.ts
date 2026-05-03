@@ -129,6 +129,11 @@ export interface LinkListRow {
 export interface LinkCommandOptions {
   readonly coc: LinkCreateCocApi;
   readonly links: LinkCreateStore;
+  readonly config: LinkManagerConfigStore;
+}
+
+export interface LinkManagerConfigStore {
+  getGuildConfig: (guildId: string) => Promise<{ linksManagerRoleIds: readonly string[] }>;
 }
 
 export function createLinkSlashCommand(options: LinkCommandOptions): SlashCommandDefinition {
@@ -198,7 +203,7 @@ export async function executeLinkDelete(
     guildId: interaction.guildId,
     actorDiscordUserId: interaction.user.id,
     playerTag,
-    canDeleteOtherUsers: canManageLinks(interaction),
+    canDeleteOtherUsers: await canManageLinks(interaction, options.config),
   });
 
   await interaction.editReply(formatLinkDeleteResult(result, playerTag));
@@ -245,9 +250,13 @@ export async function executeLinkCreate(
     return;
   }
 
-  if (targetUser.id !== interaction.user.id && !canManageLinks(interaction)) {
+  if (
+    targetUser.id !== interaction.user.id &&
+    !(await canManageLinks(interaction, options.config))
+  ) {
     await interaction.reply({
-      content: 'You need the Manage Server permission to link accounts for another user.',
+      content:
+        'You need the Manage Server permission or a configured links manager role to link accounts for another user.',
       ephemeral: true,
     });
     return;
@@ -484,6 +493,23 @@ export function formatLinkDeleteResult(result: LinkDeleteStoreResult, playerTag:
   return 'You need the Manage Server permission to delete links for another user.';
 }
 
-export function canManageLinks(interaction: ChatInputCommandInteraction<'cached'>): boolean {
-  return interaction.memberPermissions.has(PermissionFlagsBits.ManageGuild);
+export async function canManageLinks(
+  interaction: ChatInputCommandInteraction<'cached'>,
+  config: LinkManagerConfigStore,
+): Promise<boolean> {
+  if (interaction.memberPermissions.has(PermissionFlagsBits.ManageGuild)) return true;
+
+  const guildConfig = await config.getGuildConfig(interaction.guildId);
+  return hasConfiguredManagerRole({
+    memberRoleIds: interaction.member.roles.cache.map((role) => role.id),
+    managerRoleIds: guildConfig.linksManagerRoleIds,
+  });
+}
+
+export function hasConfiguredManagerRole(input: {
+  readonly memberRoleIds: readonly string[];
+  readonly managerRoleIds: readonly string[];
+}): boolean {
+  if (input.managerRoleIds.length === 0) return false;
+  return input.memberRoleIds.some((roleId) => input.managerRoleIds.includes(roleId));
 }

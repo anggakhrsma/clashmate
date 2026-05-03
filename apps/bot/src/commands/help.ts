@@ -136,7 +136,7 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     category: 'Setup & Logs',
     details: [
       'Requires Manage Server permission.',
-      'Stores bot and links manager roles for future permission integration.',
+      'Bot manager roles bypass command whitelists; links manager roles can manage player links for other users.',
       'Stores embed color and webhook limit using normal guild configuration.',
     ],
   },
@@ -147,7 +147,7 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     category: 'Setup & Logs',
     details: [
       'Requires Manage Server permission.',
-      'When a command has whitelist entries, bot owners, Manage Server members, whitelisted users, and whitelisted roles may use it.',
+      'When a command has whitelist entries, bot owners, Manage Server members, configured bot manager roles, whitelisted users, and whitelisted roles may use it.',
     ],
   },
   {
@@ -392,7 +392,10 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     usage: '/link create|list|delete',
     description: 'Manage Discord user links to Clash player or clan tags.',
     category: 'Setup & Logs',
-    details: ['Create player links, list linked accounts, or remove stale links.'],
+    details: [
+      'Create player links, list linked accounts, or remove stale links.',
+      'Manage Server members and configured links manager roles can manage links for other users.',
+    ],
   },
   {
     name: 'verify',

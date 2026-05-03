@@ -173,7 +173,7 @@ export function buildConfigEmbed(view: ConfigView, displayColor?: ColorResolvabl
     .setColor(color ?? DEFAULT_CONFIG_EMBED_COLOR)
     .setTitle('ClashMate Configuration')
     .setDescription(
-      'Current server configuration. Role settings are stored for future permission integration.',
+      'Current server configuration. Bot manager roles bypass command whitelists, and links manager roles can manage player links for other users.',
     )
     .addFields(
       { name: 'Prefix', value: '/', inline: true },

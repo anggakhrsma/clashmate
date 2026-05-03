@@ -229,6 +229,7 @@ const commandRegistry = createBotCommandRegistry({
   link: {
     coc: cocClient,
     links: databasePlayerLinks,
+    config: databaseConfigStore,
   },
   lineup: {
     store: {
@@ -493,6 +494,7 @@ export interface CommandWhitelistAccessInput {
   ownerIds: readonly string[];
   hasManageGuild: boolean;
   roleIds: readonly string[];
+  botManagerRoleIds: readonly string[];
   entries: readonly { commandName: string; userOrRoleId: string; isRole: boolean }[];
 }
 
@@ -501,9 +503,18 @@ export function canUseWhitelistedCommand(input: CommandWhitelistAccessInput): bo
   if (entries.length === 0) return true;
   if (isOwner(input.userId, input.ownerIds)) return true;
   if (input.hasManageGuild) return true;
+  if (hasAnyRole(input.roleIds, input.botManagerRoleIds)) return true;
   return entries.some((entry) =>
     entry.isRole ? input.roleIds.includes(entry.userOrRoleId) : entry.userOrRoleId === input.userId,
   );
+}
+
+export function hasAnyRole(
+  memberRoleIds: readonly string[],
+  configuredRoleIds: readonly string[],
+): boolean {
+  if (configuredRoleIds.length === 0) return false;
+  return memberRoleIds.some((roleId) => configuredRoleIds.includes(roleId));
 }
 
 async function enforceCommandWhitelist(interaction: ChatInputCommandInteraction): Promise<boolean> {
@@ -515,12 +526,14 @@ async function enforceCommandWhitelist(interaction: ChatInputCommandInteraction)
   const roleIds = interaction.inCachedGuild()
     ? interaction.member.roles.cache.map((role) => role.id)
     : [];
+  const guildConfig = await databaseConfigStore.getGuildConfig(interaction.guildId);
   const allowed = canUseWhitelistedCommand({
     commandName: interaction.commandName,
     userId: interaction.user.id,
     ownerIds: config.DISCORD_OWNER_IDS,
     hasManageGuild: interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild) ?? false,
     roleIds,
+    botManagerRoleIds: guildConfig.botManagerRoleIds,
     entries,
   });
 
