@@ -129,6 +129,31 @@ export interface ClanMemberSnapshotReader {
   }) => Promise<ClanMemberSnapshotListResult[]>;
 }
 
+export interface DonationSnapshotListRow {
+  playerTag: string;
+  name: string;
+  donations: number | null;
+  donationsReceived: number | null;
+  lastFetchedAt: Date;
+}
+
+export interface DonationSnapshotListResult {
+  clan: {
+    id: string;
+    clanTag: string;
+    name: string | null;
+    alias: string | null;
+  };
+  members: DonationSnapshotListRow[];
+}
+
+export interface DonationSnapshotReader {
+  listDonationSnapshotsForGuild: (input: {
+    guildId: string;
+    clanTag?: string;
+  }) => Promise<DonationSnapshotListResult[]>;
+}
+
 export type PollingResourceType = 'clan' | 'player' | 'war';
 
 export const TOP_LEVEL_POLLING_RESOURCE_TYPES = ['clan', 'player', 'war'] as const;
@@ -1750,6 +1775,26 @@ export function createClanMemberSnapshotReader(database: Database): ClanMemberSn
       }
 
       return [...byClan.values()];
+    },
+  };
+}
+
+export function createDonationSnapshotReader(database: Database): DonationSnapshotReader {
+  return {
+    listDonationSnapshotsForGuild: async (input) => {
+      const snapshots =
+        await createClanMemberSnapshotReader(database).listClanMemberSnapshotsForGuild(input);
+
+      return snapshots.map((snapshot) => ({
+        clan: snapshot.clan,
+        members: snapshot.members.map((member) => ({
+          playerTag: member.playerTag,
+          name: member.name,
+          donations: member.donations,
+          donationsReceived: member.donationsReceived,
+          lastFetchedAt: member.lastFetchedAt,
+        })),
+      }));
     },
   };
 }

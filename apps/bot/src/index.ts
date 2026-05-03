@@ -11,6 +11,7 @@ import {
   createDatabaseStatusMetrics,
   createDatabaseTrackedClanStore,
   createDatabaseUsageMetrics,
+  createDonationSnapshotReader,
   createGlobalAccessBlockStore,
   createLastSeenSnapshotReader,
   createMissedWarAttackEventStore,
@@ -40,6 +41,7 @@ const databaseClanMemberNotifications = createDatabaseClanMemberNotificationConf
 const databasePlayerLinks = createDatabasePlayerLinkStore(database);
 const databaseLastSeenSnapshots = createLastSeenSnapshotReader(database);
 const databaseClanMemberSnapshots = createClanMemberSnapshotReader(database);
+const databaseDonationSnapshots = createDonationSnapshotReader(database);
 const databaseWarSnapshots = createWarSnapshotStore(database);
 const databaseMissedWarAttacks = createMissedWarAttackEventStore(database);
 const globalAccessBlocks = createGlobalAccessBlockStore(database);
@@ -69,6 +71,13 @@ const commandRegistry = createBotCommandRegistry({
   debug: {
     dataReader: databaseDebugReader,
     logger,
+  },
+  donations: {
+    store: {
+      listLinkedClans: databaseTrackedClans.listLinkedClans,
+      listPlayerTagsForUser: databasePlayerLinks.listPlayerTagsForUser,
+      listDonationSnapshotsForGuild: databaseDonationSnapshots.listDonationSnapshotsForGuild,
+    },
   },
   guildBan: {
     accessBlocks: globalAccessBlocks,
@@ -130,6 +139,7 @@ const commandRegistry = createBotCommandRegistry({
       'clan',
       'clans',
       'debug',
+      'donations',
       'guild-ban',
       'help',
       'invite',

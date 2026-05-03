@@ -111,6 +111,16 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     ],
   },
   {
+    name: 'donations',
+    usage: '/donations [clan] [user] [sort]',
+    description: 'Show donation totals from tracked clan snapshots.',
+    category: 'Player & Clan',
+    details: [
+      'Reads stored donation counters for linked clans without querying the Clash API.',
+      'Sort by donated, received, difference, or ratio.',
+    ],
+  },
+  {
     name: 'profile',
     usage: '/profile [user] [player]',
     description: 'Show linked Clash player accounts for a Discord user.',
