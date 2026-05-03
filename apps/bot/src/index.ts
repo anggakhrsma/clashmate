@@ -154,6 +154,10 @@ const commandRegistry = createBotCommandRegistry({
   search: {
     coc: cocClient,
   },
+  rushed: {
+    coc: cocClient,
+    links: databasePlayerLinks,
+  },
   setupClan: {
     clans: databaseTrackedClans,
     coc: cocClient,
@@ -186,6 +190,7 @@ const commandRegistry = createBotCommandRegistry({
       'player',
       'profile',
       'remaining',
+      'rushed',
       'search',
       'setup',
       'status',

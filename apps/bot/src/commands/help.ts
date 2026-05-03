@@ -173,6 +173,18 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     ],
   },
   {
+    name: 'rushed',
+    usage: '/rushed [player] [user]',
+    description:
+      'Show likely rushed or incomplete player units from public Clash API maxLevel data.',
+    category: 'Player & Clan',
+    details: [
+      'Performs a one-off player lookup without tracking the player.',
+      'First pass supports player/user mode only; clan mode is not included yet.',
+      'Uses public API maxLevel values instead of ClashPerk static previous-town-hall max tables.',
+    ],
+  },
+  {
     name: 'link',
     usage: '/link create|list|delete',
     description: 'Manage Discord user links to Clash player or clan tags.',
