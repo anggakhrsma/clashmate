@@ -101,6 +101,29 @@ export interface DatabaseConfigStore {
   updateGuildConfig: (input: UpdateGuildConfigInput) => Promise<GuildConfigRecord>;
 }
 
+export interface CommandWhitelistEntryRecord {
+  commandName: string;
+  userOrRoleId: string;
+  isRole: boolean;
+}
+
+export interface DatabaseCommandWhitelistStore {
+  listCommandWhitelist: (guildId: string) => Promise<CommandWhitelistEntryRecord[]>;
+  addCommandWhitelistEntry: (input: {
+    guildId: string;
+    guildName: string | null;
+    actorDiscordUserId: string;
+    entry: CommandWhitelistEntryRecord;
+  }) => Promise<CommandWhitelistEntryRecord[]>;
+  clearCommandWhitelistEntry: (input: {
+    guildId: string;
+    guildName: string | null;
+    actorDiscordUserId: string;
+    commandName: string;
+    userOrRoleId: string;
+  }) => Promise<{ removed: boolean; entries: CommandWhitelistEntryRecord[] }>;
+}
+
 export interface LastSeenSnapshotRecord {
   playerTag: string;
   playerName: string;
@@ -1576,6 +1599,81 @@ function readStringArraySetting(value: unknown): string[] {
   return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
 }
 
+const COMMAND_WHITELIST_SETTING_KEY = 'command_whitelist';
+
+function readCommandWhitelistSetting(value: unknown): CommandWhitelistEntryRecord[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item): CommandWhitelistEntryRecord[] => {
+    if (!item || typeof item !== 'object') return [];
+    const record = item as Record<string, unknown>;
+    const commandNameValue = getRecordValue(record, 'commandName');
+    const userOrRoleIdValue = getRecordValue(record, 'userOrRoleId');
+    const isRoleValue = getRecordValue(record, 'isRole');
+    if (
+      typeof commandNameValue !== 'string' ||
+      typeof userOrRoleIdValue !== 'string' ||
+      typeof isRoleValue !== 'boolean'
+    ) {
+      return [];
+    }
+    const commandName = commandNameValue.trim().toLowerCase().replace(/^\//, '');
+    const userOrRoleId = userOrRoleIdValue.trim();
+    if (!commandName || !userOrRoleId) return [];
+    return [{ commandName, userOrRoleId, isRole: isRoleValue }];
+  });
+}
+
+function getRecordValue(record: Record<string, unknown>, key: string): unknown {
+  return record[key];
+}
+
+async function readCommandWhitelist(
+  database: Database | DatabaseTransaction,
+  guildId: string,
+): Promise<CommandWhitelistEntryRecord[]> {
+  const [setting] = await database
+    .select({ value: schema.guildSettings.value })
+    .from(schema.guildSettings)
+    .where(
+      and(
+        eq(schema.guildSettings.guildId, guildId),
+        eq(schema.guildSettings.key, COMMAND_WHITELIST_SETTING_KEY),
+      ),
+    )
+    .limit(1);
+
+  return readCommandWhitelistSetting(setting?.value);
+}
+
+async function writeCommandWhitelist(
+  database: Database | DatabaseTransaction,
+  guildId: string,
+  guildName: string | null,
+  entries: readonly CommandWhitelistEntryRecord[],
+  now: Date,
+): Promise<void> {
+  await database
+    .insert(schema.guilds)
+    .values({ id: guildId, name: guildName, updatedAt: now })
+    .onConflictDoUpdate({
+      target: schema.guilds.id,
+      set: { name: guildName, updatedAt: now },
+    });
+
+  await database
+    .insert(schema.guildSettings)
+    .values({
+      guildId,
+      key: COMMAND_WHITELIST_SETTING_KEY,
+      value: [...entries],
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: [schema.guildSettings.guildId, schema.guildSettings.key],
+      set: { value: [...entries], updatedAt: now },
+    });
+}
+
 export function createDatabaseConfigStore(database: Database): DatabaseConfigStore {
   return {
     getGuildConfig: async (guildId) => readGuildConfig(database, guildId),
@@ -1644,6 +1742,67 @@ export function createDatabaseConfigStore(database: Database): DatabaseConfigSto
         });
 
         return readGuildConfig(tx, input.guildId);
+      }),
+  };
+}
+
+export function createDatabaseCommandWhitelistStore(
+  database: Database,
+): DatabaseCommandWhitelistStore {
+  return {
+    listCommandWhitelist: async (guildId) => readCommandWhitelist(database, guildId),
+    addCommandWhitelistEntry: async (input) =>
+      database.transaction(async (tx) => {
+        const now = new Date();
+        const existing = await readCommandWhitelist(tx, input.guildId);
+        const entry = {
+          commandName: input.entry.commandName.trim().toLowerCase().replace(/^\//, ''),
+          userOrRoleId: input.entry.userOrRoleId,
+          isRole: input.entry.isRole,
+        };
+        const entries = [
+          ...existing.filter(
+            (item) =>
+              item.commandName !== entry.commandName || item.userOrRoleId !== entry.userOrRoleId,
+          ),
+          entry,
+        ];
+
+        await writeCommandWhitelist(tx, input.guildId, input.guildName, entries, now);
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: 'command_whitelist.added',
+          targetType: 'command_whitelist',
+          targetId: entry.commandName,
+          metadata: entry,
+          createdAt: now,
+        });
+
+        return entries;
+      }),
+    clearCommandWhitelistEntry: async (input) =>
+      database.transaction(async (tx) => {
+        const now = new Date();
+        const commandName = input.commandName.trim().toLowerCase().replace(/^\//, '');
+        const existing = await readCommandWhitelist(tx, input.guildId);
+        const entries = existing.filter(
+          (entry) => entry.commandName !== commandName || entry.userOrRoleId !== input.userOrRoleId,
+        );
+        const removed = entries.length !== existing.length;
+
+        await writeCommandWhitelist(tx, input.guildId, input.guildName, entries, now);
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: 'command_whitelist.cleared',
+          targetType: 'command_whitelist',
+          targetId: commandName,
+          metadata: { userOrRoleId: input.userOrRoleId, removed },
+          createdAt: now,
+        });
+
+        return { removed, entries };
       }),
   };
 }

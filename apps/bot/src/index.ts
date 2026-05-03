@@ -8,6 +8,7 @@ import {
   createDatabase,
   createDatabaseClanMemberNotificationConfigStore,
   createDatabaseCommandUsageRecorder,
+  createDatabaseCommandWhitelistStore,
   createDatabaseConfigStore,
   createDatabaseDebugReader,
   createDatabasePlayerLinkStore,
@@ -30,9 +31,11 @@ import {
 import { createLogger } from '@clashmate/logger';
 import {
   type AutocompleteInteraction,
+  type ChatInputCommandInteraction,
   Client,
   GatewayIntentBits,
   type InteractionReplyOptions,
+  PermissionFlagsBits,
 } from 'discord.js';
 
 import { createBotCommandRegistry } from './commands/index.js';
@@ -42,6 +45,7 @@ const config = loadConfig();
 const logger = createLogger('bot', config.LOG_LEVEL);
 const database = createDatabase(config.DATABASE_URL);
 const commandUsageRecorder = createDatabaseCommandUsageRecorder(database);
+const commandWhitelistStore = createDatabaseCommandWhitelistStore(database);
 const databaseConfigStore = createDatabaseConfigStore(database);
 const databaseDebugReader = createDatabaseDebugReader(database);
 const databaseStatusMetrics = createDatabaseStatusMetrics(database);
@@ -69,6 +73,52 @@ const statusMetricReader: StatusMetricReader = {
 };
 
 const { GIT_SHA: gitSha, SOURCE_REPOSITORY_URL: sourceRepositoryUrl } = process.env;
+
+const loadedCommandNames = [
+  'activity',
+  'alias',
+  'army',
+  'attacks',
+  'blacklist',
+  'boosts',
+  'capital',
+  'category',
+  'clan-games',
+  'clan',
+  'clans',
+  'compo',
+  'config',
+  'cwl',
+  'debug',
+  'donations',
+  'events',
+  'guild-ban',
+  'help',
+  'history',
+  'invite',
+  'lastseen',
+  'leaderboard',
+  'lineup',
+  'link',
+  'members',
+  'player',
+  'profile',
+  'remaining',
+  'rushed',
+  'search',
+  'setup',
+  'stats',
+  'summary',
+  'status',
+  'timezone',
+  'units',
+  'upgrades',
+  'usage',
+  'verify',
+  'war',
+  'warlog',
+  'whitelist',
+] as const;
 
 const commandRegistry = createBotCommandRegistry({
   activity: {
@@ -256,50 +306,7 @@ const commandRegistry = createBotCommandRegistry({
   },
   usage: {
     metricReader: databaseUsageMetrics,
-    loadedCommandNames: [
-      'activity',
-      'alias',
-      'army',
-      'attacks',
-      'blacklist',
-      'boosts',
-      'capital',
-      'category',
-      'clan-games',
-      'clan',
-      'clans',
-      'compo',
-      'config',
-      'cwl',
-      'debug',
-      'donations',
-      'events',
-      'guild-ban',
-      'help',
-      'history',
-      'invite',
-      'lastseen',
-      'leaderboard',
-      'lineup',
-      'link',
-      'members',
-      'player',
-      'profile',
-      'remaining',
-      'rushed',
-      'search',
-      'setup',
-      'stats',
-      'summary',
-      'status',
-      'timezone',
-      'units',
-      'upgrades',
-      'usage',
-      'verify',
-      'war',
-      'warlog',
-    ],
+    loadedCommandNames,
     logger,
   },
   verify: {
@@ -323,6 +330,10 @@ const commandRegistry = createBotCommandRegistry({
         databaseWarSnapshots.listRetainedEndedWarSnapshotsForGuild?.(input) ?? Promise.resolve([]),
       getLinkedPlayerTags: databasePlayerLinks.listPlayerTagsForUser,
     },
+  },
+  whitelist: {
+    store: commandWhitelistStore,
+    loadedCommandNames,
   },
 });
 
@@ -387,6 +398,8 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
 
+    if (!(await enforceCommandWhitelist(interaction))) return;
+
     await command.execute(interaction, { client, ownerIds: config.DISCORD_OWNER_IDS });
 
     try {
@@ -440,6 +453,52 @@ function registerShutdownHandlers(discordClient: Client): void {
 
   process.once('SIGTERM', handleShutdown);
   process.once('SIGINT', handleShutdown);
+}
+
+export interface CommandWhitelistAccessInput {
+  commandName: string;
+  userId: string;
+  ownerIds: readonly string[];
+  hasManageGuild: boolean;
+  roleIds: readonly string[];
+  entries: readonly { commandName: string; userOrRoleId: string; isRole: boolean }[];
+}
+
+export function canUseWhitelistedCommand(input: CommandWhitelistAccessInput): boolean {
+  const entries = input.entries.filter((entry) => entry.commandName === input.commandName);
+  if (entries.length === 0) return true;
+  if (isOwner(input.userId, input.ownerIds)) return true;
+  if (input.hasManageGuild) return true;
+  return entries.some((entry) =>
+    entry.isRole ? input.roleIds.includes(entry.userOrRoleId) : entry.userOrRoleId === input.userId,
+  );
+}
+
+async function enforceCommandWhitelist(interaction: ChatInputCommandInteraction): Promise<boolean> {
+  if (!interaction.guildId) return true;
+
+  const entries = await commandWhitelistStore.listCommandWhitelist(interaction.guildId);
+  if (!entries.some((entry) => entry.commandName === interaction.commandName)) return true;
+
+  const roleIds = interaction.inCachedGuild()
+    ? interaction.member.roles.cache.map((role) => role.id)
+    : [];
+  const allowed = canUseWhitelistedCommand({
+    commandName: interaction.commandName,
+    userId: interaction.user.id,
+    ownerIds: config.DISCORD_OWNER_IDS,
+    hasManageGuild: interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild) ?? false,
+    roleIds,
+    entries,
+  });
+
+  if (allowed) return true;
+
+  await interaction.reply({
+    content: 'This command is whitelisted for specific users or roles in this server.',
+    ephemeral: true,
+  });
+  return false;
 }
 
 async function registerSlashCommands(

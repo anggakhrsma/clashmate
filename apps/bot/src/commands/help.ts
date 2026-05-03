@@ -129,6 +129,16 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     ],
   },
   {
+    name: 'whitelist',
+    usage: '/whitelist [user_or_role] [command] [clear] [list]',
+    description: 'Restrict slash commands to specific users or roles.',
+    category: 'Setup & Logs',
+    details: [
+      'Requires Manage Server permission.',
+      'When a command has whitelist entries, bot owners, Manage Server members, whitelisted users, and whitelisted roles may use it.',
+    ],
+  },
+  {
     name: 'clans',
     usage: '/clans [category]',
     description: 'List ClashMate clans linked to this server.',

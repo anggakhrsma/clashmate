@@ -41,6 +41,7 @@ import { createUsageSlashCommand, type UsageCommandOptions } from './usage.js';
 import { createVerifySlashCommand, type VerifyCommandOptions } from './verify.js';
 import { createWarSlashCommand, type WarCommandOptions } from './war.js';
 import { createWarlogSlashCommand, type WarlogCommandOptions } from './warlog.js';
+import { createWhitelistSlashCommand, type WhitelistCommandOptions } from './whitelist.js';
 
 export interface BotCommandRegistryOptions {
   activity: ActivityCommandOptions;
@@ -80,6 +81,7 @@ export interface BotCommandRegistryOptions {
   verify: VerifyCommandOptions;
   war: WarCommandOptions;
   warlog: WarlogCommandOptions;
+  whitelist: WhitelistCommandOptions;
 }
 
 export function createBotCommandRegistry(options: BotCommandRegistryOptions): CommandRegistry {
@@ -127,6 +129,7 @@ export function createBotCommandRegistry(options: BotCommandRegistryOptions): Co
   registry.registerSlash(createVerifySlashCommand(options.verify));
   registry.registerSlash(createWarSlashCommand(options.war));
   registry.registerSlash(createWarlogSlashCommand(options.warlog));
+  registry.registerSlash(createWhitelistSlashCommand(options.whitelist));
 
   return registry;
 }
