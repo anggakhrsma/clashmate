@@ -3,6 +3,7 @@ import { normalizeClashTag } from '@clashmate/shared';
 import {
   type ApplicationCommandOptionChoiceData,
   type AutocompleteInteraction,
+  ChannelType,
   type ChatInputCommandInteraction,
   PermissionFlagsBits,
   SlashCommandBuilder,
@@ -24,6 +25,15 @@ const MAX_MENTIONS = 40;
 const MAX_MESSAGE_LENGTH = 1_800;
 const STORAGE_ONLY_NOTE =
   'Delivery scheduling and worker fan-out are not implemented yet; stored schedules are configuration only for now.';
+
+const allowedReminderChannelTypes = [
+  ChannelType.GuildText,
+  ChannelType.GuildAnnouncement,
+  ChannelType.AnnouncementThread,
+  ChannelType.PublicThread,
+  ChannelType.PrivateThread,
+  ChannelType.GuildMedia,
+] as const;
 
 export const remindersCommandData = new SlashCommandBuilder()
   .setName(REMINDERS_COMMAND_NAME)
@@ -60,6 +70,7 @@ export const remindersCommandData = new SlashCommandBuilder()
         option
           .setName('channel')
           .setDescription('Channel to send the reminder in.')
+          .addChannelTypes(...allowedReminderChannelTypes)
           .setRequired(false),
       ),
   )
@@ -88,7 +99,11 @@ export const remindersCommandData = new SlashCommandBuilder()
       )
       .addStringOption((option) => addClanOption(option).setRequired(false))
       .addChannelOption((option) =>
-        option.setName('channel').setDescription('Reminder channel filter.').setRequired(false),
+        option
+          .setName('channel')
+          .setDescription('Reminder channel filter.')
+          .addChannelTypes(...allowedReminderChannelTypes)
+          .setRequired(false),
       )
       .addStringOption((option) =>
         option.setName('reminder_id').setDescription('Reminder ID filter.').setRequired(false),
