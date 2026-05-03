@@ -158,6 +158,7 @@ const commandRegistry = createBotCommandRegistry({
   usage: {
     metricReader: databaseUsageMetrics,
     loadedCommandNames: [
+      'army',
       'blacklist',
       'clan-games',
       'clan',

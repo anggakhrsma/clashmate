@@ -39,6 +39,16 @@ export interface HelpView {
 
 export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
   {
+    name: 'army',
+    usage: '/army link:<copy army link> [army_name] [tips]',
+    description: 'Share a Clash of Clans army copy link.',
+    category: 'Player & Clan',
+    details: [
+      'Parses public Clash of Clans Copy Army links and summarizes IDs and counts.',
+      'Does not track players, clans, or armies after the command response.',
+    ],
+  },
+  {
     name: 'player',
     usage: '/player tag:<tag> or user:<user>',
     description: 'Look up a Clash of Clans player or linked Discord user.',
