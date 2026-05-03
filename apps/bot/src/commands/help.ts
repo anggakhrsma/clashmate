@@ -254,6 +254,17 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     ],
   },
   {
+    name: 'legend',
+    usage: '/legend attacks|days|leaderboard|stats',
+    description: 'Show persisted Legend League views for linked clans.',
+    category: 'Player & Clan',
+    details: [
+      'Leaderboard and stats read linked-clan member snapshots without querying the Clash API.',
+      'Attacks and days return honest no-data messages until Legend attack/day data is persisted.',
+      'No exports, auto-updating boards, external feeds, or polling enrollment are used.',
+    ],
+  },
+  {
     name: 'members',
     usage: '/members [clan] [user] [option]',
     description: 'Show tracked clan members from polling snapshots.',

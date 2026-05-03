@@ -98,6 +98,7 @@ const loadedCommandNames = [
   'invite',
   'lastseen',
   'leaderboard',
+  'legend',
   'lineup',
   'link',
   'members',
@@ -231,6 +232,12 @@ const commandRegistry = createBotCommandRegistry({
   leaderboard: {
     store: {
       listClansForGuild: databaseTrackedClans.listClansForGuild,
+      listClanMemberSnapshotsForGuild: databaseClanMemberSnapshots.listClanMemberSnapshotsForGuild,
+    },
+  },
+  legend: {
+    store: {
+      listLinkedClans: databaseTrackedClans.listLinkedClans,
       listClanMemberSnapshotsForGuild: databaseClanMemberSnapshots.listClanMemberSnapshotsForGuild,
     },
   },
