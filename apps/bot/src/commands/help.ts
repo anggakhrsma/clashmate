@@ -160,6 +160,16 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     details: ['Uses tracked Clan Games data collected for configured clans.'],
   },
   {
+    name: 'summary',
+    usage: '/summary clans|donations|activity|attacks|compo [clans]',
+    description: 'Show persisted summaries for linked clans.',
+    category: 'Player & Clan',
+    details: [
+      'Reads existing linked clan, member, donation, and war attack data without querying the Clash API.',
+      'First pass returns compact embeds with totals and top rows instead of image charts.',
+    ],
+  },
+  {
     name: 'remaining',
     usage: '/remaining [clan] [player] [user]',
     description: 'Show remaining war attacks from tracked war data.',

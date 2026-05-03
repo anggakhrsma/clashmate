@@ -30,6 +30,7 @@ import { createSearchSlashCommand, type SearchCommandOptions } from './search.js
 import { createSetupClanSlashCommand, type SetupClanCommandOptions } from './setup-clan.js';
 import { createStatsSlashCommand, type StatsCommandOptions } from './stats.js';
 import { createStatusSlashCommand, type StatusCommandOptions } from './status.js';
+import { createSummarySlashCommand, type SummaryCommandOptions } from './summary.js';
 import { createTimezoneSlashCommand } from './timezone.js';
 import { createUnitsSlashCommand, type UnitsCommandOptions } from './units.js';
 import { createUpgradesSlashCommand, type UpgradesCommandOptions } from './upgrades.js';
@@ -65,6 +66,7 @@ export interface BotCommandRegistryOptions {
   search: SearchCommandOptions;
   setupClan: SetupClanCommandOptions;
   stats: StatsCommandOptions;
+  summary: SummaryCommandOptions;
   status: StatusCommandOptions;
   units: UnitsCommandOptions;
   upgrades: UpgradesCommandOptions;
@@ -107,6 +109,7 @@ export function createBotCommandRegistry(options: BotCommandRegistryOptions): Co
   registry.registerSlash(createSearchSlashCommand(options.search));
   registry.registerSlash(createSetupClanSlashCommand(options.setupClan));
   registry.registerSlash(createStatsSlashCommand(options.stats));
+  registry.registerSlash(createSummarySlashCommand(options.summary));
   registry.registerSlash(createStatusSlashCommand(options.status));
   registry.registerSlash(createTimezoneSlashCommand());
   registry.registerSlash(createUnitsSlashCommand(options.units));

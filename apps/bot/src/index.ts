@@ -214,6 +214,15 @@ const commandRegistry = createBotCommandRegistry({
       listWarAttackHistoryForGuild: databaseWarAttackHistory.listWarAttackHistoryForGuild,
     },
   },
+  summary: {
+    store: {
+      listLinkedClans: databaseTrackedClans.listLinkedClans,
+      listClansForGuild: databaseTrackedClans.listClansForGuild,
+      listDonationSnapshotsForGuild: databaseDonationSnapshots.listDonationSnapshotsForGuild,
+      listClanMemberSnapshotsForGuild: databaseClanMemberSnapshots.listClanMemberSnapshotsForGuild,
+      listWarAttackHistoryForGuild: databaseWarAttackHistory.listWarAttackHistoryForGuild,
+    },
+  },
   status: {
     metricReader: statusMetricReader,
     version: loadBotPackageVersion(),
@@ -254,6 +263,7 @@ const commandRegistry = createBotCommandRegistry({
       'search',
       'setup',
       'stats',
+      'summary',
       'status',
       'timezone',
       'units',
