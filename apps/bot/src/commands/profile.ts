@@ -10,6 +10,8 @@ import {
   type User,
 } from 'discord.js';
 
+import { formatLocalDateTime } from './timezone.js';
+
 export const PROFILE_COMMAND_NAME = 'profile';
 export const PROFILE_COMMAND_DESCRIPTION = 'Show linked Clash player accounts for a Discord user.';
 
@@ -49,8 +51,21 @@ export interface ProfilePlayerLinkStore {
   ) => Promise<ProfilePlayerLinkRecord[]>;
 }
 
+export interface ProfileTimezonePreferenceRecord {
+  readonly timezone: string;
+  readonly updatedAt: string;
+}
+
+export interface ProfileTimezonePreferenceStore {
+  readonly getUserTimezonePreference: (
+    guildId: string,
+    discordUserId: string,
+  ) => Promise<ProfileTimezonePreferenceRecord | null>;
+}
+
 export interface ProfileCommandOptions {
   readonly links: ProfilePlayerLinkStore;
+  readonly timezones: ProfileTimezonePreferenceStore;
 }
 
 type ProfileResolution =
@@ -58,14 +73,21 @@ type ProfileResolution =
       readonly status: 'user_links';
       readonly targetUser: User;
       readonly links: readonly ProfilePlayerLinkRecord[];
+      readonly timezone: ProfileTimezonePreferenceRecord | null;
     }
   | {
       readonly status: 'player_link';
       readonly playerTag: string;
       readonly link: ProfilePlayerLinkRecord;
+      readonly timezone: ProfileTimezonePreferenceRecord | null;
     }
   | { readonly status: 'invalid_tag' }
-  | { readonly status: 'no_user_links'; readonly targetUser: User; readonly isSelf: boolean }
+  | {
+      readonly status: 'no_user_links';
+      readonly targetUser: User;
+      readonly isSelf: boolean;
+      readonly timezone: ProfileTimezonePreferenceRecord | null;
+    }
   | { readonly status: 'no_player_link'; readonly playerTag: string };
 
 export function createProfileSlashCommand(options: ProfileCommandOptions): SlashCommandDefinition {
@@ -152,6 +174,7 @@ export async function executeProfile(
     userOption: interaction.options.getUser('user'),
     playerOption: interaction.options.getString('player'),
     links: options.links,
+    timezones: options.timezones,
   });
 
   if (resolution.status === 'invalid_tag') {
@@ -160,6 +183,11 @@ export async function executeProfile(
   }
 
   if (resolution.status === 'no_user_links') {
+    if (resolution.timezone) {
+      await interaction.reply({ embeds: [buildProfileEmbed(resolution)] });
+      return;
+    }
+
     await interaction.reply({ content: formatNoUserLinksMessage(resolution), ephemeral: true });
     return;
   }
@@ -181,6 +209,7 @@ async function resolveProfile(input: {
   readonly userOption: User | null;
   readonly playerOption: string | null;
   readonly links: ProfilePlayerLinkStore;
+  readonly timezones: ProfileTimezonePreferenceStore;
 }): Promise<ProfileResolution> {
   if (input.playerOption) {
     let playerTag: string;
@@ -192,16 +221,22 @@ async function resolveProfile(input: {
 
     const [link] = await input.links.listPlayerLinksByTags([playerTag]);
     if (!link) return { status: 'no_player_link', playerTag };
-    return { status: 'player_link', playerTag, link };
+    const timezone = await input.timezones.getUserTimezonePreference(
+      input.guildId,
+      link.discordUserId,
+    );
+    return { status: 'player_link', playerTag, link, timezone };
   }
 
   const targetUser = input.userOption ?? input.invokingUser;
+  const timezone = await input.timezones.getUserTimezonePreference(input.guildId, targetUser.id);
   const playerTags = await input.links.listPlayerTagsForUser(input.guildId, targetUser.id);
   if (playerTags.length === 0) {
     return {
       status: 'no_user_links',
       targetUser,
       isSelf: targetUser.id === input.invokingUser.id,
+      timezone,
     };
   }
 
@@ -212,10 +247,11 @@ async function resolveProfile(input: {
       status: 'no_user_links',
       targetUser,
       isSelf: targetUser.id === input.invokingUser.id,
+      timezone,
     };
   }
 
-  return { status: 'user_links', targetUser, links: orderedLinks };
+  return { status: 'user_links', targetUser, links: orderedLinks, timezone };
 }
 
 function orderLinksByRequestedTags(
@@ -236,7 +272,10 @@ function formatNoUserLinksMessage(
 }
 
 export function buildProfileEmbed(
-  resolution: Extract<ProfileResolution, { status: 'user_links' | 'player_link' }>,
+  resolution: Extract<
+    ProfileResolution,
+    { status: 'user_links' | 'player_link' | 'no_user_links' }
+  >,
 ): EmbedBuilder {
   const embed = new EmbedBuilder().setTitle(PROFILE_EMBED_TITLE);
 
@@ -261,10 +300,14 @@ export function buildProfileEmbed(
         inline: true,
       },
     );
+    const timezoneField = buildTimezoneField(resolution.timezone);
+    if (timezoneField) embed.addFields(timezoneField);
     return embed;
   }
 
-  const accountFields = buildLinkedAccountFields(resolution.links);
+  const accountFields = buildLinkedAccountFields(
+    resolution.status === 'user_links' ? resolution.links : [],
+  );
 
   embed
     .setAuthor({
@@ -286,10 +329,40 @@ export function buildProfileEmbed(
         ),
         inline: false,
       },
+      ...buildOptionalTimezoneFields(resolution.timezone),
       ...accountFields,
     );
 
   return embed;
+}
+
+function buildOptionalTimezoneFields(
+  timezone: ProfileTimezonePreferenceRecord | null,
+): Array<{ name: string; value: string; inline: false }> {
+  const field = buildTimezoneField(timezone);
+  return field ? [field] : [];
+}
+
+function buildTimezoneField(
+  timezone: ProfileTimezonePreferenceRecord | null,
+): { name: string; value: string; inline: false } | null {
+  if (!timezone) return null;
+  const rows = [
+    `Timezone: \`${sanitizeEmbedText(timezone.timezone, 'Unknown')}\``,
+    `Current local time: ${sanitizeEmbedText(formatLocalDateTime(timezone.timezone), 'Unknown')}`,
+    `Saved: ${formatSavedTimestamp(timezone.updatedAt)}`,
+  ];
+  return {
+    name: formatEmbedFieldName('Timezone Preference'),
+    value: truncateEmbedText(rows.join('\n'), EMBED_FIELD_VALUE_LIMIT, 'Timezone saved.'),
+    inline: false,
+  };
+}
+
+function formatSavedTimestamp(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return sanitizeEmbedText(value, 'Unknown');
+  return `<t:${Math.floor(date.getTime() / 1000)}:f>`;
 }
 
 function formatLinkedPlayerTag(link: ProfilePlayerLinkRecord): string {

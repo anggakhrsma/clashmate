@@ -118,6 +118,10 @@ export interface SetUserTimezonePreferenceInput {
 }
 
 export interface DatabaseUserTimezonePreferenceStore {
+  getUserTimezonePreference: (
+    guildId: string,
+    discordUserId: string,
+  ) => Promise<UserTimezonePreferenceRecord | null>;
   setUserTimezonePreference: (
     input: SetUserTimezonePreferenceInput,
   ) => Promise<UserTimezonePreferenceRecord>;
@@ -2490,6 +2494,21 @@ export function createDatabaseUserTimezonePreferenceStore(
   database: Database,
 ): DatabaseUserTimezonePreferenceStore {
   return {
+    getUserTimezonePreference: async (guildId, discordUserId) => {
+      const [setting] = await database
+        .select({ value: schema.guildSettings.value })
+        .from(schema.guildSettings)
+        .where(
+          and(
+            eq(schema.guildSettings.guildId, guildId),
+            eq(schema.guildSettings.key, USER_TIMEZONE_PREFERENCES_SETTING_KEY),
+          ),
+        )
+        .limit(1);
+
+      const preferences = readUserTimezonePreferencesSetting(setting?.value);
+      return preferences[discordUserId] ?? null;
+    },
     setUserTimezonePreference: async (input) =>
       database.transaction(async (tx) => {
         const now = new Date();

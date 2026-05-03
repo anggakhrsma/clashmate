@@ -293,6 +293,7 @@ const commandRegistry = createBotCommandRegistry({
   },
   profile: {
     links: databasePlayerLinks,
+    timezones: databaseUserTimezonePreferences,
   },
   units: {
     coc: cocClient,
