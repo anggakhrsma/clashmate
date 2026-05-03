@@ -1,3 +1,4 @@
+import type { DatabaseUserTimezonePreferenceStore } from '@clashmate/database';
 import type { CommandContext, SlashCommandDefinition } from '@clashmate/discord';
 import { normalizeClashTag } from '@clashmate/shared';
 import {
@@ -48,6 +49,7 @@ export interface LastSeenStore {
 
 export interface LastSeenCommandOptions {
   readonly store: LastSeenStore;
+  readonly timezones?: Pick<DatabaseUserTimezonePreferenceStore, 'getUserTimezonePreference'>;
 }
 
 type LastSeenResolution =
@@ -171,7 +173,40 @@ export async function executeLastSeen(
     return;
   }
 
-  await interaction.reply({ embeds: [buildLastSeenEmbed(latestRows, resolution.targetUser)] });
+  const timezone = await resolveLastSeenTimezone({
+    guildId: interaction.guildId,
+    userId: interaction.user.id,
+    ...(options.timezones ? { preferences: options.timezones } : {}),
+  });
+
+  await interaction.reply({
+    embeds: [buildLastSeenEmbed(latestRows, resolution.targetUser, timezone)],
+  });
+}
+
+interface LastSeenResolvedTimezone {
+  readonly timezone?: string;
+  readonly source?: 'preference';
+}
+
+async function resolveLastSeenTimezone(input: {
+  readonly guildId: string;
+  readonly userId: string;
+  readonly preferences?: Pick<DatabaseUserTimezonePreferenceStore, 'getUserTimezonePreference'>;
+}): Promise<LastSeenResolvedTimezone> {
+  if (!input.preferences) return {};
+
+  try {
+    const preference = await input.preferences.getUserTimezonePreference(
+      input.guildId,
+      input.userId,
+    );
+    const timezone = preference?.timezone.trim();
+    if (!timezone || !isValidTimeZone(timezone)) return {};
+    return { timezone, source: 'preference' };
+  } catch {
+    return {};
+  }
 }
 
 async function resolveLastSeenPlayers(input: {
@@ -234,10 +269,11 @@ function compareLastSeen(left: LastSeenSnapshotRecord, right: LastSeenSnapshotRe
 export function buildLastSeenEmbed(
   rows: readonly LastSeenSnapshotRecord[],
   targetUser: User | null,
+  timezone: LastSeenResolvedTimezone = {},
 ): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setTitle('Last Seen')
-    .setDescription('Based on linked-clan polling snapshots already stored by ClashMate.');
+    .setDescription(formatLastSeenDescription(timezone));
 
   if (targetUser) {
     embed.setAuthor({ name: targetUser.displayName, iconURL: targetUser.displayAvatarURL() });
@@ -248,13 +284,50 @@ export function buildLastSeenEmbed(
       name: `${escapeMarkdown(row.playerName)} (${row.playerTag})`,
       value: [
         `**Clan:** ${escapeMarkdown(row.clanName ?? 'Unknown Clan')} (${row.clanTag})`,
-        `**First seen:** ${time(row.firstSeenAt, 'F')}`,
-        `**Last seen:** ${time(row.lastSeenAt, 'R')}`,
-        `**Last observed:** ${time(row.lastFetchedAt, 'R')}`,
+        `**First seen:** ${formatLastSeenTimestamp(row.firstSeenAt, 'F', timezone.timezone)}`,
+        `**Last seen:** ${formatLastSeenTimestamp(row.lastSeenAt, 'R', timezone.timezone)}`,
+        `**Last observed:** ${formatLastSeenTimestamp(row.lastFetchedAt, 'R', timezone.timezone)}`,
       ].join('\n'),
       inline: false,
     })),
   );
 
+  if (timezone.timezone) {
+    embed.setFooter({ text: `Display timezone: ${timezone.timezone} (saved preference)` });
+  }
+
   return embed;
+}
+
+function formatLastSeenDescription(timezone: LastSeenResolvedTimezone): string {
+  const base = 'Based on linked-clan polling snapshots already stored by ClashMate.';
+  if (!timezone.timezone) return base;
+  return `${base} Local absolute times use your saved /timezone preference.`;
+}
+
+function formatLastSeenTimestamp(
+  date: Date,
+  discordStyle: 'F' | 'R',
+  timezone: string | undefined,
+): string {
+  const discordTimestamp = time(date, discordStyle);
+  if (!timezone) return discordTimestamp;
+  return `${formatZonedDateTime(date, timezone)} (${discordTimestamp})`;
+}
+
+function formatZonedDateTime(date: Date, timezone: string): string {
+  return new Intl.DateTimeFormat('en-US', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: timezone,
+  }).format(date);
+}
+
+function isValidTimeZone(timezone: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: timezone }).format(new Date());
+    return true;
+  } catch {
+    return false;
+  }
 }

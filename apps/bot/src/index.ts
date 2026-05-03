@@ -262,6 +262,7 @@ const commandRegistry = createBotCommandRegistry({
       listPlayerTagsForUser: databasePlayerLinks.listPlayerTagsForUser,
       listLastSeenSnapshots: databaseLastSeenSnapshots.listLastSeenSnapshots,
     },
+    timezones: databaseUserTimezonePreferences,
   },
   layout: {
     store: databaseLayoutConfigStore,
