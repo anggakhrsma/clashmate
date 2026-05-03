@@ -1201,6 +1201,32 @@ export interface DatabaseTrackedClanStore {
   listClanCategories: (
     guildId: string,
   ) => Promise<Array<{ id: string; displayName: string; sortOrder?: number }>>;
+  createClanCategory: (input: {
+    guildId: string;
+    actorDiscordUserId: string;
+    displayName: string;
+  }) => Promise<
+    | { status: 'created'; category: { id: string; displayName: string; sortOrder?: number } }
+    | { status: 'duplicate' }
+  >;
+  updateClanCategory: (input: {
+    guildId: string;
+    actorDiscordUserId: string;
+    categoryId: string;
+    displayName: string;
+  }) => Promise<
+    | { status: 'updated'; category: { id: string; displayName: string; sortOrder?: number } }
+    | { status: 'duplicate' }
+    | { status: 'not_found' }
+  >;
+  deleteClanCategory: (input: {
+    guildId: string;
+    actorDiscordUserId: string;
+    categoryId: string;
+  }) => Promise<
+    | { status: 'deleted'; category: { id: string; displayName: string; sortOrder?: number } }
+    | { status: 'not_found' }
+  >;
   listLinkedClans: (
     guildId: string,
   ) => Promise<Array<{ id: string; clanTag: string; name: string; alias: string | null }>>;
@@ -6203,6 +6229,120 @@ export function createDatabaseTrackedClanStore(database: Database): DatabaseTrac
         .orderBy(schema.clanCategories.sortOrder, schema.clanCategories.displayName)
         .limit(25);
     },
+    createClanCategory: async (input) =>
+      database.transaction(async (tx) => {
+        const displayName = normalizeClanCategoryDisplayName(input.displayName);
+        const name = normalizeClanCategoryName(displayName);
+        const [existing] = await tx
+          .select({ id: schema.clanCategories.id })
+          .from(schema.clanCategories)
+          .where(
+            and(
+              eq(schema.clanCategories.guildId, input.guildId),
+              eq(schema.clanCategories.name, name),
+            ),
+          )
+          .limit(1);
+        if (existing) return { status: 'duplicate' };
+
+        await tx.insert(schema.guilds).values({ id: input.guildId }).onConflictDoNothing();
+
+        const [maxSort] = await tx
+          .select({ value: sql<number>`coalesce(max(${schema.clanCategories.sortOrder}), -1)` })
+          .from(schema.clanCategories)
+          .where(eq(schema.clanCategories.guildId, input.guildId));
+        const [category] = await tx
+          .insert(schema.clanCategories)
+          .values({
+            guildId: input.guildId,
+            name,
+            displayName,
+            sortOrder: Number(maxSort?.value ?? -1) + 1,
+          })
+          .returning({
+            id: schema.clanCategories.id,
+            displayName: schema.clanCategories.displayName,
+            sortOrder: schema.clanCategories.sortOrder,
+          });
+        if (!category) throw new Error('Failed to create clan category.');
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: 'clan_category.created',
+          targetType: 'clan_category',
+          targetId: category.id,
+          metadata: { name, displayName },
+        });
+        return { status: 'created', category };
+      }),
+    updateClanCategory: async (input) =>
+      database.transaction(async (tx) => {
+        const displayName = normalizeClanCategoryDisplayName(input.displayName);
+        const name = normalizeClanCategoryName(displayName);
+        const [duplicate] = await tx
+          .select({ id: schema.clanCategories.id })
+          .from(schema.clanCategories)
+          .where(
+            and(
+              eq(schema.clanCategories.guildId, input.guildId),
+              eq(schema.clanCategories.name, name),
+              ne(schema.clanCategories.id, input.categoryId),
+            ),
+          )
+          .limit(1);
+        if (duplicate) return { status: 'duplicate' };
+
+        const [category] = await tx
+          .update(schema.clanCategories)
+          .set({ name, displayName, updatedAt: new Date() })
+          .where(
+            and(
+              eq(schema.clanCategories.guildId, input.guildId),
+              eq(schema.clanCategories.id, input.categoryId),
+            ),
+          )
+          .returning({
+            id: schema.clanCategories.id,
+            displayName: schema.clanCategories.displayName,
+            sortOrder: schema.clanCategories.sortOrder,
+          });
+        if (!category) return { status: 'not_found' };
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: 'clan_category.updated',
+          targetType: 'clan_category',
+          targetId: category.id,
+          metadata: { name, displayName },
+        });
+        return { status: 'updated', category };
+      }),
+    deleteClanCategory: async (input) =>
+      database.transaction(async (tx) => {
+        const [category] = await tx
+          .delete(schema.clanCategories)
+          .where(
+            and(
+              eq(schema.clanCategories.guildId, input.guildId),
+              eq(schema.clanCategories.id, input.categoryId),
+            ),
+          )
+          .returning({
+            id: schema.clanCategories.id,
+            displayName: schema.clanCategories.displayName,
+            sortOrder: schema.clanCategories.sortOrder,
+          });
+        if (!category) return { status: 'not_found' };
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: 'clan_category.deleted',
+          targetType: 'clan_category',
+          targetId: category.id,
+          metadata: { displayName: category.displayName },
+        });
+        return { status: 'deleted', category };
+      }),
     listLinkedClans: async (guildId) => {
       const rows = await database
         .select({
@@ -7631,14 +7771,24 @@ export function createDatabaseClanMemberNotificationConfigStore(
   };
 }
 
+function normalizeClanCategoryDisplayName(category: string): string {
+  const displayName = category.trim();
+  if (!displayName) throw new Error('Clan category name is required.');
+  return displayName;
+}
+
+function normalizeClanCategoryName(category: string): string {
+  return normalizeClanCategoryDisplayName(category).toLowerCase().replace(/\s+/g, '_');
+}
+
 async function findOrCreateClanCategory(
   tx: Parameters<Parameters<Database['transaction']>[0]>[0],
   guildId: string,
   category: string,
   actorDiscordUserId: string,
 ): Promise<{ id: string; displayName: string }> {
-  const displayName = category.trim();
-  const name = displayName.toLowerCase().replace(/\s+/g, '_');
+  const displayName = normalizeClanCategoryDisplayName(category);
+  const name = normalizeClanCategoryName(displayName);
   const [existing] = await tx
     .select({ id: schema.clanCategories.id, displayName: schema.clanCategories.displayName })
     .from(schema.clanCategories)

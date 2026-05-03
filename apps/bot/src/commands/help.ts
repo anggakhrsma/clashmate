@@ -97,6 +97,16 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     details: ['Performs a one-off public Clash API lookup without tracking the clan.'],
   },
   {
+    name: 'category',
+    usage: '/category create|list|edit|delete',
+    description: 'Manage linked clan categories on this server.',
+    category: 'Setup & Logs',
+    details: [
+      'Create, list, rename, or delete categories used by linked clans.',
+      'Requires Manage Server permission. Reorder UI is not available in the first pass.',
+    ],
+  },
+  {
     name: 'clans',
     usage: '/clans [category]',
     description: 'List ClashMate clans linked to this server.',
