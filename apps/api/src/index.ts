@@ -75,6 +75,26 @@ const registerShutdownHandlers = (fastify: { close: () => Promise<void> }) => {
 
 registerShutdownHandlers(app);
 
+const startApi = async () => {
+  const listenOptions = {
+    host: '0.0.0.0',
+    port: config.PORT,
+  } as const;
+
+  try {
+    const address = await app.listen(listenOptions);
+
+    logger.info({ address, ...listenOptions, service: serviceStatus.service }, 'API started');
+  } catch (error) {
+    logger.error(
+      { err: error, ...listenOptions, service: serviceStatus.service },
+      'API startup failed',
+    );
+    process.exitCode = 1;
+    throw error;
+  }
+};
+
 app.get('/', async () => {
   return createServiceMetadata();
 });
@@ -122,7 +142,4 @@ app.get('/ready', async (_request, reply) => {
   }
 });
 
-await app.listen({
-  host: '0.0.0.0',
-  port: config.PORT,
-});
+await startApi();
