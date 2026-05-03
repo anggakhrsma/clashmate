@@ -238,8 +238,9 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     description: 'Manage reminders and send immediate snapshot-based reminder pings.',
     category: 'Setup & Logs',
     details: [
-      'Scheduled reminder storage is implemented for create, list, edit, delete, and config.',
-      'Delivery scheduling and worker fan-out are not active yet; stored schedules are configuration only.',
+      'Create and edit validate reminder durations before storing schedules.',
+      'Reminder channels are constrained to supported guild text, announcement, and thread channels.',
+      'Scheduled delivery and worker fan-out are not active yet; stored schedules are configuration only.',
       '`/reminders now` reads persisted linked-clan member snapshots and player links without calling the Clash API.',
       'Requires Manage Server permission.',
     ],
@@ -262,7 +263,8 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     category: 'Player & Clan',
     details: [
       'Post validates public Clash of Clans OpenLayout links and image screenshots.',
-      'Config requires Manage Server and persists voting/tracking preferences for this server.',
+      'Post shows parsed OpenLayout metadata when the link exposes it.',
+      'Config requires Manage Server and shows saved voting/tracking preferences plus stored tracking summary.',
       'Voting/tracking collectors and layout download tracking are not active yet.',
       'Does not add collectors, webhooks, Clash API calls, or polling enrollment.',
     ],
@@ -360,7 +362,10 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     usage: '/profile [user] [player]',
     description: 'Show linked Clash player accounts for a Discord user.',
     category: 'Player & Clan',
-    details: ['Reads existing ClashMate player links without querying the Clash API.'],
+    details: [
+      'Reads existing ClashMate player links without querying the Clash API.',
+      'Shows the saved guild timezone preference for the target user when one is present.',
+    ],
   },
   {
     name: 'units',
@@ -426,6 +431,7 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     category: 'Setup & Logs',
     details: [
       'Server setup command for clan tracking, linked clan listing, and log notifications.',
+      '`/setup enable` and `/setup disable` are legacy stubs that point to current setup flows.',
     ],
   },
   {
@@ -434,8 +440,8 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     description: 'Show upcoming Clash of Clans game events.',
     category: 'Utility',
     details: [
-      'Shows an approximate recurring UTC calendar for Clan Games, CWL, Raid Weekend, and season reset.',
-      "First pass uses recurring windows instead of ClashPerk's live event feed.",
+      'Shows approximate active and upcoming recurring UTC windows for Clan Games, CWL, Raid Weekend, and season reset.',
+      'This is a recurring calendar, not a live event feed.',
     ],
   },
   {
@@ -462,11 +468,12 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
   {
     name: 'timezone',
     usage: '/timezone location:<IANA timezone identifier>',
-    description: 'Show the current time for an IANA timezone.',
+    description: 'Show the current time and save your server timezone preference.',
     category: 'Utility',
     details: [
       'Accepts IANA timezone identifiers such as UTC, America/New_York, or Asia/Jakarta.',
-      'First pass does not persist preferences or geocode free-form city names.',
+      "Persists the invoking user's timezone preference for this server.",
+      'Does not geocode free-form city or place names.',
     ],
   },
   {
@@ -481,7 +488,10 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     usage: '/usage [chart] [limit]',
     description: 'Show owner-only command usage metrics.',
     category: 'Owner',
-    details: ['Bot owner command for usage and growth metrics.'],
+    details: [
+      'Bot owner command for usage and growth metrics.',
+      '`/usage chart` includes a built-in text growth chart fallback for server metrics.',
+    ],
   },
   {
     name: 'blacklist',
