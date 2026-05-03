@@ -90,6 +90,17 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     ],
   },
   {
+    name: 'compo',
+    usage: '/compo [clan] [user]',
+    description: 'Show town hall composition for a linked clan.',
+    category: 'Player & Clan',
+    details: [
+      'Uses a one-off Clash API clan lookup for a server-linked clan.',
+      'The `user` option is accepted for parity but first-pass clan resolution uses the explicit clan or first linked clan.',
+      'Shows a no-data message if the Clash API response does not include member town hall levels.',
+    ],
+  },
+  {
     name: 'clan-games',
     usage: '/clan-games [clan] [season]',
     description: 'Show Clan Games progress for a linked clan.',

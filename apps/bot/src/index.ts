@@ -88,6 +88,12 @@ const commandRegistry = createBotCommandRegistry({
   clans: {
     clans: databaseTrackedClans,
   },
+  compo: {
+    store: {
+      listLinkedClans: databaseTrackedClans.listLinkedClans,
+    },
+    coc: cocClient,
+  },
   debug: {
     dataReader: databaseDebugReader,
     logger,
@@ -186,6 +192,7 @@ const commandRegistry = createBotCommandRegistry({
       'clan-games',
       'clan',
       'clans',
+      'compo',
       'debug',
       'donations',
       'guild-ban',
