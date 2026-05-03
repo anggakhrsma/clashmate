@@ -202,6 +202,13 @@ const commandRegistry = createBotCommandRegistry({
     coc: cocClient,
     memberNotifications: databaseClanMemberNotifications,
   },
+  stats: {
+    store: {
+      listLinkedClans: databaseTrackedClans.listLinkedClans,
+      listPlayerTagsForUser: databasePlayerLinks.listPlayerTagsForUser,
+      listWarAttackHistoryForGuild: databaseWarAttackHistory.listWarAttackHistoryForGuild,
+    },
+  },
   status: {
     metricReader: statusMetricReader,
     version: loadBotPackageVersion(),
@@ -240,6 +247,7 @@ const commandRegistry = createBotCommandRegistry({
       'rushed',
       'search',
       'setup',
+      'stats',
       'status',
       'timezone',
       'units',

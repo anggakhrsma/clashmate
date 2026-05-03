@@ -221,6 +221,17 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     ],
   },
   {
+    name: 'stats',
+    usage: '/stats attacks [clan] [user] [stars] [days] [attempt] or /stats defense',
+    description: 'Show war attack stats from stored history.',
+    category: 'Player & Clan',
+    details: [
+      'Reads persisted war attack history for linked clans without querying the Clash API.',
+      'Defense stats are registered for parity but are not available until defense events are stored.',
+      'Star and attempt filters are conservative because first-pass history rows are stored as attacker aggregates.',
+    ],
+  },
+  {
     name: 'profile',
     usage: '/profile [user] [player]',
     description: 'Show linked Clash player accounts for a Discord user.',
