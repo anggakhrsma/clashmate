@@ -13,6 +13,16 @@ const commaSeparatedIds = z
 
 const requiredTrimmedString = z.string().trim().min(1);
 
+const acceptedLogLevels = ['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent'];
+
+const logLevel = z
+  .string()
+  .trim()
+  .default('info')
+  .refine((value) => acceptedLogLevels.includes(value), {
+    message: 'Invalid log level. Expected one of: trace, debug, info, warn, error, fatal, silent',
+  });
+
 const isPostgresqlDatabaseUrl = (value: string): boolean => {
   try {
     const url = new URL(value);
@@ -46,7 +56,7 @@ const optionalUrl = z.preprocess((value) => {
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  LOG_LEVEL: z.string().default('info'),
+  LOG_LEVEL: logLevel,
   PORT: z.coerce.number().int().positive().max(65535).default(3000),
   PUBLIC_BASE_URL: z.string().url().default('http://localhost:3000'),
 
