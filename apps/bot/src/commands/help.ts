@@ -156,6 +156,16 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     details: ['Performs a one-off public Clash API lookup and groups API-provided unit levels.'],
   },
   {
+    name: 'upgrades',
+    usage: '/upgrades [player] [user]',
+    description: 'Show remaining player unit upgrades from public Clash API maxLevel data.',
+    category: 'Player & Clan',
+    details: [
+      'Performs a one-off player lookup without tracking the player.',
+      'First pass uses public API maxLevel values instead of static town-hall max tables.',
+    ],
+  },
+  {
     name: 'link',
     usage: '/link create|list|delete',
     description: 'Manage Discord user links to Clash player or clan tags.',
