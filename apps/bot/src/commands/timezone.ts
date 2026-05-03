@@ -1,6 +1,8 @@
 import type { DatabaseUserTimezonePreferenceStore } from '@clashmate/database';
 import type { CommandContext, SlashCommandDefinition } from '@clashmate/discord';
 import {
+  type ApplicationCommandOptionChoiceData,
+  type AutocompleteInteraction,
   type ChatInputCommandInteraction,
   type ColorResolvable,
   EmbedBuilder,
@@ -24,6 +26,7 @@ export const timezoneCommandData = new SlashCommandBuilder()
     option
       .setName('location')
       .setDescription('IANA timezone identifier, such as UTC, America/New_York, or Asia/Jakarta.')
+      .setAutocomplete(true)
       .setRequired(true),
   );
 
@@ -57,6 +60,21 @@ const TIME_ZONE_DATE_PART_KEYS = new Set<string>([
   'second',
 ]);
 
+const FALLBACK_TIMEZONES = [
+  'UTC',
+  'America/New_York',
+  'America/Los_Angeles',
+  'Europe/London',
+  'Europe/Paris',
+  'Asia/Jakarta',
+  'Asia/Tokyo',
+  'Australia/Sydney',
+] as const;
+
+type SupportedTimeZoneIntl = typeof Intl & {
+  readonly supportedValuesOf?: (key: 'timeZone') => string[];
+};
+
 export function createTimezoneSlashCommand(
   options: TimezoneCommandOptions,
 ): SlashCommandDefinition {
@@ -67,7 +85,39 @@ export function createTimezoneSlashCommand(
       if (!interaction.isChatInputCommand()) return;
       await executeTimezoneInteraction(interaction, context, options);
     },
+    autocomplete: async (interaction) => {
+      if (interaction.commandName !== TIMEZONE_COMMAND_NAME) return;
+      await autocompleteTimezone(interaction);
+    },
   };
+}
+
+async function autocompleteTimezone(interaction: AutocompleteInteraction): Promise<void> {
+  const focused = interaction.options.getFocused(true);
+  if (focused.name !== 'location') {
+    await interaction.respond([]);
+    return;
+  }
+
+  await interaction.respond(filterTimezoneChoices(String(focused.value ?? '')));
+}
+
+export function filterTimezoneChoices(query: string): ApplicationCommandOptionChoiceData<string>[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  return listSupportedTimezones()
+    .map((timezone, index) => ({
+      timezone,
+      index,
+      normalizedTimezone: timezone.toLowerCase(),
+    }))
+    .filter(({ normalizedTimezone }) => timezoneMatchesQuery(normalizedTimezone, normalizedQuery))
+    .sort((left, right) => {
+      const leftRank = timezoneMatchRank(left.normalizedTimezone, normalizedQuery);
+      const rightRank = timezoneMatchRank(right.normalizedTimezone, normalizedQuery);
+      return leftRank - rightRank || left.index - right.index;
+    })
+    .slice(0, 25)
+    .map(({ timezone }) => ({ name: timezone, value: timezone }));
 }
 
 export async function executeTimezoneInteraction(
@@ -153,6 +203,27 @@ export function isValidTimeZone(timezone: string): boolean {
     if (error instanceof RangeError) return false;
     throw error;
   }
+}
+
+function listSupportedTimezones(): string[] {
+  const supportedValuesOf = (Intl as SupportedTimeZoneIntl).supportedValuesOf;
+  const timezones = supportedValuesOf?.('timeZone') ?? [];
+  const uniqueTimezones = new Set<string>(['UTC', ...timezones, ...FALLBACK_TIMEZONES]);
+  return [...uniqueTimezones].filter(isValidTimeZone);
+}
+
+function timezoneMatchesQuery(normalizedTimezone: string, normalizedQuery: string): boolean {
+  if (!normalizedQuery) return true;
+  return (
+    normalizedTimezone.startsWith(normalizedQuery) || normalizedTimezone.includes(normalizedQuery)
+  );
+}
+
+function timezoneMatchRank(normalizedTimezone: string, normalizedQuery: string): number {
+  if (!normalizedQuery) return normalizedTimezone === 'utc' ? 0 : 1;
+  if (normalizedTimezone === 'utc' && 'utc'.startsWith(normalizedQuery)) return 0;
+  if (normalizedTimezone.startsWith(normalizedQuery)) return 1;
+  return 2;
 }
 
 export function formatLocalDateTime(timezone: string, date = new Date()): string {
