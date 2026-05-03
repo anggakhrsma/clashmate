@@ -6,6 +6,7 @@ import {
   createClanMemberJoinLeaveHistoryReader,
   createClanMemberSnapshotReader,
   createDatabase,
+  createDatabaseCallerBaseStore,
   createDatabaseClanMemberNotificationConfigStore,
   createDatabaseCommandUsageRecorder,
   createDatabaseCommandWhitelistStore,
@@ -47,6 +48,7 @@ const logger = createLogger('bot', config.LOG_LEVEL);
 const database = createDatabase(config.DATABASE_URL);
 const commandUsageRecorder = createDatabaseCommandUsageRecorder(database);
 const commandWhitelistStore = createDatabaseCommandWhitelistStore(database);
+const databaseCallerBaseStore = createDatabaseCallerBaseStore(database);
 const databaseConfigStore = createDatabaseConfigStore(database);
 const databaseNicknameConfigStore = createDatabaseNicknameConfigStore(database);
 const databaseDebugReader = createDatabaseDebugReader(database);
@@ -84,6 +86,7 @@ const loadedCommandNames = [
   'blacklist',
   'boosts',
   'capital',
+  'caller',
   'category',
   'clan-games',
   'clan',
@@ -156,6 +159,13 @@ const commandRegistry = createBotCommandRegistry({
       listClansForGuild: databaseTrackedClans.listClansForGuild,
       listClanMemberSnapshotsForGuild: databaseClanMemberSnapshots.listClanMemberSnapshotsForGuild,
       listPlayerTagsForUser: databasePlayerLinks.listPlayerTagsForUser,
+    },
+  },
+  caller: {
+    store: {
+      getLatestWarSnapshotsForGuild: databaseWarSnapshots.getLatestWarSnapshotsForGuild,
+      assignCallerBase: databaseCallerBaseStore.assignCallerBase,
+      clearCallerBase: databaseCallerBaseStore.clearCallerBase,
     },
   },
   category: {

@@ -5,6 +5,7 @@ import { createArmySlashCommand } from './army.js';
 import { type AttacksCommandOptions, createAttacksSlashCommand } from './attacks.js';
 import { type BlacklistCommandOptions, createBlacklistSlashCommand } from './blacklist.js';
 import { type BoostsCommandOptions, createBoostsSlashCommand } from './boosts.js';
+import { type CallerCommandOptions, createCallerSlashCommand } from './caller.js';
 import { type CapitalCommandOptions, createCapitalSlashCommand } from './capital.js';
 import { type CategoryCommandOptions, createCategorySlashCommand } from './category.js';
 import { type ClanCommandOptions, createClanSlashCommand } from './clan.js';
@@ -53,6 +54,7 @@ export interface BotCommandRegistryOptions {
   blacklist: BlacklistCommandOptions;
   boosts: BoostsCommandOptions;
   capital: CapitalCommandOptions;
+  caller: CallerCommandOptions;
   category: CategoryCommandOptions;
   clanGames: ClanGamesCommandOptions;
   clan: ClanCommandOptions;
@@ -99,6 +101,7 @@ export function createBotCommandRegistry(options: BotCommandRegistryOptions): Co
   registry.registerSlash(createBlacklistSlashCommand(options.blacklist));
   registry.registerSlash(createBoostsSlashCommand(options.boosts));
   registry.registerSlash(createCapitalSlashCommand(options.capital));
+  registry.registerSlash(createCallerSlashCommand(options.caller));
   registry.registerSlash(createCategorySlashCommand(options.category));
   registry.registerSlash(createClanGamesSlashCommand(options.clanGames));
   registry.registerSlash(createClanSlashCommand(options.clan));

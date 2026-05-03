@@ -108,6 +108,18 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     ],
   },
   {
+    name: 'caller',
+    usage:
+      '/caller assign defense_target:<1-50> offense_target:<1-50> [notes] [hours] or /caller clear defense_target:<1-50>',
+    description: 'Manage persisted war base calls from latest stored war snapshots.',
+    category: 'Player & Clan',
+    details: [
+      'Reads the latest persisted current-war snapshot for a linked clan and never performs a live Clash API lookup.',
+      'Stores assignments in guild settings by guild, war key, clan tag, and defensive map position.',
+      'Use clear to remove a defensive target assignment.',
+    ],
+  },
+  {
     name: 'category',
     usage: '/category create|list|edit|delete',
     description: 'Manage linked clan categories on this server.',

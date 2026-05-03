@@ -131,6 +131,48 @@ export interface CommandWhitelistEntryRecord {
   isRole: boolean;
 }
 
+export interface CallerBaseAssignmentRecord {
+  guildId: string;
+  clanTag: string;
+  warKey: string;
+  defenseMapPosition: number;
+  offenseMapPosition: number;
+  defenseTag: string | null;
+  defenseName: string | null;
+  offenseTag: string | null;
+  offenseName: string | null;
+  note: string | null;
+  expiresAt: string | null;
+  actorDiscordUserId: string;
+  updatedAt: string;
+}
+
+export interface DatabaseCallerBaseStore {
+  assignCallerBase: (input: {
+    guildId: string;
+    guildName: string | null;
+    clanTag: string;
+    warKey: string;
+    defenseMapPosition: number;
+    offenseMapPosition: number;
+    defenseTag: string | null;
+    defenseName: string | null;
+    offenseTag: string | null;
+    offenseName: string | null;
+    note: string | null;
+    expiresAt: Date | null;
+    actorDiscordUserId: string;
+  }) => Promise<void>;
+  clearCallerBase: (input: {
+    guildId: string;
+    guildName: string | null;
+    clanTag: string;
+    warKey: string;
+    defenseMapPosition: number;
+    actorDiscordUserId: string;
+  }) => Promise<boolean>;
+}
+
 export interface DatabaseCommandWhitelistStore {
   listCommandWhitelist: (guildId: string) => Promise<CommandWhitelistEntryRecord[]>;
   addCommandWhitelistEntry: (input: {
@@ -1623,7 +1665,55 @@ function readStringArraySetting(value: unknown): string[] {
   return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
 }
 
+const CALLER_BASE_CALLS_SETTING_KEY = 'caller_base_calls';
 const COMMAND_WHITELIST_SETTING_KEY = 'command_whitelist';
+
+function readCallerBaseCallsSetting(value: unknown): CallerBaseAssignmentRecord[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item): CallerBaseAssignmentRecord[] => {
+    if (!item || typeof item !== 'object') return [];
+    const record = item as Record<string, unknown>;
+    const guildId = getRecordValue(record, 'guildId');
+    const clanTag = getRecordValue(record, 'clanTag');
+    const warKey = getRecordValue(record, 'warKey');
+    const defenseMapPosition = getRecordValue(record, 'defenseMapPosition');
+    const offenseMapPosition = getRecordValue(record, 'offenseMapPosition');
+    const actorDiscordUserId = getRecordValue(record, 'actorDiscordUserId');
+    const updatedAt = getRecordValue(record, 'updatedAt');
+    if (
+      typeof guildId !== 'string' ||
+      typeof clanTag !== 'string' ||
+      typeof warKey !== 'string' ||
+      typeof defenseMapPosition !== 'number' ||
+      typeof offenseMapPosition !== 'number' ||
+      typeof actorDiscordUserId !== 'string' ||
+      typeof updatedAt !== 'string'
+    ) {
+      return [];
+    }
+    return [
+      {
+        guildId,
+        clanTag,
+        warKey,
+        defenseMapPosition,
+        offenseMapPosition,
+        defenseTag: readNullableString(getRecordValue(record, 'defenseTag')),
+        defenseName: readNullableString(getRecordValue(record, 'defenseName')),
+        offenseTag: readNullableString(getRecordValue(record, 'offenseTag')),
+        offenseName: readNullableString(getRecordValue(record, 'offenseName')),
+        note: readNullableString(getRecordValue(record, 'note')),
+        expiresAt: readNullableString(getRecordValue(record, 'expiresAt')),
+        actorDiscordUserId,
+        updatedAt,
+      },
+    ];
+  });
+}
+
+function readNullableString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
 
 function readCommandWhitelistSetting(value: unknown): CommandWhitelistEntryRecord[] {
   if (!Array.isArray(value)) return [];
@@ -1869,6 +1959,134 @@ export function createDatabaseNicknameConfigStore(database: Database): DatabaseN
         });
 
         return readNicknameConfig(tx, input.guildId);
+      }),
+  };
+}
+
+export function createDatabaseCallerBaseStore(database: Database): DatabaseCallerBaseStore {
+  return {
+    assignCallerBase: async (input) =>
+      database.transaction(async (tx) => {
+        const now = new Date();
+        await tx
+          .insert(schema.guilds)
+          .values({ id: input.guildId, name: input.guildName, updatedAt: now })
+          .onConflictDoUpdate({
+            target: schema.guilds.id,
+            set: { name: input.guildName, updatedAt: now },
+          });
+        const [setting] = await tx
+          .select({ value: schema.guildSettings.value })
+          .from(schema.guildSettings)
+          .where(
+            and(
+              eq(schema.guildSettings.guildId, input.guildId),
+              eq(schema.guildSettings.key, CALLER_BASE_CALLS_SETTING_KEY),
+            ),
+          )
+          .limit(1);
+        const retained = readCallerBaseCallsSetting(setting?.value).filter(
+          (call) =>
+            !(
+              call.warKey === input.warKey &&
+              call.clanTag === input.clanTag &&
+              call.defenseMapPosition === input.defenseMapPosition
+            ),
+        );
+        const value: CallerBaseAssignmentRecord[] = [
+          ...retained,
+          {
+            guildId: input.guildId,
+            clanTag: input.clanTag,
+            warKey: input.warKey,
+            defenseMapPosition: input.defenseMapPosition,
+            offenseMapPosition: input.offenseMapPosition,
+            defenseTag: input.defenseTag,
+            defenseName: input.defenseName,
+            offenseTag: input.offenseTag,
+            offenseName: input.offenseName,
+            note: input.note,
+            expiresAt: input.expiresAt?.toISOString() ?? null,
+            actorDiscordUserId: input.actorDiscordUserId,
+            updatedAt: now.toISOString(),
+          },
+        ];
+        await tx
+          .insert(schema.guildSettings)
+          .values({
+            guildId: input.guildId,
+            key: CALLER_BASE_CALLS_SETTING_KEY,
+            value,
+            updatedAt: now,
+          })
+          .onConflictDoUpdate({
+            target: [schema.guildSettings.guildId, schema.guildSettings.key],
+            set: { value, updatedAt: now },
+          });
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: 'caller.assigned',
+          targetType: 'war_base_call',
+          targetId: `${input.warKey}:${input.clanTag}:${input.defenseMapPosition}`,
+          metadata: { clanTag: input.clanTag, warKey: input.warKey },
+          createdAt: now,
+        });
+      }),
+    clearCallerBase: async (input) =>
+      database.transaction(async (tx) => {
+        const now = new Date();
+        await tx
+          .insert(schema.guilds)
+          .values({ id: input.guildId, name: input.guildName, updatedAt: now })
+          .onConflictDoUpdate({
+            target: schema.guilds.id,
+            set: { name: input.guildName, updatedAt: now },
+          });
+        const [setting] = await tx
+          .select({ value: schema.guildSettings.value })
+          .from(schema.guildSettings)
+          .where(
+            and(
+              eq(schema.guildSettings.guildId, input.guildId),
+              eq(schema.guildSettings.key, CALLER_BASE_CALLS_SETTING_KEY),
+            ),
+          )
+          .limit(1);
+        const current = readCallerBaseCallsSetting(setting?.value);
+        const value = current.filter(
+          (call) =>
+            !(
+              call.warKey === input.warKey &&
+              call.clanTag === input.clanTag &&
+              call.defenseMapPosition === input.defenseMapPosition
+            ),
+        );
+        const cleared = value.length !== current.length;
+        await tx
+          .insert(schema.guildSettings)
+          .values({
+            guildId: input.guildId,
+            key: CALLER_BASE_CALLS_SETTING_KEY,
+            value,
+            updatedAt: now,
+          })
+          .onConflictDoUpdate({
+            target: [schema.guildSettings.guildId, schema.guildSettings.key],
+            set: { value, updatedAt: now },
+          });
+        if (cleared) {
+          await tx.insert(schema.auditLogs).values({
+            guildId: input.guildId,
+            actorDiscordUserId: input.actorDiscordUserId,
+            action: 'caller.cleared',
+            targetType: 'war_base_call',
+            targetId: `${input.warKey}:${input.clanTag}:${input.defenseMapPosition}`,
+            metadata: { clanTag: input.clanTag, warKey: input.warKey },
+            createdAt: now,
+          });
+        }
+        return cleared;
       }),
   };
 }
