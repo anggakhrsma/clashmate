@@ -156,7 +156,12 @@ const commandRegistry = createBotCommandRegistry({
     coc: cocClient,
   },
   autorole: {
-    store: databaseAutoroleSettingsStore,
+    store: {
+      getAutoroleSettings: databaseAutoroleSettingsStore.getAutoroleSettings,
+      updateAutoroleSettings: databaseAutoroleSettingsStore.updateAutoroleSettings,
+      listLinkedClans: databaseTrackedClans.listLinkedClans,
+    },
+    getGuildConfig: databaseConfigStore.getGuildConfig,
   },
   boosts: {
     store: {

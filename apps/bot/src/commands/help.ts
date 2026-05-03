@@ -81,12 +81,13 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
   },
   {
     name: 'autorole',
-    usage: '/autorole clan-roles|town-hall|leagues|family|list|disable|config',
+    usage: '/autorole clan-roles|town-hall|leagues|family|list|disable|refresh|config',
     description: 'Store first-pass autorole mappings and flags for this server.',
     category: 'Setup & Logs',
     details: [
-      'Requires Manage Server permission for configuration changes.',
+      'Requires Manage Server permission or a configured bot manager role for configuration changes.',
       'Stores role IDs and behavior flags in guild settings with audit logs.',
+      '`/autorole refresh` returns an ephemeral dry-run preview only.',
       'Does not mutate Discord roles, refresh members, call the Clash API, or enroll polling.',
     ],
   },

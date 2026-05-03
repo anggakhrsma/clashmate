@@ -1,7 +1,10 @@
-import type { CommandContext, SlashCommandDefinition } from '@clashmate/discord';
+import { type CommandContext, isOwner, type SlashCommandDefinition } from '@clashmate/discord';
 import {
+  type ApplicationCommandOptionChoiceData,
+  type AutocompleteInteraction,
   type ChatInputCommandInteraction,
   EmbedBuilder,
+  escapeMarkdown,
   PermissionFlagsBits,
   type Role,
   SlashCommandBuilder,
@@ -83,8 +86,22 @@ export interface AutoroleSettingsStore {
   updateAutoroleSettings: (input: UpdateAutoroleSettingsInput) => Promise<AutoroleSettingsView>;
 }
 
+export interface AutoroleLinkedClan {
+  readonly id: string;
+  readonly clanTag: string;
+  readonly name: string | null;
+  readonly alias: string | null;
+}
+
+export interface AutoroleConfigView {
+  readonly botManagerRoleIds: readonly string[];
+}
+
 export interface AutoroleCommandOptions {
-  store: AutoroleSettingsStore;
+  store: AutoroleSettingsStore & {
+    readonly listLinkedClans: (guildId: string) => Promise<AutoroleLinkedClan[]>;
+  };
+  readonly getGuildConfig?: (guildId: string) => Promise<AutoroleConfigView>;
 }
 
 export const autoroleCommandData = new SlashCommandBuilder()
@@ -105,6 +122,7 @@ export const autoroleCommandData = new SlashCommandBuilder()
           option
             .setName('clans')
             .setDescription('Clan tags or aliases to store these role mappings for.')
+            .setAutocomplete(true)
             .setRequired(true),
         ),
     ).addStringOption((option) =>
@@ -153,6 +171,20 @@ export const autoroleCommandData = new SlashCommandBuilder()
   )
   .addSubcommand((subcommand) =>
     subcommand.setName('list').setDescription('List stored autorole mappings.'),
+  )
+  .addSubcommand((subcommand) =>
+    subcommand
+      .setName('refresh')
+      .setDescription('Preview an autorole refresh without changing Discord roles or nicknames.')
+      .addMentionableOption((option) =>
+        option.setName('user_or_role').setDescription('User or role to preview refresh scope for.'),
+      )
+      .addBooleanOption((option) =>
+        option.setName('is_test_run').setDescription('Preview as a test run.'),
+      )
+      .addBooleanOption((option) =>
+        option.setName('force_refresh').setDescription('Preview with force refresh requested.'),
+      ),
   )
   .addSubcommand((subcommand) =>
     subcommand
@@ -227,12 +259,40 @@ export function createAutoroleSlashCommand(
       if (interaction.commandName !== AUTOROLE_COMMAND_NAME) return;
       await executeAutoroleInteraction(interaction, context, options);
     },
+    autocomplete: async (interaction) => {
+      if (interaction.commandName !== AUTOROLE_COMMAND_NAME) return;
+      await autocompleteAutorole(interaction, options);
+    },
   };
+}
+
+async function autocompleteAutorole(
+  interaction: AutocompleteInteraction,
+  options: AutoroleCommandOptions,
+): Promise<void> {
+  if (!interaction.guildId) {
+    await interaction.respond([]);
+    return;
+  }
+
+  const focused = interaction.options.getFocused(true);
+  const subcommand = interaction.options.getSubcommand(false);
+  if (subcommand !== 'clan-roles' || focused.name !== 'clans') {
+    await interaction.respond([]);
+    return;
+  }
+
+  try {
+    const clans = await options.store.listLinkedClans(interaction.guildId);
+    await interaction.respond(filterAutoroleClanChoices(clans, String(focused.value ?? '')));
+  } catch {
+    await interaction.respond([]);
+  }
 }
 
 export async function executeAutoroleInteraction(
   interaction: ChatInputCommandInteraction,
-  _context: CommandContext,
+  context: CommandContext,
   options: AutoroleCommandOptions,
 ): Promise<void> {
   if (!interaction.inCachedGuild()) {
@@ -243,10 +303,7 @@ export async function executeAutoroleInteraction(
     return;
   }
   const subcommand = interaction.options.getSubcommand();
-  if (
-    subcommand !== 'list' &&
-    !interaction.memberPermissions.has(PermissionFlagsBits.ManageGuild)
-  ) {
+  if (subcommand !== 'list' && !(await canManageAutorole(interaction, context, options))) {
     await interaction.reply({
       content: 'You need the Manage Server permission to configure autoroles.',
       ephemeral: true,
@@ -259,6 +316,14 @@ export async function executeAutoroleInteraction(
     guildName: interaction.guild.name,
     actorDiscordUserId: interaction.user.id,
   };
+  if (subcommand === 'refresh') {
+    const view = await options.store.getAutoroleSettings(interaction.guildId);
+    await interaction.reply({
+      embeds: [buildAutoroleRefreshPreviewEmbed(view, interaction)],
+      ephemeral: true,
+    });
+    return;
+  }
   const patch = buildPatch(interaction, subcommand);
   const view = patch
     ? await options.store.updateAutoroleSettings({ ...guildInput, ...patch })
@@ -268,6 +333,30 @@ export async function executeAutoroleInteraction(
     embeds: [buildAutoroleSettingsEmbed(view, subcommand)],
     ephemeral: true,
   });
+}
+
+async function canManageAutorole(
+  interaction: ChatInputCommandInteraction<'cached'>,
+  context: CommandContext,
+  options: AutoroleCommandOptions,
+): Promise<boolean> {
+  if (isOwner(interaction.user.id, context.ownerIds)) return true;
+  if (interaction.memberPermissions.has(PermissionFlagsBits.ManageGuild)) return true;
+  if (!options.getGuildConfig) return false;
+
+  const config = await options.getGuildConfig(interaction.guildId);
+  return config.botManagerRoleIds.some((roleId) => interaction.member.roles.cache.has(roleId));
+}
+
+export function filterAutoroleClanChoices(
+  clans: readonly AutoroleLinkedClan[],
+  query: string,
+): ApplicationCommandOptionChoiceData<string>[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  return clans
+    .filter((clan) => clanMatchesQuery(clan, normalizedQuery))
+    .slice(0, 25)
+    .map((clan) => ({ name: formatClanChoiceName(clan), value: clan.alias ?? clan.clanTag }));
 }
 
 function buildPatch(
@@ -422,6 +511,45 @@ export function buildAutoroleSettingsEmbed(
     );
 }
 
+export function buildAutoroleRefreshPreviewEmbed(
+  view: AutoroleSettingsView,
+  interaction: ChatInputCommandInteraction,
+): EmbedBuilder {
+  const target = interaction.options.getMentionable('user_or_role');
+  const isTestRun = interaction.options.getBoolean('is_test_run');
+  const forceRefresh = interaction.options.getBoolean('force_refresh');
+
+  return new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle('Autorole Refresh Preview')
+    .setDescription(
+      'Dry run only: ClashMate did not change Discord roles or nicknames. Autorole mutation is not implemented yet.',
+    )
+    .addFields(
+      {
+        name: 'Requested options',
+        value: [
+          `Target: ${target ? target.toString() : 'Entire server preview'}`,
+          `Test run: ${formatBool(isTestRun)}`,
+          `Force refresh: ${formatBool(forceRefresh)}`,
+        ].join('\n'),
+        inline: false,
+      },
+      {
+        name: 'Stored config counts',
+        value: [
+          `Clan role groups: ${Object.keys(view.clanRoles).length}`,
+          `Clan role mappings: ${countNestedRoles(view.clanRoles)}`,
+          `Town Hall roles: ${countRoles(view.townHallRoles)}`,
+          `League roles: ${countRoles(view.leagueRoles)}`,
+          `Family roles: ${countRoles(view.familyRoles)}`,
+        ].join('\n'),
+        inline: false,
+      },
+      { name: 'Last action', value: `/${AUTOROLE_COMMAND_NAME} refresh`, inline: false },
+    );
+}
+
 function formatRoles(roles: Record<string, string>): string {
   const entries = Object.entries(roles).filter(([, roleId]) => roleId);
   return entries.length
@@ -454,6 +582,26 @@ function formatConfig(view: AutoroleSettingsView): string {
 
 function formatBool(value: boolean | null): string {
   return value === null ? 'Not set' : value ? 'Yes' : 'No';
+}
+
+function countRoles(roles: Record<string, string>): number {
+  return Object.values(roles).filter(Boolean).length;
+}
+
+function countNestedRoles(roles: Record<string, Record<string, string>>): number {
+  return Object.values(roles).reduce((total, mapping) => total + countRoles(mapping), 0);
+}
+
+function clanMatchesQuery(clan: AutoroleLinkedClan, normalizedQuery: string): boolean {
+  if (!normalizedQuery) return true;
+  return [clan.clanTag, clan.clanTag.replace(/^#/, ''), clan.name ?? '', clan.alias ?? '']
+    .map((value) => value.toLowerCase())
+    .some((value) => value.includes(normalizedQuery));
+}
+
+function formatClanChoiceName(clan: AutoroleLinkedClan): string {
+  const label = clan.alias?.trim() || clan.name?.trim() || clan.clanTag;
+  return `${escapeMarkdown(label)} (${clan.clanTag})`.slice(0, 100);
 }
 
 function parseBooleanString(value: string | null): boolean | null {
