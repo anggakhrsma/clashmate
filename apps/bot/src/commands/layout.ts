@@ -74,8 +74,21 @@ export interface LayoutConfigRecord {
   allowTracking: boolean;
 }
 
+export interface LayoutSubmissionSummaryRecord {
+  count: number;
+  latest: Array<{
+    id: string;
+    layoutLink: string;
+    createdAt: string;
+  }>;
+}
+
 export interface LayoutConfigStore {
   getLayoutConfig: (guildId: string) => Promise<LayoutConfigRecord>;
+  getLayoutSubmissionSummary: (
+    guildId: string,
+    limit?: number,
+  ) => Promise<LayoutSubmissionSummaryRecord>;
   updateLayoutConfig: (input: {
     guildId: string;
     guildName: string | null;
@@ -212,10 +225,11 @@ export async function executeLayoutConfig(
         ...(typeof allowTracking === 'boolean' ? { allowTracking } : {}),
       })
     : await options.store.getLayoutConfig(interaction.guildId);
+  const submissionSummary = await options.store.getLayoutSubmissionSummary(interaction.guildId, 3);
   const view = collectLayoutView(interaction, context);
 
   await interaction.reply({
-    embeds: [buildLayoutConfigEmbed({ view, config, updated: hasUpdates })],
+    embeds: [buildLayoutConfigEmbed({ view, config, submissionSummary, updated: hasUpdates })],
     ephemeral: true,
   });
 }
@@ -266,12 +280,14 @@ export function buildLayoutPostEmbed(input: {
 export function buildLayoutConfigEmbed(input: {
   view: LayoutView;
   config: LayoutConfigRecord;
+  submissionSummary: LayoutSubmissionSummaryRecord;
   updated: boolean;
 }): EmbedBuilder {
   const settings = [
     `Layout voting: ${formatEnabledBoolean(input.config.allowVoting)}`,
     `Layout tracking: ${formatEnabledBoolean(input.config.allowTracking)}`,
   ].join('\n');
+  const trackedSubmissionSummary = formatLayoutSubmissionSummary(input.submissionSummary);
 
   return new EmbedBuilder()
     .setColor(input.view.color ?? DEFAULT_LAYOUT_EMBED_COLOR)
@@ -282,6 +298,8 @@ export function buildLayoutConfigEmbed(input: {
         'Voting/tracking collectors and layout download tracking are not implemented yet.',
         '',
         settings,
+        '',
+        trackedSubmissionSummary,
       ].join('\n'),
     )
     .setAuthor(
@@ -314,4 +332,26 @@ export function isImageAttachment(
 
 function formatEnabledBoolean(value: boolean): string {
   return value ? 'enabled' : 'disabled';
+}
+
+function formatLayoutSubmissionSummary(summary: LayoutSubmissionSummaryRecord): string {
+  if (summary.count === 0) return 'Tracked layout submissions: 0';
+
+  const latest = summary.latest
+    .map((submission) => {
+      const timestamp = formatDiscordTimestamp(submission.createdAt);
+      return `• ${submission.id}: ${submission.layoutLink}${timestamp ? ` (${timestamp})` : ''}`;
+    })
+    .join('\n');
+
+  return [`Tracked layout submissions: ${summary.count}`, 'Latest tracked submissions:', latest]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function formatDiscordTimestamp(value: string): string | null {
+  const date = new Date(value);
+  const time = date.getTime();
+  if (!Number.isFinite(time)) return null;
+  return `<t:${Math.floor(time / 1000)}:f>`;
 }

@@ -175,6 +175,11 @@ export interface LayoutSubmissionRecord {
   createdAt: string;
 }
 
+export interface LayoutSubmissionSummaryRecord {
+  count: number;
+  latest: LayoutSubmissionRecord[];
+}
+
 export interface CreateLayoutSubmissionInput {
   guildId: string;
   guildName: string | null;
@@ -195,6 +200,10 @@ export interface UpdateLayoutConfigInput {
 
 export interface DatabaseLayoutConfigStore {
   getLayoutConfig: (guildId: string) => Promise<LayoutConfigRecord>;
+  getLayoutSubmissionSummary: (
+    guildId: string,
+    limit?: number,
+  ) => Promise<LayoutSubmissionSummaryRecord>;
   updateLayoutConfig: (input: UpdateLayoutConfigInput) => Promise<LayoutConfigRecord>;
   createLayoutSubmission: (input: CreateLayoutSubmissionInput) => Promise<LayoutSubmissionRecord>;
 }
@@ -2648,6 +2657,13 @@ export function createDatabaseNicknameConfigStore(database: Database): DatabaseN
 export function createDatabaseLayoutConfigStore(database: Database): DatabaseLayoutConfigStore {
   return {
     getLayoutConfig: async (guildId) => readLayoutConfig(database, guildId),
+    getLayoutSubmissionSummary: async (guildId, limit = 3) => {
+      const submissions = await readLayoutSubmissions(database, guildId);
+      return {
+        count: submissions.length,
+        latest: submissions.slice(0, Math.max(0, limit)),
+      };
+    },
     updateLayoutConfig: async (input) =>
       database.transaction(async (tx) => {
         const now = new Date();
