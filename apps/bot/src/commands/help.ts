@@ -219,6 +219,18 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     ],
   },
   {
+    name: 'layout',
+    usage:
+      '/layout post screenshot:<image> layout_link:<link> [notes] or /layout config [allow_voting] [allow_tracking]',
+    description: 'Share Clash of Clans layout screenshots and public OpenLayout links.',
+    category: 'Player & Clan',
+    details: [
+      'Post validates public Clash of Clans OpenLayout links and image screenshots.',
+      'Config requires Manage Server and reports that voting/tracking persistence is not implemented in this first pass.',
+      'Does not add collectors, message tracking, Clash API calls, or polling enrollment.',
+    ],
+  },
+  {
     name: 'war',
     usage: '/war [clan] [user] [war_id]',
     description: 'Show current or historical war status for a linked clan.',

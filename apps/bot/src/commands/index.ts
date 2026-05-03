@@ -21,6 +21,7 @@ import { createHelpSlashCommand } from './help.js';
 import { createHistorySlashCommand, type HistoryCommandOptions } from './history.js';
 import { createInviteSlashCommand } from './invite.js';
 import { createLastSeenSlashCommand, type LastSeenCommandOptions } from './lastseen.js';
+import { createLayoutSlashCommand } from './layout.js';
 import { createLeaderboardSlashCommand, type LeaderboardCommandOptions } from './leaderboard.js';
 import { createLegendSlashCommand, type LegendCommandOptions } from './legend.js';
 import { createLineupSlashCommand, type LineupCommandOptions } from './lineup.js';
@@ -111,6 +112,7 @@ export function createBotCommandRegistry(options: BotCommandRegistryOptions): Co
   registry.registerSlash(createHistorySlashCommand(options.history));
   registry.registerSlash(createInviteSlashCommand());
   registry.registerSlash(createLastSeenSlashCommand(options.lastSeen));
+  registry.registerSlash(createLayoutSlashCommand());
   registry.registerSlash(createLeaderboardSlashCommand(options.leaderboard));
   registry.registerSlash(createLegendSlashCommand(options.legend));
   registry.registerSlash(createLineupSlashCommand(options.lineup));

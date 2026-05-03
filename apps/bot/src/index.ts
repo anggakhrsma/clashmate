@@ -97,6 +97,7 @@ const loadedCommandNames = [
   'history',
   'invite',
   'lastseen',
+  'layout',
   'leaderboard',
   'legend',
   'lineup',
