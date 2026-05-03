@@ -206,6 +206,8 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
 });
 
+registerShutdownHandlers(client);
+
 client.once('ready', async (readyClient) => {
   logger.info({ user: readyClient.user.tag }, 'Bot ready');
 
@@ -277,7 +279,40 @@ client.on('error', (error) => {
   logger.error({ error }, 'Discord client error');
 });
 
-await client.login(config.DISCORD_TOKEN);
+await startBot(client, config.DISCORD_TOKEN);
+
+async function startBot(discordClient: Client, token: string): Promise<void> {
+  try {
+    await discordClient.login(token);
+  } catch (error) {
+    logger.error({ error }, 'Bot startup failed');
+    process.exitCode = 1;
+    throw error;
+  }
+}
+
+function registerShutdownHandlers(discordClient: Client): void {
+  let isShuttingDown = false;
+
+  const handleShutdown = (signal: NodeJS.Signals): void => {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+
+    logger.info({ signal }, 'Bot shutdown started');
+
+    try {
+      discordClient.destroy();
+      logger.info({ signal }, 'Bot shutdown completed');
+      process.exitCode = 0;
+    } catch (error) {
+      logger.error({ error, signal }, 'Bot shutdown failed');
+      process.exitCode = 1;
+    }
+  };
+
+  process.once('SIGTERM', handleShutdown);
+  process.once('SIGINT', handleShutdown);
+}
 
 async function registerSlashCommands(
   readyClient: Client<true>,
