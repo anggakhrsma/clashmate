@@ -13,6 +13,7 @@ export const DEFAULT_USAGE_EMBED_COLOR = 0x5865f2;
 export const DEFAULT_USAGE_CHART_LIMIT = 15;
 export const MIN_USAGE_CHART_LIMIT = 1;
 export const MAX_USAGE_CHART_LIMIT = 90;
+const USAGE_GROWTH_BAR_WIDTH = 8;
 
 export const usageCommandData = new SlashCommandBuilder()
   .setName(USAGE_COMMAND_NAME)
@@ -231,7 +232,6 @@ export function formatUsageDescription(
 
 async function buildUsageChartReply(limit: number, options: UsageCommandOptions): Promise<string> {
   if (!options.metricReader) return 'Usage metrics are not configured.';
-  if (!options.chartRenderer) return 'Growth chart rendering is not configured.';
 
   const metricReader = options.metricReader;
   const records = await safeRead(
@@ -266,7 +266,56 @@ async function buildUsageChartReply(limit: number, options: UsageCommandOptions)
     options.logger,
   );
 
-  return url ?? 'I could not render the growth chart right now.';
+  return url ?? formatUsageGrowthTextChart(views);
+}
+
+export function formatUsageGrowthTextChart(records: readonly UsageGrowthDailyView[]): string {
+  const totalAdds = records.reduce((sum, record) => sum + record.additions, 0);
+  const totalDels = records.reduce((sum, record) => sum + record.deletions, 0);
+  const totalNet = totalAdds - totalDels;
+  const maxMagnitude = Math.max(
+    1,
+    ...records.map((record) => Math.abs(record.net)),
+    ...records.map((record) => record.additions),
+    ...records.map((record) => record.deletions),
+  );
+  const rows = records.map((record) => {
+    const bar = formatUsageGrowthBar(record, maxMagnitude);
+    return `${record.label.padEnd(6)} +${formatCompactCount(record.additions).padStart(3)} -${formatCompactCount(record.deletions).padStart(3)} ${formatSignedCount(record.net).padStart(4)} ${bar}`;
+  });
+
+  return [
+    'Bot growth',
+    '```',
+    'Date   Add Del  Net Trend',
+    ...rows,
+    `Total  +${formatCompactCount(totalAdds)} -${formatCompactCount(totalDels)} ${formatSignedCount(totalNet)}`,
+    '```',
+  ].join('\n');
+}
+
+function formatUsageGrowthBar(record: UsageGrowthSummary, maxMagnitude: number): string {
+  if (record.net === 0) return '.'.repeat(Math.min(USAGE_GROWTH_BAR_WIDTH, 3));
+  const width = Math.max(
+    1,
+    Math.round((Math.abs(record.net) / maxMagnitude) * USAGE_GROWTH_BAR_WIDTH),
+  );
+  return (record.net > 0 ? '+' : '-').repeat(width);
+}
+
+function formatSignedCount(value: number): string {
+  return `${value >= 0 ? '+' : ''}${formatCompactCount(value)}`;
+}
+
+function formatCompactCount(value: number): string {
+  const absolute = Math.abs(value);
+  if (absolute < 1000) return String(value);
+  if (absolute < 1_000_000) return `${formatCompactDecimal(value / 1000)}k`;
+  return `${formatCompactDecimal(value / 1_000_000)}m`;
+}
+
+function formatCompactDecimal(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
 export function formatUsageDate(value: Date | string): string {
