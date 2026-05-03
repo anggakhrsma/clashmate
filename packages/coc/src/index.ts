@@ -115,7 +115,10 @@ export class ClashMateCocClient {
 
   async verifyPlayerToken(tag: string, token: string): Promise<boolean> {
     const normalizedTag = this.normalizeTag(tag);
-    const data = await this.request(() => this.client.verifyPlayerToken(normalizedTag, token));
+    const normalizedToken = normalizePlayerToken(token);
+    const data = await this.request(() =>
+      this.client.verifyPlayerToken(normalizedTag, normalizedToken),
+    );
     if (!isVerifyTokenResponse(data)) {
       throw new ClashApiError({
         reason: 'invalid_response',
@@ -166,6 +169,20 @@ function normalizeApiToken(token: string): string {
 
   if (normalizedToken.length === 0) {
     throw new Error('Clash API token must be a non-empty string.');
+  }
+
+  return normalizedToken;
+}
+
+function normalizePlayerToken(token: unknown): string {
+  if (typeof token !== 'string') {
+    throw new Error('Clash API player token must be a non-empty string.');
+  }
+
+  const normalizedToken = token.trim();
+
+  if (normalizedToken.length === 0) {
+    throw new Error('Clash API player token must be a non-empty string.');
   }
 
   return normalizedToken;
