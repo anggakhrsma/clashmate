@@ -86,14 +86,13 @@ export class ClashMateCocClient {
     const data = await this.request(() => this.client.getCurrentWar(normalizedTag));
     if (data === null) return { clanTag: normalizedTag, state: 'notInWar', data };
     if (!isWarResponse(data)) {
-      throw new ClashApiError({
-        reason: 'invalid_response',
-        message: 'Clash API returned an invalid current war response.',
-        retryable: false,
-      });
+      throwInvalidCurrentWarResponse();
     }
 
-    return { clanTag: normalizedTag, state: data.state, data };
+    const responseClanTag = normalizeOptionalWarClanTag(data.clan);
+    normalizeOptionalWarClanTag(data.opponent);
+
+    return { clanTag: responseClanTag ?? normalizedTag, state: data.state, data };
   }
 
   async getPlayer(tag: string): Promise<ClashPlayer> {
@@ -184,6 +183,26 @@ function normalizeResponseTag(tag: string, message: string): string {
   }
 }
 
+function throwInvalidCurrentWarResponse(): never {
+  throw new ClashApiError({
+    reason: 'invalid_response',
+    message: 'Clash API returned an invalid current war response.',
+    retryable: false,
+  });
+}
+
+function normalizeOptionalWarClanTag(value: unknown): string | null {
+  const tag = getRecordValue(value, 'tag');
+  if (tag === undefined) return null;
+  if (typeof tag !== 'string') throwInvalidCurrentWarResponse();
+
+  try {
+    return normalizeClashTag(tag);
+  } catch {
+    throwInvalidCurrentWarResponse();
+  }
+}
+
 export interface ClashClan {
   readonly tag: string;
   readonly name: string;
@@ -267,12 +286,19 @@ function isClanResponse(value: unknown): value is { tag: string; name: string } 
   );
 }
 
-function isWarResponse(value: unknown): value is { state: string } {
+function isWarResponse(value: unknown): value is {
+  readonly state: 'notInWar' | 'preparation' | 'inWar' | 'warEnded';
+  readonly clan?: unknown;
+  readonly opponent?: unknown;
+} {
+  return isKnownWarState(getRecordValue(value, 'state'));
+}
+
+function isKnownWarState(
+  value: unknown,
+): value is 'notInWar' | 'preparation' | 'inWar' | 'warEnded' {
   return (
-    typeof value === 'object' &&
-    value !== null &&
-    'state' in value &&
-    typeof value.state === 'string'
+    value === 'notInWar' || value === 'preparation' || value === 'inWar' || value === 'warEnded'
   );
 }
 
@@ -294,4 +320,12 @@ function isVerifyTokenResponse(value: unknown): value is { status: 'ok' | 'inval
     'status' in value &&
     (value.status === 'ok' || value.status === 'invalid')
   );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function getRecordValue(value: unknown, key: string): unknown {
+  return isRecord(value) && key in value ? value[key] : undefined;
 }
