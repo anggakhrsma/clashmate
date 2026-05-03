@@ -67,6 +67,16 @@ export const setupClanCommandData = new SlashCommandBuilder()
   )
   .addSubcommand((subcommand) =>
     subcommand
+      .setName('enable')
+      .setDescription('This legacy setup flow has been replaced by newer setup commands.'),
+  )
+  .addSubcommand((subcommand) =>
+    subcommand
+      .setName('disable')
+      .setDescription('This legacy setup flow has been replaced by newer setup commands.'),
+  )
+  .addSubcommand((subcommand) =>
+    subcommand
       .setName('clan-logs')
       .setDescription('Setup automatic logs for the clan.')
       .addStringOption((option) =>
@@ -280,6 +290,11 @@ export function createSetupClanSlashCommand(
       if (interaction.commandName !== SETUP_COMMAND_NAME) return;
       const subcommand = interaction.options.getSubcommand();
 
+      if (subcommand === 'enable' || subcommand === 'disable') {
+        await executeDeprecatedSetupFlow(interaction, subcommand);
+        return;
+      }
+
       if (subcommand === 'clan-logs') {
         await executeSetupClanLogs(interaction, context, options);
         return;
@@ -329,6 +344,20 @@ export async function autocompleteSetupClan(
   }
 
   await interaction.respond([]);
+}
+
+async function executeDeprecatedSetupFlow(
+  interaction: ChatInputCommandInteraction,
+  subcommand: 'enable' | 'disable',
+): Promise<void> {
+  await interaction.reply({
+    content: formatDeprecatedSetupFlowMessage(subcommand),
+    ephemeral: true,
+  });
+}
+
+export function formatDeprecatedSetupFlowMessage(subcommand: 'enable' | 'disable'): string {
+  return `\`/setup ${subcommand}\` is a legacy setup flow and is not used in ClashMate. Use \`/setup clan\` to link or unlink clans, \`/setup clan-logs\` to configure clan logs, and \`/setup list\` to review server setup.`;
 }
 
 async function executeSetupList(
