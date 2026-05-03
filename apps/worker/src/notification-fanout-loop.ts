@@ -51,6 +51,63 @@ function createNotificationFanOutInput(limit: number | undefined): { limit?: num
   return limit === undefined ? {} : { limit };
 }
 
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object';
+}
+
+function validateNotificationFanOutLoopOptions(options: NotificationFanOutLoopOptions): void {
+  if (!isObjectRecord(options)) {
+    throw new Error('Notification fan-out options must be an object.');
+  }
+
+  const { fanOutStore, logger } = options;
+  if (!isObjectRecord(fanOutStore)) {
+    throw new Error('Notification fan-out fanOutStore must be an object.');
+  }
+
+  for (const method of [
+    'fanOutClanMemberEventNotifications',
+    'fanOutWarAttackEventNotifications',
+    'fanOutWarStateEventNotifications',
+    'fanOutMissedWarAttackEventNotifications',
+    'fanOutClanDonationEventNotifications',
+    'fanOutClanRoleChangeEventNotifications',
+  ] as const) {
+    if (typeof fanOutStore[method] !== 'function') {
+      throw new Error(`Notification fan-out fanOutStore.${method} must be a function.`);
+    }
+  }
+
+  if (
+    fanOutStore.fanOutClanGamesEventNotifications !== undefined &&
+    typeof fanOutStore.fanOutClanGamesEventNotifications !== 'function'
+  ) {
+    throw new Error(
+      'Notification fan-out fanOutStore.fanOutClanGamesEventNotifications must be a function when provided.',
+    );
+  }
+
+  if (!isObjectRecord(logger)) {
+    throw new Error('Notification fan-out logger must be an object.');
+  }
+  if (typeof logger.info !== 'function') {
+    throw new Error('Notification fan-out logger.info must be a function.');
+  }
+  if (typeof logger.error !== 'function') {
+    throw new Error('Notification fan-out logger.error must be a function.');
+  }
+
+  if (options.random !== undefined && typeof options.random !== 'function') {
+    throw new Error('Notification fan-out random must be a function when provided.');
+  }
+  if (options.setTimeout !== undefined && typeof options.setTimeout !== 'function') {
+    throw new Error('Notification fan-out setTimeout must be a function when provided.');
+  }
+  if (options.clearTimeout !== undefined && typeof options.clearTimeout !== 'function') {
+    throw new Error('Notification fan-out clearTimeout must be a function when provided.');
+  }
+}
+
 export function computeNotificationFanOutLoopDelayMs(
   interval: NotificationFanOutLoopIntervalConfig,
   random = Math.random,
@@ -73,6 +130,7 @@ export function computeNotificationFanOutLoopDelayMs(
 export async function runNotificationFanOutIteration(
   options: NotificationFanOutLoopOptions,
 ): Promise<void> {
+  validateNotificationFanOutLoopOptions(options);
   const limit = resolveNotificationFanOutIterationLimit(options.batchSize);
 
   try {
@@ -173,6 +231,8 @@ export async function runNotificationFanOutIteration(
 export function startNotificationFanOutLoop(
   options: NotificationFanOutLoopOptions,
 ): NotificationFanOutLoopController {
+  validateNotificationFanOutLoopOptions(options);
+
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const scheduleTimeout = options.setTimeout ?? setTimeout;
