@@ -1,7 +1,8 @@
+import { STATUS_CODES } from 'node:http';
 import { loadConfig } from '@clashmate/config';
 import { createDatabase } from '@clashmate/database';
 import { createLogger } from '@clashmate/logger';
-import Fastify from 'fastify';
+import Fastify, { type FastifyError } from 'fastify';
 
 const config = loadConfig();
 const logger = createLogger('api', config.LOG_LEVEL);
@@ -43,6 +44,35 @@ const createServiceMetadata = (env: NodeJS.ProcessEnv = process.env) => ({
   ...serviceStatus,
   timestamp: createTimestamp(),
   ...createBuildMetadata(env),
+});
+
+const getHttpMessage = (statusCode: number) => STATUS_CODES[statusCode] ?? 'Request failed';
+
+app.setNotFoundHandler((request, reply) => {
+  return reply.status(404).send({
+    ok: false,
+    ...serviceStatus,
+    error: 'not_found',
+    message: 'Route not found',
+    path: request.url,
+    timestamp: createTimestamp(),
+  });
+});
+
+app.setErrorHandler((error: FastifyError, request, reply) => {
+  const statusCode = error.statusCode && error.statusCode >= 400 ? error.statusCode : 500;
+  const safeStatusCode = statusCode < 500 ? statusCode : 500;
+  const errorCode = safeStatusCode < 500 ? 'request_error' : 'internal_error';
+
+  logger.error({ err: error, path: request.url, statusCode: safeStatusCode }, 'API request failed');
+
+  return reply.status(safeStatusCode).send({
+    ok: false,
+    ...serviceStatus,
+    error: errorCode,
+    message: getHttpMessage(safeStatusCode),
+    timestamp: createTimestamp(),
+  });
 });
 
 const registerShutdownHandlers = (fastify: { close: () => Promise<void> }) => {
