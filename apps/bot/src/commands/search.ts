@@ -98,12 +98,16 @@ export function formatSearchResultLine(clan: ClashClan): string {
     ].join(', '),
     [
       formatClanType(data.type),
-      `${formatNumber(data.requiredTrophies)} required`,
+      `${formatNumber(data.requiredTrophies)} trophies required`,
+      `TH ${formatNumber(data.requiredTownHallLevel)} required`,
       data.locationName ? escapeMarkdown(data.locationName) : null,
     ]
       .filter((value): value is string => Boolean(value))
       .join(', '),
-  ].join('\n');
+    formatOptionalDetails(data),
+  ]
+    .filter((value) => value.length > 0)
+    .join('\n');
 }
 
 interface SearchClanDataView {
@@ -112,12 +116,20 @@ interface SearchClanDataView {
   readonly clanPoints: number | null;
   readonly type: string | null;
   readonly requiredTrophies: number | null;
+  readonly requiredTownHallLevel: number | null;
   readonly locationName: string | null;
+  readonly warLeagueName: string | null;
+  readonly capitalLeagueName: string | null;
+  readonly capitalHallLevel: number | null;
+  readonly labels: readonly string[];
 }
 
 function readSearchClanData(clan: ClashClan): SearchClanDataView {
   const data = isRecord(clan.data) ? clan.data : {};
   const location = readRecord(readValue(data, 'location'));
+  const warLeague = readRecord(readValue(data, 'warLeague'));
+  const capitalLeague = readRecord(readValue(data, 'capitalLeague'));
+  const clanCapital = readRecord(readValue(data, 'clanCapital'));
 
   return {
     clanLevel: readNumber(readValue(data, 'clanLevel')),
@@ -125,8 +137,39 @@ function readSearchClanData(clan: ClashClan): SearchClanDataView {
     clanPoints: readNumber(readValue(data, 'clanPoints')),
     type: readString(readValue(data, 'type')),
     requiredTrophies: readNumber(readValue(data, 'requiredTrophies')),
+    requiredTownHallLevel: readNumber(readValue(data, 'requiredTownhallLevel')),
     locationName: readString(location ? readValue(location, 'name') : undefined),
+    warLeagueName: readString(warLeague ? readValue(warLeague, 'name') : undefined),
+    capitalLeagueName: readString(capitalLeague ? readValue(capitalLeague, 'name') : undefined),
+    capitalHallLevel: readNumber(
+      clanCapital ? readValue(clanCapital, 'capitalHallLevel') : undefined,
+    ),
+    labels: readLabels(readValue(data, 'labels')),
   };
+}
+
+function formatOptionalDetails(data: SearchClanDataView): string {
+  const labels = formatLabels(data.labels);
+  const details = [
+    data.warLeagueName ? `CWL ${escapeMarkdown(data.warLeagueName)}` : 'CWL Unknown',
+    data.capitalLeagueName
+      ? `Capital ${escapeMarkdown(data.capitalLeagueName)}`
+      : 'Capital Unknown',
+    `CH ${formatNumber(data.capitalHallLevel)}`,
+    labels ? `Labels ${labels}` : null,
+  ].filter((value): value is string => Boolean(value));
+
+  return details.join(', ');
+}
+
+function formatLabels(labels: readonly string[]): string | null {
+  if (labels.length === 0) return null;
+
+  const shownLabels = labels.slice(0, 2).map((label) => escapeMarkdown(label));
+  const remainingLabels = labels.length - shownLabels.length;
+  return remainingLabels > 0
+    ? `${shownLabels.join(', ')} +${remainingLabels}`
+    : shownLabels.join(', ');
 }
 
 function formatClanType(type: string | null): string {
@@ -163,9 +206,18 @@ function readValue(record: Record<string, unknown>, key: string): unknown {
 }
 
 function readString(value: unknown): string | null {
-  return typeof value === 'string' ? value : null;
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
 }
 
 function readNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function readLabels(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((label) => readRecord(label))
+    .map((label) => (label ? readString(readValue(label, 'name')) : null))
+    .filter((label): label is string => label !== null);
 }
