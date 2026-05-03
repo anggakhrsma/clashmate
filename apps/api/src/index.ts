@@ -45,6 +45,36 @@ const createServiceMetadata = (env: NodeJS.ProcessEnv = process.env) => ({
   ...createBuildMetadata(env),
 });
 
+const registerShutdownHandlers = (fastify: { close: () => Promise<void> }) => {
+  let closing = false;
+
+  const handleShutdown = (signal: NodeJS.Signals) => {
+    if (closing) {
+      logger.info({ signal }, 'API shutdown already in progress');
+      return;
+    }
+
+    closing = true;
+    logger.info({ signal }, 'API shutdown started');
+
+    void fastify
+      .close()
+      .then(() => {
+        logger.info({ signal }, 'API shutdown completed');
+        process.exitCode = 0;
+      })
+      .catch((error: unknown) => {
+        logger.error({ err: error, signal }, 'API shutdown failed');
+        process.exitCode = 1;
+      });
+  };
+
+  process.once('SIGTERM', handleShutdown);
+  process.once('SIGINT', handleShutdown);
+};
+
+registerShutdownHandlers(app);
+
 app.get('/', async () => {
   return createServiceMetadata();
 });
