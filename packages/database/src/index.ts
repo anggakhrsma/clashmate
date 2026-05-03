@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto';
+
 import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lte, ne, or, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
@@ -162,6 +164,27 @@ export interface LayoutConfigRecord {
   allowTracking: boolean;
 }
 
+export interface LayoutSubmissionRecord {
+  id: string;
+  guildId: string;
+  channelId: string;
+  actorDiscordUserId: string;
+  layoutLink: string;
+  screenshotUrl: string;
+  notes: string | null;
+  createdAt: string;
+}
+
+export interface CreateLayoutSubmissionInput {
+  guildId: string;
+  guildName: string | null;
+  channelId: string;
+  actorDiscordUserId: string;
+  layoutLink: string;
+  screenshotUrl: string;
+  notes?: string | null;
+}
+
 export interface UpdateLayoutConfigInput {
   guildId: string;
   guildName: string | null;
@@ -173,6 +196,7 @@ export interface UpdateLayoutConfigInput {
 export interface DatabaseLayoutConfigStore {
   getLayoutConfig: (guildId: string) => Promise<LayoutConfigRecord>;
   updateLayoutConfig: (input: UpdateLayoutConfigInput) => Promise<LayoutConfigRecord>;
+  createLayoutSubmission: (input: CreateLayoutSubmissionInput) => Promise<LayoutSubmissionRecord>;
 }
 
 export type ReminderScheduleTypeRecord = 'clan-wars' | 'capital-raids' | 'clan-games';
@@ -2040,6 +2064,8 @@ const EMPTY_AUTOROLE_SETTINGS: AutoroleSettingsRecord = {
 
 const NICKNAME_CONFIG_SETTING_KEY = 'nickname_config';
 const LAYOUT_CONFIG_SETTING_KEY = 'layout_config';
+const LAYOUT_SUBMISSIONS_SETTING_KEY = 'layout_submissions';
+const MAX_LAYOUT_SUBMISSIONS_PER_GUILD = 50;
 const EMPTY_NICKNAME_CONFIG: NicknameConfigRecord = {
   familyNicknameFormat: null,
   nonFamilyNicknameFormat: null,
@@ -2171,6 +2197,48 @@ function readLayoutConfigSetting(value: unknown): LayoutConfigRecord {
   };
 }
 
+function readLayoutSubmissionsSetting(value: unknown): LayoutSubmissionRecord[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.flatMap((item): LayoutSubmissionRecord[] => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+    const record = item as Record<string, unknown>;
+    const id = getRecordValue(record, 'id');
+    const guildId = getRecordValue(record, 'guildId');
+    const channelId = getRecordValue(record, 'channelId');
+    const actorDiscordUserId = getRecordValue(record, 'actorDiscordUserId');
+    const layoutLink = getRecordValue(record, 'layoutLink');
+    const screenshotUrl = getRecordValue(record, 'screenshotUrl');
+    const notes = getRecordValue(record, 'notes');
+    const createdAt = getRecordValue(record, 'createdAt');
+
+    if (
+      typeof id !== 'string' ||
+      typeof guildId !== 'string' ||
+      typeof channelId !== 'string' ||
+      typeof actorDiscordUserId !== 'string' ||
+      typeof layoutLink !== 'string' ||
+      typeof screenshotUrl !== 'string' ||
+      typeof createdAt !== 'string'
+    ) {
+      return [];
+    }
+
+    return [
+      {
+        id,
+        guildId,
+        channelId,
+        actorDiscordUserId,
+        layoutLink,
+        screenshotUrl,
+        notes: typeof notes === 'string' && notes.trim() ? notes : null,
+        createdAt,
+      },
+    ];
+  });
+}
+
 function readNicknameConfigSetting(value: unknown): NicknameConfigRecord {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return EMPTY_NICKNAME_CONFIG;
   const record = value as Record<string, unknown>;
@@ -2233,6 +2301,24 @@ async function readLayoutConfig(
     .limit(1);
 
   return readLayoutConfigSetting(setting?.value);
+}
+
+async function readLayoutSubmissions(
+  database: Database | DatabaseTransaction,
+  guildId: string,
+): Promise<LayoutSubmissionRecord[]> {
+  const [setting] = await database
+    .select({ value: schema.guildSettings.value })
+    .from(schema.guildSettings)
+    .where(
+      and(
+        eq(schema.guildSettings.guildId, guildId),
+        eq(schema.guildSettings.key, LAYOUT_SUBMISSIONS_SETTING_KEY),
+      ),
+    )
+    .limit(1);
+
+  return readLayoutSubmissionsSetting(setting?.value);
 }
 
 async function readCommandWhitelist(
@@ -2609,6 +2695,50 @@ export function createDatabaseLayoutConfigStore(database: Database): DatabaseLay
         }
 
         return value;
+      }),
+    createLayoutSubmission: async (input) =>
+      database.transaction(async (tx) => {
+        const now = new Date();
+        const submission: LayoutSubmissionRecord = {
+          id: randomBytes(4).toString('hex'),
+          guildId: input.guildId,
+          channelId: input.channelId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          layoutLink: input.layoutLink,
+          screenshotUrl: input.screenshotUrl,
+          notes: input.notes?.trim() ? input.notes.trim() : null,
+          createdAt: now.toISOString(),
+        };
+        const existing = await readLayoutSubmissions(tx, input.guildId);
+        const value = [submission, ...existing]
+          .filter(
+            (record, index, records) =>
+              records.findIndex((item) => item.id === record.id) === index,
+          )
+          .slice(0, MAX_LAYOUT_SUBMISSIONS_PER_GUILD);
+
+        await tx
+          .insert(schema.guilds)
+          .values({ id: input.guildId, name: input.guildName, updatedAt: now })
+          .onConflictDoUpdate({
+            target: schema.guilds.id,
+            set: { name: input.guildName, updatedAt: now },
+          });
+
+        await tx
+          .insert(schema.guildSettings)
+          .values({
+            guildId: input.guildId,
+            key: LAYOUT_SUBMISSIONS_SETTING_KEY,
+            value,
+            updatedAt: now,
+          })
+          .onConflictDoUpdate({
+            target: [schema.guildSettings.guildId, schema.guildSettings.key],
+            set: { value, updatedAt: now },
+          });
+
+        return submission;
       }),
   };
 }

@@ -83,6 +83,15 @@ export interface LayoutConfigStore {
     allowVoting?: boolean;
     allowTracking?: boolean;
   }) => Promise<LayoutConfigRecord>;
+  createLayoutSubmission: (input: {
+    guildId: string;
+    guildName: string | null;
+    channelId: string;
+    actorDiscordUserId: string;
+    layoutLink: string;
+    screenshotUrl: string;
+    notes?: string | null;
+  }) => Promise<{ id: string }>;
 }
 
 export interface LayoutCommandOptions {
@@ -107,7 +116,7 @@ export async function executeLayoutInteraction(
 ): Promise<void> {
   const subcommand = interaction.options.getSubcommand();
   if (subcommand === 'post') {
-    await executeLayoutPost(interaction, context);
+    await executeLayoutPost(interaction, context, options);
     return;
   }
 
@@ -119,6 +128,7 @@ export async function executeLayoutInteraction(
 export async function executeLayoutPost(
   interaction: ChatInputCommandInteraction,
   context: CommandContext,
+  options: LayoutCommandOptions,
 ): Promise<void> {
   const screenshot = interaction.options.getAttachment('screenshot', true);
   const layoutLink = interaction.options.getString('layout_link', true).trim();
@@ -138,6 +148,22 @@ export async function executeLayoutPost(
   }
 
   const view = collectLayoutView(interaction, context);
+  const config = interaction.guildId
+    ? await options.store.getLayoutConfig(interaction.guildId)
+    : null;
+  const submission =
+    interaction.guildId && config?.allowTracking
+      ? await options.store.createLayoutSubmission({
+          guildId: interaction.guildId,
+          guildName: interaction.guild?.name ?? null,
+          channelId: interaction.channelId,
+          actorDiscordUserId: interaction.user.id,
+          layoutLink,
+          screenshotUrl: screenshot.url,
+          ...(notes ? { notes } : {}),
+        })
+      : null;
+
   await interaction.reply({
     embeds: [
       buildLayoutPostEmbed({
@@ -146,6 +172,7 @@ export async function executeLayoutPost(
         layoutLink,
         ...(notes ? { notes } : {}),
         submitterId: interaction.user.id,
+        ...(submission ? { layoutId: submission.id } : {}),
       }),
     ],
     allowedMentions: { users: [] },
@@ -212,11 +239,14 @@ export function buildLayoutPostEmbed(input: {
   layoutLink: string;
   notes?: string;
   submitterId: string;
+  layoutId?: string;
 }): EmbedBuilder {
   const fields: APIEmbedField[] = [
     { name: 'Layout Link', value: input.layoutLink, inline: false },
     { name: 'Submitter', value: `<@${input.submitterId}>`, inline: true },
   ];
+
+  if (input.layoutId) fields.push({ name: 'Layout ID', value: input.layoutId, inline: true });
 
   if (input.notes) fields.push({ name: 'Notes', value: input.notes, inline: false });
 
@@ -228,6 +258,7 @@ export function buildLayoutPostEmbed(input: {
         ? { name: input.view.botName, iconURL: input.view.botAvatarUrl }
         : { name: input.view.botName },
     )
+    .setFooter({ text: 'Voting/download tracking collectors are not implemented yet.' })
     .setImage(input.screenshot.url)
     .addFields(fields);
 }
