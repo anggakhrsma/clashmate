@@ -11,6 +11,15 @@ const commaSeparatedIds = z
       .filter(Boolean),
   );
 
+const requiredTrimmedString = z.string().trim().min(1);
+
+const optionalTrimmedString = z.preprocess((value) => {
+  if (typeof value !== 'string') return value;
+
+  const trimmedValue = value.trim();
+  return trimmedValue.length === 0 ? undefined : trimmedValue;
+}, z.string().optional());
+
 const optionalUrl = z.preprocess((value) => {
   if (typeof value !== 'string') return value;
 
@@ -24,14 +33,14 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().max(65535).default(3000),
   PUBLIC_BASE_URL: z.string().url().default('http://localhost:3000'),
 
-  DISCORD_TOKEN: z.string().min(1),
-  DISCORD_CLIENT_ID: z.string().min(1),
+  DISCORD_TOKEN: requiredTrimmedString,
+  DISCORD_CLIENT_ID: requiredTrimmedString,
   DISCORD_OWNER_IDS: commaSeparatedIds,
 
-  CLASH_OF_CLANS_API_TOKEN: z.string().min(1),
+  CLASH_OF_CLANS_API_TOKEN: requiredTrimmedString,
 
-  DATABASE_URL: z.string().min(1),
-  TEST_DATABASE_URL: z.string().optional(),
+  DATABASE_URL: requiredTrimmedString,
+  TEST_DATABASE_URL: optionalTrimmedString,
 
   COMMAND_REGISTRATION: z.enum(['global']).default('global'),
   DEFAULT_TIMEZONE: z.string().default('UTC'),
