@@ -121,6 +121,16 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     ],
   },
   {
+    name: 'history',
+    usage: '/history option:donations [clans] [player] [user]',
+    description: 'Show tracked historical donation activity.',
+    category: 'Player & Clan',
+    details: [
+      'Reads persisted donation delta events for linked clans without querying the Clash API.',
+      'Only donation history is available right now.',
+    ],
+  },
+  {
     name: 'profile',
     usage: '/profile [user] [player]',
     description: 'Show linked Clash player accounts for a Discord user.',

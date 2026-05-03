@@ -7,6 +7,7 @@ import { createDebugSlashCommand, type DebugCommandOptions } from './debug.js';
 import { createDonationsSlashCommand, type DonationsCommandOptions } from './donations.js';
 import { createGuildBanSlashCommand, type GuildBanCommandOptions } from './guild-ban.js';
 import { createHelpSlashCommand } from './help.js';
+import { createHistorySlashCommand, type HistoryCommandOptions } from './history.js';
 import { createInviteSlashCommand } from './invite.js';
 import { createLastSeenSlashCommand, type LastSeenCommandOptions } from './lastseen.js';
 import { createLinkSlashCommand, type LinkCommandOptions } from './link.js';
@@ -29,6 +30,7 @@ export interface BotCommandRegistryOptions {
   debug: DebugCommandOptions;
   donations: DonationsCommandOptions;
   guildBan: GuildBanCommandOptions;
+  history: HistoryCommandOptions;
   lastSeen: LastSeenCommandOptions;
   link: LinkCommandOptions;
   members: MembersCommandOptions;
@@ -54,6 +56,7 @@ export function createBotCommandRegistry(options: BotCommandRegistryOptions): Co
   registry.registerSlash(createDonationsSlashCommand(options.donations));
   registry.registerSlash(createGuildBanSlashCommand(options.guildBan));
   registry.registerSlash(createHelpSlashCommand());
+  registry.registerSlash(createHistorySlashCommand(options.history));
   registry.registerSlash(createInviteSlashCommand());
   registry.registerSlash(createLastSeenSlashCommand(options.lastSeen));
   registry.registerSlash(createLinkSlashCommand(options.link));

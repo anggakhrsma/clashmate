@@ -154,6 +154,24 @@ export interface DonationSnapshotReader {
   }) => Promise<DonationSnapshotListResult[]>;
 }
 
+export interface DonationHistoryListRow {
+  playerTag: string;
+  playerName: string;
+  donated: number;
+  received: number;
+  eventCount: number;
+  lastDetectedAt: Date;
+}
+
+export interface DonationHistoryReader {
+  listDonationHistoryForGuild: (input: {
+    guildId: string;
+    clanTags?: readonly string[];
+    playerTags?: readonly string[];
+    since?: Date;
+  }) => Promise<DonationHistoryListRow[]>;
+}
+
 export type PollingResourceType = 'clan' | 'player' | 'war';
 
 export const TOP_LEVEL_POLLING_RESOURCE_TYPES = ['clan', 'player', 'war'] as const;
@@ -1794,6 +1812,57 @@ export function createDonationSnapshotReader(database: Database): DonationSnapsh
           donationsReceived: member.donationsReceived,
           lastFetchedAt: member.lastFetchedAt,
         })),
+      }));
+    },
+  };
+}
+
+export function createDonationHistoryReader(database: Database): DonationHistoryReader {
+  return {
+    listDonationHistoryForGuild: async (input) => {
+      const since = input.since ?? new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
+      const filters = [
+        eq(schema.clanDonationEvents.guildId, input.guildId),
+        eq(schema.trackedClans.guildId, input.guildId),
+        eq(schema.trackedClans.isActive, true),
+        gte(schema.clanDonationEvents.detectedAt, since),
+      ];
+
+      if (input.clanTags?.length) {
+        filters.push(inArray(schema.clanDonationEvents.clanTag, [...input.clanTags]));
+      }
+      if (input.playerTags?.length) {
+        filters.push(inArray(schema.clanDonationEvents.playerTag, [...input.playerTags]));
+      }
+
+      const rows = await database
+        .select({
+          playerTag: schema.clanDonationEvents.playerTag,
+          playerName: sql<string>`max(${schema.clanDonationEvents.playerName})`,
+          donated: sql<number>`coalesce(sum(${schema.clanDonationEvents.donationDelta}), 0)`,
+          received: sql<number>`coalesce(sum(${schema.clanDonationEvents.receivedDelta}), 0)`,
+          eventCount: count(schema.clanDonationEvents.id),
+          lastDetectedAt: sql<Date>`max(${schema.clanDonationEvents.detectedAt})`,
+        })
+        .from(schema.clanDonationEvents)
+        .innerJoin(
+          schema.trackedClans,
+          eq(schema.trackedClans.id, schema.clanDonationEvents.trackedClanId),
+        )
+        .where(and(...filters))
+        .groupBy(schema.clanDonationEvents.playerTag)
+        .orderBy(
+          desc(sql<number>`coalesce(sum(${schema.clanDonationEvents.donationDelta}), 0)`),
+          asc(schema.clanDonationEvents.playerTag),
+        );
+
+      return rows.map((row) => ({
+        playerTag: row.playerTag,
+        playerName: row.playerName,
+        donated: Number(row.donated),
+        received: Number(row.received),
+        eventCount: Number(row.eventCount),
+        lastDetectedAt: row.lastDetectedAt,
       }));
     },
   };
