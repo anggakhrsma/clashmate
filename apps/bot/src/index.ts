@@ -96,6 +96,13 @@ const commandRegistry = createBotCommandRegistry({
     },
     coc: cocClient,
   },
+  capital: {
+    store: {
+      listClansForGuild: databaseTrackedClans.listClansForGuild,
+      listClanMemberSnapshotsForGuild: databaseClanMemberSnapshots.listClanMemberSnapshotsForGuild,
+      listPlayerTagsForUser: databasePlayerLinks.listPlayerTagsForUser,
+    },
+  },
   category: {
     store: databaseTrackedClans,
   },
@@ -245,6 +252,7 @@ const commandRegistry = createBotCommandRegistry({
       'attacks',
       'blacklist',
       'boosts',
+      'capital',
       'category',
       'clan-games',
       'clan',

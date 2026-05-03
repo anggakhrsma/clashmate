@@ -97,6 +97,17 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     details: ['Performs a one-off public Clash API lookup without tracking the clan.'],
   },
   {
+    name: 'capital',
+    usage: '/capital raids|contribution [clan] [user] [week]',
+    description: 'Show Clan Capital data from persisted snapshots.',
+    category: 'Player & Clan',
+    details: [
+      'Reads current linked-clan and member snapshots without querying the Clash API.',
+      'Raid-week attack logs are not persisted yet, so raids shows a compact capital overview/ranking.',
+      'Contribution shows a no-data message until member snapshots include capital contribution fields.',
+    ],
+  },
+  {
     name: 'category',
     usage: '/category create|list|edit|delete',
     description: 'Manage linked clan categories on this server.',
