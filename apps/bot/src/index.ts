@@ -124,6 +124,17 @@ const commandRegistry = createBotCommandRegistry({
   config: {
     store: databaseConfigStore,
   },
+  cwl: {
+    store: {
+      listLinkedClans: databaseTrackedClans.listLinkedClans,
+      getLatestWarSnapshot: databaseWarSnapshots.getLatestWarSnapshot,
+      getLatestWarSnapshotsForGuild: databaseWarSnapshots.getLatestWarSnapshotsForGuild,
+      getRetainedWarSnapshotsForGuild: (input) =>
+        databaseWarSnapshots.getRetainedWarSnapshotsForGuild?.(input) ?? Promise.resolve([]),
+      getLinkedPlayerTags: databasePlayerLinks.listPlayerTagsForUser,
+      listWarAttackHistoryForGuild: databaseWarAttackHistory.listWarAttackHistoryForGuild,
+    },
+  },
   debug: {
     dataReader: databaseDebugReader,
     logger,
@@ -259,6 +270,7 @@ const commandRegistry = createBotCommandRegistry({
       'clans',
       'compo',
       'config',
+      'cwl',
       'debug',
       'donations',
       'events',

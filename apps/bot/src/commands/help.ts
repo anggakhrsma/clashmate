@@ -171,6 +171,17 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     details: ['Uses tracked Clan Games data collected for configured clans.'],
   },
   {
+    name: 'cwl',
+    usage: '/cwl roster|round|lineup|stars|attacks|stats|members [clan] [user] [season]',
+    description: 'Show first-pass CWL views from persisted war data.',
+    category: 'Player & Clan',
+    details: [
+      'Reads retained/current war snapshots for roster, round, lineup, and members views.',
+      'Reads persisted war attack history for stars, attacks, and stats views.',
+      'Does not query the Clash API; CWL-only filtering is approximate until stored events include CWL metadata.',
+    ],
+  },
+  {
     name: 'summary',
     usage: '/summary clans|donations|activity|attacks|compo [clans]',
     description: 'Show persisted summaries for linked clans.',
