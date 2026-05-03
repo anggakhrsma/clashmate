@@ -28,6 +28,14 @@ export class CommandRegistry {
   readonly slashCommands = new Map<string, SlashCommandDefinition>();
 
   registerSlash(command: SlashCommandDefinition): void {
+    const name = command.name.trim();
+    if (name.length === 0 || name !== command.name) {
+      throw new Error('Slash command name must be a non-empty trimmed string.');
+    }
+    if (this.slashCommands.has(command.name)) {
+      throw new Error(`Duplicate slash command name registered: ${command.name}`);
+    }
+
     this.slashCommands.set(command.name, command);
   }
 
