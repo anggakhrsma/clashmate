@@ -144,6 +144,7 @@ const commandRegistry = createBotCommandRegistry({
       listLinkedClans: databaseTrackedClans.listLinkedClans,
       listClanMemberSnapshotsForGuild: databaseClanMemberSnapshots.listClanMemberSnapshotsForGuild,
     },
+    timezones: databaseUserTimezonePreferences,
   },
   alias: {
     store: databaseTrackedClans,

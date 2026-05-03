@@ -1,3 +1,4 @@
+import type { DatabaseUserTimezonePreferenceStore } from '@clashmate/database';
 import type { CommandContext, SlashCommandDefinition } from '@clashmate/discord';
 import { normalizeClashTag } from '@clashmate/shared';
 import {
@@ -90,6 +91,7 @@ export interface ActivityStore {
 
 export interface ActivityCommandOptions {
   readonly store: ActivityStore;
+  readonly timezones?: Pick<DatabaseUserTimezonePreferenceStore, 'getUserTimezonePreference'>;
 }
 
 export function createActivitySlashCommand(
@@ -155,8 +157,8 @@ export async function executeActivity(
     return;
   }
 
-  const timezone = interaction.options.getString('timezone')?.trim();
-  if (timezone && !isValidTimeZone(timezone)) {
+  const timezoneOption = interaction.options.getString('timezone')?.trim();
+  if (timezoneOption && !isValidTimeZone(timezoneOption)) {
     await interaction.reply({
       content: 'That timezone is not a valid IANA timezone.',
       ephemeral: true,
@@ -166,6 +168,12 @@ export async function executeActivity(
 
   await interaction.deferReply();
 
+  const timezone = await resolveActivityTimezone({
+    guildId: interaction.guildId,
+    userId: interaction.user.id,
+    ...(timezoneOption ? { timezoneOption } : {}),
+    ...(options.timezones ? { preferences: options.timezones } : {}),
+  });
   const days = parseActivityDays(interaction.options.getInteger('days'));
   const limit = clampActivityLimit(interaction.options.getInteger('limit'));
   const clanOption = interaction.options.getString('clans');
@@ -207,19 +215,43 @@ interface BuildActivityOptions {
   readonly days: ActivityDays;
   readonly limit: number;
   readonly timezone?: string;
+  readonly timezoneSource?: ActivityTimezoneSource;
   readonly now?: Date;
 }
+
+type ActivityTimezoneSource = 'option' | 'preference';
 
 function buildActivityOptions(
   days: ActivityDays,
   limit: number,
-  timezone: string | undefined,
+  timezone: ActivityResolvedTimezone,
 ): BuildActivityOptions {
   return {
     days,
     limit,
-    ...(timezone ? { timezone } : {}),
+    ...(timezone.timezone ? { timezone: timezone.timezone } : {}),
+    ...(timezone.source ? { timezoneSource: timezone.source } : {}),
   };
+}
+
+interface ActivityResolvedTimezone {
+  readonly timezone?: string;
+  readonly source?: ActivityTimezoneSource;
+}
+
+async function resolveActivityTimezone(input: {
+  readonly guildId: string;
+  readonly userId: string;
+  readonly timezoneOption?: string;
+  readonly preferences?: Pick<DatabaseUserTimezonePreferenceStore, 'getUserTimezonePreference'>;
+}): Promise<ActivityResolvedTimezone> {
+  if (input.timezoneOption) return { timezone: input.timezoneOption, source: 'option' };
+  if (!input.preferences) return {};
+
+  const preference = await input.preferences.getUserTimezonePreference(input.guildId, input.userId);
+  const timezone = preference?.timezone.trim();
+  if (!timezone || !isValidTimeZone(timezone)) return {};
+  return { timezone, source: 'preference' };
 }
 
 export function buildActivityEmbed(
@@ -235,7 +267,9 @@ export function buildActivityEmbed(
 
   const embed = new EmbedBuilder()
     .setTitle('Clan Activity')
-    .setDescription(truncateEmbedDescription(formatActivityDescription(summaries)))
+    .setDescription(
+      truncateEmbedDescription(formatActivityDescription(summaries, options.timezone)),
+    )
     .addFields({
       name: 'Snapshot source',
       value:
@@ -243,11 +277,15 @@ export function buildActivityEmbed(
       inline: false,
     })
     .setFooter({
-      text: `Window: ${options.days} day(s)${options.timezone ? ` · ${options.timezone}` : ''}`,
+      text: `Window: ${options.days} day(s) · Display timezone: ${formatActivityTimezoneLabel(options)}`,
     });
 
   if (options.timezone) {
-    embed.addFields({ name: 'Display timezone', value: options.timezone, inline: false });
+    embed.addFields({
+      name: 'Display timezone',
+      value: `${options.timezone}${options.timezoneSource === 'preference' ? ' (saved preference)' : ''}`,
+      inline: false,
+    });
   }
 
   return embed;
@@ -284,7 +322,10 @@ interface ActivityClanSummary {
   readonly recentMembers: readonly ActivitySnapshotRow[];
 }
 
-function formatActivityDescription(summaries: readonly ActivityClanSummary[]): string {
+function formatActivityDescription(
+  summaries: readonly ActivityClanSummary[],
+  timezone: string | undefined,
+): string {
   if (summaries.length === 0)
     return 'No member activity snapshots are available for linked clans yet.';
   return summaries
@@ -293,7 +334,7 @@ function formatActivityDescription(summaries: readonly ActivityClanSummary[]): s
         ? summary.recentMembers
             .map(
               (member, index) =>
-                `${index + 1}. ${escapeMarkdown(member.name)} (\`${member.playerTag}\`) · last seen ${time(member.lastSeenAt, 'R')}`,
+                `${index + 1}. ${escapeMarkdown(member.name)} (\`${member.playerTag}\`) · last seen ${formatActivityTimestamp(member.lastSeenAt, timezone)}`,
             )
             .join('\n')
         : 'No recent member rows in the stored snapshot.';
@@ -304,6 +345,28 @@ function formatActivityDescription(summaries: readonly ActivityClanSummary[]): s
       ].join('\n');
     })
     .join('\n\n');
+}
+
+function formatActivityTimestamp(date: Date, timezone: string | undefined): string {
+  if (!timezone) return time(date, 'R');
+  return `${formatZonedDateTime(date, timezone)} (${time(date, 'R')})`;
+}
+
+function formatZonedDateTime(date: Date, timezone: string): string {
+  return new Intl.DateTimeFormat('en-US', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: timezone,
+  }).format(date);
+}
+
+function formatActivityTimezoneLabel(
+  options: Pick<BuildActivityOptions, 'timezone' | 'timezoneSource'>,
+): string {
+  if (!options.timezone) return 'UTC/default';
+  return options.timezoneSource === 'preference'
+    ? `${options.timezone} (saved preference)`
+    : options.timezone;
 }
 
 function parseActivityDays(value: number | null): ActivityDays {
