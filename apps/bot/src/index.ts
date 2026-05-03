@@ -27,7 +27,12 @@ import {
   type SlashCommandDefinition,
 } from '@clashmate/discord';
 import { createLogger } from '@clashmate/logger';
-import { Client, GatewayIntentBits, type InteractionReplyOptions } from 'discord.js';
+import {
+  type AutocompleteInteraction,
+  Client,
+  GatewayIntentBits,
+  type InteractionReplyOptions,
+} from 'discord.js';
 
 import { createBotCommandRegistry } from './commands/index.js';
 import { loadBotPackageVersion, type StatusMetricReader } from './commands/status.js';
@@ -222,12 +227,16 @@ client.once('ready', async (readyClient) => {
 client.on('interactionCreate', async (interaction) => {
   if (interaction.isAutocomplete()) {
     try {
-      await routeAutocompleteInteraction(commandRegistry, interaction, {
+      const handled = await routeAutocompleteInteraction(commandRegistry, interaction, {
         client,
         ownerIds: config.DISCORD_OWNER_IDS,
       });
+      if (!handled) {
+        await respondAutocompleteEmpty(interaction, 'Autocomplete interaction was not handled');
+      }
     } catch (error) {
       logger.error({ error, command: interaction.commandName }, 'Autocomplete interaction failed');
+      await respondAutocompleteEmpty(interaction, 'Failed to send autocomplete fallback response');
     }
     return;
   }
@@ -338,4 +347,17 @@ async function sendCommandFailure(interaction: {
   }
 
   await interaction.reply(options);
+}
+
+async function respondAutocompleteEmpty(
+  interaction: AutocompleteInteraction,
+  failureMessage: string,
+): Promise<void> {
+  if (interaction.responded) return;
+
+  try {
+    await interaction.respond([]);
+  } catch (error) {
+    logger.warn({ error, command: interaction.commandName }, failureMessage);
+  }
 }
