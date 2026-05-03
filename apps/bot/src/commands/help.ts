@@ -420,10 +420,12 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
   },
   {
     name: 'setup',
-    usage: '/setup clan ... or /setup clan-logs ...',
-    description: 'Configure linked clans and clan log channels.',
+    usage: '/setup clan ... or /setup clan-logs ... or /setup list [clans]',
+    description: 'Configure and list linked clans and clan log channels.',
     category: 'Setup & Logs',
-    details: ['Server setup command for clan tracking and log notifications.'],
+    details: [
+      'Server setup command for clan tracking, linked clan listing, and log notifications.',
+    ],
   },
   {
     name: 'events',

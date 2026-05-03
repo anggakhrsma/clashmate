@@ -105,6 +105,14 @@ export const setupClanCommandData = new SlashCommandBuilder()
           .setDescription('Channel to send updates to (defaults to the current channel)')
           .addChannelTypes(...allowedClanChannelTypes),
       ),
+  )
+  .addSubcommand((subcommand) =>
+    subcommand
+      .setName('list')
+      .setDescription('List all enabled features and clans.')
+      .addStringOption((option) =>
+        option.setName('clans').setDescription('Select the clans to list.').setAutocomplete(true),
+      ),
   );
 
 export interface SetupClanClashClan {
@@ -115,8 +123,10 @@ export interface SetupClanClashClan {
 export interface SetupClanTrackedClan {
   readonly id: string;
   readonly clanTag: string;
-  readonly name: string;
+  readonly name: string | null;
   readonly alias?: string | null;
+  readonly categoryId?: string | null;
+  readonly sortOrder?: number | null;
 }
 
 export interface SetupClanCategory {
@@ -167,6 +177,7 @@ export interface UnlinkChannelInput {
 export interface SetupClanStore {
   listClanCategories: (guildId: string) => Promise<SetupClanCategory[]>;
   listLinkedClans: (guildId: string) => Promise<SetupClanTrackedClan[]>;
+  listClansForGuild?: (guildId: string) => Promise<SetupClanTrackedClan[]>;
   linkClan: (input: LinkClanInput) => Promise<LinkClanResult>;
   unlinkClan: (
     input: UnlinkClanInput,
@@ -274,6 +285,11 @@ export function createSetupClanSlashCommand(
         return;
       }
 
+      if (subcommand === 'list') {
+        await executeSetupList(interaction, options);
+        return;
+      }
+
       if (subcommand !== 'clan') return;
 
       await executeSetupClan(interaction, context, options);
@@ -281,7 +297,7 @@ export function createSetupClanSlashCommand(
     autocomplete: async (interaction) => {
       if (interaction.commandName !== SETUP_COMMAND_NAME) return;
       const subcommand = interaction.options.getSubcommand(false);
-      if (subcommand !== 'clan' && subcommand !== 'clan-logs') return;
+      if (subcommand !== 'clan' && subcommand !== 'clan-logs' && subcommand !== 'list') return;
 
       await autocompleteSetupClan(interaction, options);
     },
@@ -306,13 +322,54 @@ export async function autocompleteSetupClan(
     return;
   }
 
-  if (focused.name === 'clan') {
+  if (focused.name === 'clan' || focused.name === 'clans') {
     const clans = await options.clans.listLinkedClans(interaction.guildId);
     await interaction.respond(filterClanChoices(clans, query));
     return;
   }
 
   await interaction.respond([]);
+}
+
+async function executeSetupList(
+  interaction: ChatInputCommandInteraction,
+  options: SetupClanCommandOptions,
+): Promise<void> {
+  if (!interaction.inCachedGuild()) {
+    await interaction.reply({
+      content: '`/setup list` can only be used in a server.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  if (!interaction.memberPermissions.has(PermissionFlagsBits.ManageGuild)) {
+    await interaction.reply({
+      content: 'You need the Manage Server permission to use `/setup list`.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const [clans, categories] = await Promise.all([
+    listSetupClans(options.clans, interaction.guildId),
+    options.clans.listClanCategories(interaction.guildId),
+  ]);
+  const filter = interaction.options.getString('clans')?.trim();
+
+  await interaction.reply({
+    content: formatSetupListMessage(clans, categories, filter),
+    ephemeral: true,
+  });
+}
+
+async function listSetupClans(
+  store: SetupClanStore,
+  guildId: string,
+): Promise<SetupClanTrackedClan[]> {
+  return store.listClansForGuild
+    ? store.listClansForGuild(guildId)
+    : store.listLinkedClans(guildId);
 }
 
 async function executeSetupClanLogs(
@@ -434,7 +491,10 @@ export function filterClanChoices(
         .some((value) => value.toLowerCase().includes(normalizedQuery));
     })
     .slice(0, 25)
-    .map((clan) => ({ name: `${clan.name} (${clan.clanTag})`, value: clan.clanTag }));
+    .map((clan) => ({
+      name: `${clan.name ?? clan.clanTag} (${clan.clanTag})`,
+      value: clan.clanTag,
+    }));
 
   if (choices.length === 0 && query.trim()) {
     return [{ name: query.trim(), value: query.trim() }];
@@ -568,6 +628,55 @@ export function formatLinkClanMessage(
   const channelText = result.channelLinked && channelId ? ` <#${channelId}>` : '';
   const categoryText = result.category ? ` with category **${result.category.displayName}**` : '';
   return `Successfully linked **${result.clanName} (${result.clanTag})** to **${guildName}**${channelText}${categoryText}.`;
+}
+
+export function formatSetupListMessage(
+  clans: readonly SetupClanTrackedClan[],
+  categories: readonly SetupClanCategory[],
+  filter?: string,
+): string {
+  const filteredClans = filter ? filterSetupClans(clans, filter) : clans;
+  if (clans.length === 0) {
+    return 'No clans are linked to this server. Use `/setup clan` to link a clan.';
+  }
+  if (filteredClans.length === 0) {
+    return 'No linked clans matched the `clans` filter.';
+  }
+
+  const categoryNames = new Map(categories.map((category) => [category.id, category.displayName]));
+  const lines = filteredClans.map((clan, index) => {
+    const details = [
+      clan.alias ? `alias: ${clan.alias}` : undefined,
+      clan.categoryId
+        ? `category: ${categoryNames.get(clan.categoryId) ?? clan.categoryId}`
+        : undefined,
+      typeof clan.sortOrder === 'number' ? `sort: ${clan.sortOrder}` : undefined,
+    ].filter((detail): detail is string => Boolean(detail));
+    const detailsText = details.length > 0 ? ` — ${details.join(', ')}` : '';
+    return `${index + 1}. **${clan.name ?? clan.clanTag}** (${clan.clanTag})${detailsText}`;
+  });
+
+  const suffix = filter ? ` matching \`${filter}\`` : '';
+  return [`Linked clans${suffix}:`, ...lines].join('\n');
+}
+
+function filterSetupClans(
+  clans: readonly SetupClanTrackedClan[],
+  filter: string,
+): SetupClanTrackedClan[] {
+  const terms = filter
+    .split(',')
+    .map((term) => term.trim().toLowerCase())
+    .filter(Boolean);
+  if (terms.length === 0) return [...clans];
+
+  return clans.filter((clan) =>
+    terms.some((term) =>
+      [clan.clanTag, clan.name, clan.alias]
+        .filter((value): value is string => Boolean(value))
+        .some((value) => value.toLowerCase().includes(term)),
+    ),
+  );
 }
 
 export function formatConfigureJoinLeaveMessage(
