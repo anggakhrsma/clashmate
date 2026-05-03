@@ -17,8 +17,10 @@ export const HISTORY_NO_DONATION_EVENTS_MESSAGE =
   'No donation history is available yet. Link/configure a clan and wait for donation events to be detected.';
 export const HISTORY_NO_WAR_ATTACK_EVENTS_MESSAGE =
   'No war attack history is available yet. Link/configure a clan and wait for war attacks to be detected.';
+export const HISTORY_NO_JOIN_LEAVE_EVENTS_MESSAGE =
+  'No join/leave history is available yet. Link/configure a clan and wait for clan member events to be detected.';
 
-const HISTORY_OPTIONS = ['donations', 'war-attacks'] as const;
+const HISTORY_OPTIONS = ['donations', 'war-attacks', 'join-leave'] as const;
 type HistoryOption = (typeof HISTORY_OPTIONS)[number];
 const MAX_HISTORY_ROWS = 15;
 const EMBED_DESCRIPTION_LIMIT = 4096;
@@ -35,6 +37,7 @@ export const historyCommandData = new SlashCommandBuilder()
       .addChoices(
         { name: 'Donations', value: 'donations' },
         { name: 'War Attacks', value: 'war-attacks' },
+        { name: 'Join/Leave', value: 'join-leave' },
       ),
   )
   .addStringOption((option) =>
@@ -86,6 +89,16 @@ export interface WarAttackHistoryRow {
   readonly lastAttackedAt: Date;
 }
 
+export interface JoinLeaveHistoryRow {
+  readonly playerTag: string;
+  readonly playerName: string;
+  readonly clanTag: string;
+  readonly clanName: string | null;
+  readonly eventType: 'joined' | 'left';
+  readonly occurredAt: Date;
+  readonly detectedAt: Date;
+}
+
 export interface HistoryStore {
   readonly listLinkedClans: (guildId: string) => Promise<HistoryLinkedClan[]>;
   readonly listPlayerTagsForUser: (guildId: string, discordUserId: string) => Promise<string[]>;
@@ -101,6 +114,12 @@ export interface HistoryStore {
     attackerTags?: readonly string[];
     since?: Date;
   }) => Promise<WarAttackHistoryRow[]>;
+  readonly listClanMemberJoinLeaveHistoryForGuild: (input: {
+    guildId: string;
+    clanTags?: readonly string[];
+    playerTags?: readonly string[];
+    since?: Date;
+  }) => Promise<JoinLeaveHistoryRow[]>;
 }
 
 export interface HistoryCommandOptions {
@@ -173,7 +192,7 @@ export async function executeHistory(
   const option = interaction.options.getString('option', true);
   if (!isHistoryOption(option)) {
     await interaction.editReply({
-      content: 'Only donation and war attack history are available right now.',
+      content: 'Only donation, war attack, and join/leave history are available right now.',
     });
     return;
   }
@@ -229,6 +248,24 @@ export async function executeHistory(
     return;
   }
 
+  if (option === 'join-leave') {
+    const rows = await options.store.listClanMemberJoinLeaveHistoryForGuild({
+      guildId: interaction.guildId,
+      ...(clanTags ? { clanTags } : {}),
+      ...(playerTags ? { playerTags } : {}),
+    });
+
+    if (rows.length === 0) {
+      await interaction.editReply({ content: HISTORY_NO_JOIN_LEAVE_EVENTS_MESSAGE });
+      return;
+    }
+
+    await interaction.editReply({
+      embeds: [buildJoinLeaveHistoryEmbed(rows, clanLabel, userOption)],
+    });
+    return;
+  }
+
   const rows = await options.store.listDonationHistoryForGuild({
     guildId: interaction.guildId,
     ...(clanTags ? { clanTags } : {}),
@@ -241,6 +278,53 @@ export async function executeHistory(
   }
 
   await interaction.editReply({ embeds: [buildDonationHistoryEmbed(rows, clanLabel, userOption)] });
+}
+
+export function buildJoinLeaveHistoryEmbed(
+  rows: readonly JoinLeaveHistoryRow[],
+  clanLabel: string | undefined,
+  user: User | null,
+): EmbedBuilder {
+  const selectedRows = rows.slice(0, MAX_HISTORY_ROWS);
+  const totals = rows.reduce(
+    (acc, row) => ({
+      joined: acc.joined + (row.eventType === 'joined' ? 1 : 0),
+      left: acc.left + (row.eventType === 'left' ? 1 : 0),
+    }),
+    { joined: 0, left: 0 },
+  );
+  const embed = new EmbedBuilder()
+    .setTitle('Join/Leave History')
+    .setDescription(truncateEmbedDescription(formatJoinLeaveHistoryRows(selectedRows)))
+    .addFields(
+      {
+        name: 'Totals',
+        value: `${totals.joined} joined · ${totals.left} left`,
+        inline: false,
+      },
+      {
+        name: 'Source',
+        value: 'Values are based on detected clan member events over the recent history window.',
+        inline: false,
+      },
+    )
+    .setFooter({
+      text: `Showing ${selectedRows.length}/${rows.length} events from stored events`,
+    });
+
+  if (clanLabel) embed.addFields({ name: 'Clan filter', value: clanLabel, inline: false });
+  if (user) embed.setAuthor({ name: user.displayName, iconURL: user.displayAvatarURL() });
+  return embed;
+}
+
+function formatJoinLeaveHistoryRows(rows: readonly JoinLeaveHistoryRow[]): string {
+  return rows
+    .map((row, index) => {
+      const clanLabel = row.clanName?.trim() || row.clanTag;
+      const eventLabel = row.eventType === 'joined' ? 'joined' : 'left';
+      return `${index + 1}. **${escapeMarkdown(row.playerName)}** (\`${row.playerTag}\`) · ${eventLabel} · ${escapeMarkdown(clanLabel)} (\`${row.clanTag}\`) · ${time(row.occurredAt, 'R')}`;
+    })
+    .join('\n');
 }
 
 export function buildWarAttackHistoryEmbed(

@@ -2,6 +2,7 @@ import { ClashMateCocClient } from '@clashmate/coc';
 import { loadConfig } from '@clashmate/config';
 import {
   createClanGamesScoreboardReader,
+  createClanMemberJoinLeaveHistoryReader,
   createClanMemberSnapshotReader,
   createDatabase,
   createDatabaseClanMemberNotificationConfigStore,
@@ -45,6 +46,7 @@ const databaseLastSeenSnapshots = createLastSeenSnapshotReader(database);
 const databaseClanMemberSnapshots = createClanMemberSnapshotReader(database);
 const databaseDonationSnapshots = createDonationSnapshotReader(database);
 const databaseDonationHistory = createDonationHistoryReader(database);
+const databaseClanMemberJoinLeaveHistory = createClanMemberJoinLeaveHistoryReader(database);
 const databaseWarAttackHistory = createWarAttackHistoryReader(database);
 const databaseWarSnapshots = createWarSnapshotStore(database);
 const databaseMissedWarAttacks = createMissedWarAttackEventStore(database);
@@ -92,6 +94,8 @@ const commandRegistry = createBotCommandRegistry({
       listPlayerTagsForUser: databasePlayerLinks.listPlayerTagsForUser,
       listDonationHistoryForGuild: databaseDonationHistory.listDonationHistoryForGuild,
       listWarAttackHistoryForGuild: databaseWarAttackHistory.listWarAttackHistoryForGuild,
+      listClanMemberJoinLeaveHistoryForGuild:
+        databaseClanMemberJoinLeaveHistory.listClanMemberJoinLeaveHistoryForGuild,
     },
   },
   link: {

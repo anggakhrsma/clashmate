@@ -193,6 +193,27 @@ export interface WarAttackHistoryReader {
   }) => Promise<WarAttackHistoryListRow[]>;
 }
 
+export type ClanMemberJoinLeaveHistoryEventType = 'joined' | 'left';
+
+export interface ClanMemberJoinLeaveHistoryListRow {
+  playerTag: string;
+  playerName: string;
+  clanTag: string;
+  clanName: string | null;
+  eventType: ClanMemberJoinLeaveHistoryEventType;
+  occurredAt: Date;
+  detectedAt: Date;
+}
+
+export interface ClanMemberJoinLeaveHistoryReader {
+  listClanMemberJoinLeaveHistoryForGuild: (input: {
+    guildId: string;
+    clanTags?: readonly string[];
+    playerTags?: readonly string[];
+    since?: Date;
+  }) => Promise<ClanMemberJoinLeaveHistoryListRow[]>;
+}
+
 export type PollingResourceType = 'clan' | 'player' | 'war';
 
 export const TOP_LEVEL_POLLING_RESOURCE_TYPES = ['clan', 'player', 'war'] as const;
@@ -1949,6 +1970,62 @@ export function createWarAttackHistoryReader(database: Database): WarAttackHisto
         averageDestruction: Number(row.averageDestruction),
         freshAttackCount: Number(row.freshAttackCount),
         lastAttackedAt: row.lastAttackedAt,
+      }));
+    },
+  };
+}
+
+export function createClanMemberJoinLeaveHistoryReader(
+  database: Database,
+): ClanMemberJoinLeaveHistoryReader {
+  return {
+    listClanMemberJoinLeaveHistoryForGuild: async (input) => {
+      const since = input.since ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const filters = [
+        eq(schema.clanMemberEvents.guildId, input.guildId),
+        eq(schema.trackedClans.guildId, input.guildId),
+        eq(schema.trackedClans.isActive, true),
+        inArray(schema.clanMemberEvents.eventType, [...CLAN_MEMBER_JOIN_LEAVE_EVENT_TYPES]),
+        gte(schema.clanMemberEvents.detectedAt, since),
+      ];
+
+      if (input.clanTags?.length) {
+        filters.push(inArray(schema.clanMemberEvents.clanTag, [...input.clanTags]));
+      }
+      if (input.playerTags?.length) {
+        filters.push(inArray(schema.clanMemberEvents.playerTag, [...input.playerTags]));
+      }
+
+      const rows = await database
+        .select({
+          playerTag: schema.clanMemberEvents.playerTag,
+          playerName: schema.clanMemberEvents.playerName,
+          clanTag: schema.clanMemberEvents.clanTag,
+          clanName: schema.trackedClans.name,
+          eventType: schema.clanMemberEvents.eventType,
+          occurredAt: schema.clanMemberEvents.occurredAt,
+          detectedAt: schema.clanMemberEvents.detectedAt,
+        })
+        .from(schema.clanMemberEvents)
+        .innerJoin(
+          schema.trackedClans,
+          eq(schema.trackedClans.id, schema.clanMemberEvents.trackedClanId),
+        )
+        .where(and(...filters))
+        .orderBy(
+          desc(schema.clanMemberEvents.occurredAt),
+          desc(schema.clanMemberEvents.detectedAt),
+          desc(schema.clanMemberEvents.id),
+        );
+
+      return rows.map((row) => ({
+        playerTag: row.playerTag,
+        playerName: row.playerName,
+        clanTag: row.clanTag,
+        clanName: row.clanName,
+        eventType: row.eventType === 'left' ? 'left' : 'joined',
+        occurredAt: row.occurredAt,
+        detectedAt: row.detectedAt,
       }));
     },
   };
