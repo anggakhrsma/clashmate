@@ -149,6 +149,13 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     details: ['Reads existing ClashMate player links without querying the Clash API.'],
   },
   {
+    name: 'units',
+    usage: '/units [player] [user]',
+    description: 'Show current unit levels for a Clash of Clans player.',
+    category: 'Player & Clan',
+    details: ['Performs a one-off public Clash API lookup and groups API-provided unit levels.'],
+  },
+  {
     name: 'link',
     usage: '/link create|list|delete',
     description: 'Manage Discord user links to Clash player or clan tags.',

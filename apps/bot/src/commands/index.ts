@@ -18,6 +18,7 @@ import { createProfileSlashCommand, type ProfileCommandOptions } from './profile
 import { createRemainingSlashCommand, type RemainingCommandOptions } from './remaining.js';
 import { createSetupClanSlashCommand, type SetupClanCommandOptions } from './setup-clan.js';
 import { createStatusSlashCommand, type StatusCommandOptions } from './status.js';
+import { createUnitsSlashCommand, type UnitsCommandOptions } from './units.js';
 import { createUsageSlashCommand, type UsageCommandOptions } from './usage.js';
 import { createVerifySlashCommand, type VerifyCommandOptions } from './verify.js';
 import { createWarSlashCommand, type WarCommandOptions } from './war.js';
@@ -40,6 +41,7 @@ export interface BotCommandRegistryOptions {
   remaining: RemainingCommandOptions;
   setupClan: SetupClanCommandOptions;
   status: StatusCommandOptions;
+  units: UnitsCommandOptions;
   usage: UsageCommandOptions;
   verify: VerifyCommandOptions;
   war: WarCommandOptions;
@@ -68,6 +70,7 @@ export function createBotCommandRegistry(options: BotCommandRegistryOptions): Co
   registry.registerSlash(createRemainingSlashCommand(options.remaining));
   registry.registerSlash(createSetupClanSlashCommand(options.setupClan));
   registry.registerSlash(createStatusSlashCommand(options.status));
+  registry.registerSlash(createUnitsSlashCommand(options.units));
   registry.registerSlash(createUsageSlashCommand(options.usage));
   registry.registerSlash(createVerifySlashCommand(options.verify));
   registry.registerSlash(createWarSlashCommand(options.war));

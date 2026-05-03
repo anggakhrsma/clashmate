@@ -130,6 +130,10 @@ const commandRegistry = createBotCommandRegistry({
   profile: {
     links: databasePlayerLinks,
   },
+  units: {
+    coc: cocClient,
+    links: databasePlayerLinks,
+  },
   remaining: {
     store: {
       listLinkedClans: databaseTrackedClans.listLinkedClans,
@@ -177,6 +181,7 @@ const commandRegistry = createBotCommandRegistry({
       'remaining',
       'setup',
       'status',
+      'units',
       'usage',
       'verify',
       'war',
