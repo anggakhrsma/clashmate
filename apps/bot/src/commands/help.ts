@@ -237,7 +237,8 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     description: 'Manage reminders and send immediate snapshot-based reminder pings.',
     category: 'Setup & Logs',
     details: [
-      'Scheduled reminder storage and delivery are not implemented in this first pass.',
+      'Scheduled reminder storage is implemented for create, list, edit, delete, and config.',
+      'Delivery scheduling and worker fan-out are not active yet; stored schedules are configuration only.',
       '`/reminders now` reads persisted linked-clan member snapshots and player links without calling the Clash API.',
       'Requires Manage Server permission.',
     ],

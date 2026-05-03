@@ -175,6 +175,64 @@ export interface DatabaseLayoutConfigStore {
   updateLayoutConfig: (input: UpdateLayoutConfigInput) => Promise<LayoutConfigRecord>;
 }
 
+export type ReminderScheduleTypeRecord = 'clan-wars' | 'capital-raids' | 'clan-games';
+
+export interface ReminderScheduleClanRecord {
+  input: string;
+  clanTag: string | null;
+  name: string | null;
+  alias: string | null;
+}
+
+export interface ReminderScheduleRecord {
+  id: string;
+  type: ReminderScheduleTypeRecord;
+  duration: string;
+  clans: readonly ReminderScheduleClanRecord[];
+  message: string;
+  excludeParticipantList: boolean;
+  channelId: string;
+  actorDiscordUserId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReminderSettingsRecord {
+  schedules: ReminderScheduleRecord[];
+  reminderPingExclusion: boolean;
+}
+
+export interface DatabaseReminderSettingsStore {
+  getReminderSettings: (guildId: string) => Promise<ReminderSettingsRecord>;
+  createReminderSchedule: (input: {
+    guildId: string;
+    guildName: string | null;
+    actorDiscordUserId: string;
+    schedule: Omit<ReminderScheduleRecord, 'createdAt' | 'updatedAt'>;
+  }) => Promise<ReminderScheduleRecord>;
+  updateReminderScheduleDuration: (input: {
+    guildId: string;
+    guildName: string | null;
+    actorDiscordUserId: string;
+    type: ReminderScheduleTypeRecord;
+    id: string;
+    duration: string;
+  }) => Promise<ReminderScheduleRecord | null>;
+  deleteReminderSchedule: (input: {
+    guildId: string;
+    guildName: string | null;
+    actorDiscordUserId: string;
+    type: ReminderScheduleTypeRecord;
+    id: string;
+  }) => Promise<ReminderScheduleRecord | null>;
+  setReminderPingExclusion: (input: {
+    guildId: string;
+    guildName: string | null;
+    actorDiscordUserId: string;
+    enabled: boolean;
+  }) => Promise<ReminderSettingsRecord>;
+}
+
 export interface CommandWhitelistEntryRecord {
   commandName: string;
   userOrRoleId: string;
@@ -1745,9 +1803,125 @@ function readStringArraySetting(value: unknown): string[] {
   return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
 }
 
+async function upsertGuildForSettings(
+  database: Database | DatabaseTransaction,
+  guildId: string,
+  guildName: string | null,
+  now: Date,
+): Promise<void> {
+  await database
+    .insert(schema.guilds)
+    .values({ id: guildId, name: guildName, updatedAt: now })
+    .onConflictDoUpdate({ target: schema.guilds.id, set: { name: guildName, updatedAt: now } });
+}
+
+async function readReminderSettings(
+  database: Database | DatabaseTransaction,
+  guildId: string,
+): Promise<ReminderSettingsRecord> {
+  const [setting] = await database
+    .select({ value: schema.guildSettings.value })
+    .from(schema.guildSettings)
+    .where(
+      and(
+        eq(schema.guildSettings.guildId, guildId),
+        eq(schema.guildSettings.key, REMINDER_SETTINGS_KEY),
+      ),
+    )
+    .limit(1);
+  return normalizeReminderSettings(setting?.value);
+}
+
+async function writeReminderSettings(
+  database: Database | DatabaseTransaction,
+  guildId: string,
+  settings: ReminderSettingsRecord,
+  now: Date,
+): Promise<void> {
+  await database
+    .insert(schema.guildSettings)
+    .values({ guildId, key: REMINDER_SETTINGS_KEY, value: settings, updatedAt: now })
+    .onConflictDoUpdate({
+      target: [schema.guildSettings.guildId, schema.guildSettings.key],
+      set: { value: settings, updatedAt: now },
+    });
+}
+
+function normalizeReminderSettings(value: unknown): ReminderSettingsRecord {
+  if (!value || typeof value !== 'object') return { schedules: [], reminderPingExclusion: false };
+  const record = value as Record<string, unknown>;
+  const schedules = getRecordValue(record, 'schedules');
+  return {
+    schedules: Array.isArray(schedules) ? schedules.flatMap(normalizeReminderSchedule) : [],
+    reminderPingExclusion: getRecordValue(record, 'reminderPingExclusion') === true,
+  };
+}
+
+function normalizeReminderSchedule(value: unknown): ReminderScheduleRecord[] {
+  if (!value || typeof value !== 'object') return [];
+  const record = value as Record<string, unknown>;
+  const id = getRecordValue(record, 'id');
+  const type = getRecordValue(record, 'type');
+  const duration = getRecordValue(record, 'duration');
+  const message = getRecordValue(record, 'message');
+  const clans = getRecordValue(record, 'clans');
+  const channelId = getRecordValue(record, 'channelId');
+  const actorDiscordUserId = getRecordValue(record, 'actorDiscordUserId');
+  const createdAt = getRecordValue(record, 'createdAt');
+  const updatedAt = getRecordValue(record, 'updatedAt');
+  if (
+    typeof id !== 'string' ||
+    !isReminderScheduleType(type) ||
+    typeof duration !== 'string' ||
+    typeof message !== 'string' ||
+    typeof channelId !== 'string' ||
+    typeof actorDiscordUserId !== 'string' ||
+    typeof createdAt !== 'string' ||
+    typeof updatedAt !== 'string'
+  )
+    return [];
+  return [
+    {
+      id,
+      type,
+      duration,
+      clans: Array.isArray(clans) ? clans.flatMap(normalizeReminderClan) : [],
+      message,
+      excludeParticipantList: getRecordValue(record, 'excludeParticipantList') === true,
+      channelId,
+      actorDiscordUserId,
+      createdAt,
+      updatedAt,
+    },
+  ];
+}
+
+function normalizeReminderClan(value: unknown): ReminderScheduleClanRecord[] {
+  if (!value || typeof value !== 'object') return [];
+  const record = value as Record<string, unknown>;
+  const input = getRecordValue(record, 'input');
+  const clanTag = getRecordValue(record, 'clanTag');
+  const name = getRecordValue(record, 'name');
+  const alias = getRecordValue(record, 'alias');
+  if (typeof input !== 'string') return [];
+  return [
+    {
+      input,
+      clanTag: typeof clanTag === 'string' ? clanTag : null,
+      name: typeof name === 'string' ? name : null,
+      alias: typeof alias === 'string' ? alias : null,
+    },
+  ];
+}
+
+function isReminderScheduleType(value: unknown): value is ReminderScheduleTypeRecord {
+  return value === 'clan-wars' || value === 'capital-raids' || value === 'clan-games';
+}
+
 const CALLER_BASE_CALLS_SETTING_KEY = 'caller_base_calls';
 const COMMAND_WHITELIST_SETTING_KEY = 'command_whitelist';
 const DEFAULT_CLAN_LINKS_SETTING_KEY = 'default_clan_links';
+const REMINDER_SETTINGS_KEY = 'reminders';
 
 function readCallerBaseCallsSetting(value: unknown): CallerBaseAssignmentRecord[] {
   if (!Array.isArray(value)) return [];
@@ -2176,6 +2350,115 @@ export function createDatabaseConfigStore(database: Database): DatabaseConfigSto
         });
 
         return readGuildConfig(tx, input.guildId);
+      }),
+  };
+}
+
+export function createDatabaseReminderSettingsStore(
+  database: Database,
+): DatabaseReminderSettingsStore {
+  return {
+    getReminderSettings: async (guildId) => readReminderSettings(database, guildId),
+    createReminderSchedule: async (input) =>
+      database.transaction(async (tx) => {
+        const now = new Date();
+        await upsertGuildForSettings(tx, input.guildId, input.guildName, now);
+        const settings = await readReminderSettings(tx, input.guildId);
+        const schedule = {
+          ...input.schedule,
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+        } satisfies ReminderScheduleRecord;
+        await writeReminderSettings(
+          tx,
+          input.guildId,
+          {
+            ...settings,
+            schedules: [...settings.schedules, schedule],
+          },
+          now,
+        );
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: 'reminder_schedule.created',
+          targetType: 'reminder_schedule',
+          targetId: schedule.id,
+          metadata: { type: schedule.type, channelId: schedule.channelId },
+          createdAt: now,
+        });
+        return schedule;
+      }),
+    updateReminderScheduleDuration: async (input) =>
+      database.transaction(async (tx) => {
+        const now = new Date();
+        await upsertGuildForSettings(tx, input.guildId, input.guildName, now);
+        const settings = await readReminderSettings(tx, input.guildId);
+        let updated: ReminderScheduleRecord | null = null;
+        const schedules = settings.schedules.map((schedule) => {
+          if (schedule.id !== input.id || schedule.type !== input.type) return schedule;
+          updated = { ...schedule, duration: input.duration, updatedAt: now.toISOString() };
+          return updated;
+        });
+        if (!updated) return null;
+        await writeReminderSettings(tx, input.guildId, { ...settings, schedules }, now);
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: 'reminder_schedule.updated',
+          targetType: 'reminder_schedule',
+          targetId: input.id,
+          metadata: { type: input.type, updatedKeys: ['duration'] },
+          createdAt: now,
+        });
+        return updated;
+      }),
+    deleteReminderSchedule: async (input) =>
+      database.transaction(async (tx) => {
+        const now = new Date();
+        await upsertGuildForSettings(tx, input.guildId, input.guildName, now);
+        const settings = await readReminderSettings(tx, input.guildId);
+        const removed = settings.schedules.find(
+          (schedule) => schedule.id === input.id && schedule.type === input.type,
+        );
+        if (!removed) return null;
+        await writeReminderSettings(
+          tx,
+          input.guildId,
+          {
+            ...settings,
+            schedules: settings.schedules.filter((schedule) => schedule !== removed),
+          },
+          now,
+        );
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: 'reminder_schedule.deleted',
+          targetType: 'reminder_schedule',
+          targetId: input.id,
+          metadata: { type: input.type },
+          createdAt: now,
+        });
+        return removed;
+      }),
+    setReminderPingExclusion: async (input) =>
+      database.transaction(async (tx) => {
+        const now = new Date();
+        await upsertGuildForSettings(tx, input.guildId, input.guildName, now);
+        const settings = await readReminderSettings(tx, input.guildId);
+        const updated = { ...settings, reminderPingExclusion: input.enabled };
+        await writeReminderSettings(tx, input.guildId, updated, now);
+        await tx.insert(schema.auditLogs).values({
+          guildId: input.guildId,
+          actorDiscordUserId: input.actorDiscordUserId,
+          action: 'reminder_config.updated',
+          targetType: 'guild',
+          targetId: input.guildId,
+          metadata: { reminderPingExclusion: input.enabled },
+          createdAt: now,
+        });
+        return updated;
       }),
   };
 }

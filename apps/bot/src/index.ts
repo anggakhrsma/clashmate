@@ -16,6 +16,7 @@ import {
   createDatabaseLayoutConfigStore,
   createDatabaseNicknameConfigStore,
   createDatabasePlayerLinkStore,
+  createDatabaseReminderSettingsStore,
   createDatabaseStatusMetrics,
   createDatabaseTrackedClanStore,
   createDatabaseUsageMetrics,
@@ -63,6 +64,7 @@ const databaseClanGamesScoreboards = createClanGamesScoreboardReader(database);
 const databaseClanGamesHistory = createClanGamesHistoryReader(database);
 const databaseClanMemberNotifications = createDatabaseClanMemberNotificationConfigStore(database);
 const databasePlayerLinks = createDatabasePlayerLinkStore(database);
+const databaseReminderSettings = createDatabaseReminderSettingsStore(database);
 const databaseLastSeenSnapshots = createLastSeenSnapshotReader(database);
 const databaseClanMemberSnapshots = createClanMemberSnapshotReader(database);
 const databaseDonationSnapshots = createDonationSnapshotReader(database);
@@ -311,6 +313,11 @@ const commandRegistry = createBotCommandRegistry({
       listLinkedClans: databaseTrackedClans.listLinkedClans,
       listClanMemberSnapshotsForGuild: databaseClanMemberSnapshots.listClanMemberSnapshotsForGuild,
       listPlayerLinksByTags: databasePlayerLinks.listPlayerLinksByTags,
+      getReminderSettings: databaseReminderSettings.getReminderSettings,
+      createReminderSchedule: databaseReminderSettings.createReminderSchedule,
+      updateReminderScheduleDuration: databaseReminderSettings.updateReminderScheduleDuration,
+      deleteReminderSchedule: databaseReminderSettings.deleteReminderSchedule,
+      setReminderPingExclusion: databaseReminderSettings.setReminderPingExclusion,
     },
   },
   search: {

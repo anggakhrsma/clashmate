@@ -21,8 +21,8 @@ const REMINDER_TYPES = [
 const DURATION_CHOICES = ['30m', '1h', '2h', '6h', '12h', '1d', '2d', '3d'];
 const MAX_MENTIONS = 40;
 const MAX_MESSAGE_LENGTH = 1_800;
-const DISABLED_RESPONSE =
-  'Scheduled reminders are not implemented in ClashMate yet. This first pass only supports `/reminders now` using persisted linked-clan snapshots.';
+const STORAGE_ONLY_NOTE =
+  'Delivery scheduling and worker fan-out are not implemented yet; stored schedules are configuration only for now.';
 
 export const remindersCommandData = new SlashCommandBuilder()
   .setName(REMINDERS_COMMAND_NAME)
@@ -164,6 +164,33 @@ export interface RemindersPlayerLink {
   readonly playerTag: string;
 }
 
+export type ReminderScheduleType = 'clan-wars' | 'capital-raids' | 'clan-games';
+
+export interface ReminderScheduleClan {
+  readonly input: string;
+  readonly clanTag: string | null;
+  readonly name: string | null;
+  readonly alias: string | null;
+}
+
+export interface ReminderSchedule {
+  readonly id: string;
+  readonly type: ReminderScheduleType;
+  readonly duration: string;
+  readonly clans: readonly ReminderScheduleClan[];
+  readonly message: string;
+  readonly excludeParticipantList: boolean;
+  readonly channelId: string;
+  readonly actorDiscordUserId: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface ReminderSettings {
+  readonly schedules: readonly ReminderSchedule[];
+  readonly reminderPingExclusion: boolean;
+}
+
 export interface RemindersStore {
   readonly listLinkedClans: (guildId: string) => Promise<RemindersLinkedClan[]>;
   readonly listClanMemberSnapshotsForGuild: (input: {
@@ -171,6 +198,34 @@ export interface RemindersStore {
     clanTag?: string;
   }) => Promise<RemindersClanMemberSnapshots[]>;
   readonly listPlayerLinksByTags: (playerTags: readonly string[]) => Promise<RemindersPlayerLink[]>;
+  readonly getReminderSettings: (guildId: string) => Promise<ReminderSettings>;
+  readonly createReminderSchedule: (input: {
+    guildId: string;
+    guildName: string | null;
+    actorDiscordUserId: string;
+    schedule: Omit<ReminderSchedule, 'createdAt' | 'updatedAt'>;
+  }) => Promise<ReminderSchedule>;
+  readonly updateReminderScheduleDuration: (input: {
+    guildId: string;
+    guildName: string | null;
+    actorDiscordUserId: string;
+    type: ReminderScheduleType;
+    id: string;
+    duration: string;
+  }) => Promise<ReminderSchedule | null>;
+  readonly deleteReminderSchedule: (input: {
+    guildId: string;
+    guildName: string | null;
+    actorDiscordUserId: string;
+    type: ReminderScheduleType;
+    id: string;
+  }) => Promise<ReminderSchedule | null>;
+  readonly setReminderPingExclusion: (input: {
+    guildId: string;
+    guildName: string | null;
+    actorDiscordUserId: string;
+    enabled: boolean;
+  }) => Promise<ReminderSettings>;
 }
 
 export interface RemindersCommandOptions {
@@ -251,12 +306,24 @@ export async function executeReminders(
   }
 
   const subcommand = interaction.options.getSubcommand();
-  if (subcommand !== 'now') {
-    const content =
-      subcommand === 'list'
-        ? `No scheduled reminders are stored yet. ${DISABLED_RESPONSE}`
-        : DISABLED_RESPONSE;
-    await interaction.reply({ content, ephemeral: true });
+  if (subcommand === 'create') {
+    await handleCreateReminder(interaction, options);
+    return;
+  }
+  if (subcommand === 'list') {
+    await handleListReminders(interaction, options);
+    return;
+  }
+  if (subcommand === 'edit') {
+    await handleEditReminder(interaction, options);
+    return;
+  }
+  if (subcommand === 'delete') {
+    await handleDeleteReminder(interaction, options);
+    return;
+  }
+  if (subcommand === 'config') {
+    await handleReminderConfig(interaction, options);
     return;
   }
 
@@ -296,6 +363,147 @@ export async function executeReminders(
   });
 }
 
+async function handleCreateReminder(
+  interaction: ChatInputCommandInteraction<'cached'>,
+  options: RemindersCommandOptions,
+): Promise<void> {
+  const clans = await options.store.listLinkedClans(interaction.guildId);
+  const clanInputs = splitClanInputs(interaction.options.getString('clans', true));
+  const schedule = await options.store.createReminderSchedule({
+    guildId: interaction.guildId,
+    guildName: interaction.guild.name,
+    actorDiscordUserId: interaction.user.id,
+    schedule: {
+      id: createReminderId(),
+      type: parseReminderType(interaction.options.getString('type', true)),
+      duration: interaction.options.getString('duration', true),
+      clans: clanInputs.map((input) => toScheduleClan(input, clans)),
+      message: interaction.options.getString('message', true),
+      excludeParticipantList: interaction.options.getBoolean('exclude_participant_list') ?? false,
+      channelId: interaction.options.getChannel('channel')?.id ?? interaction.channelId,
+      actorDiscordUserId: interaction.user.id,
+    },
+  });
+
+  await interaction.reply({
+    content:
+      'Stored ' +
+      formatReminderType(schedule.type) +
+      ' reminder ' +
+      inlineCode(schedule.id) +
+      ' for ' +
+      formatScheduleClans(schedule.clans) +
+      ' in <#' +
+      schedule.channelId +
+      '> at ' +
+      schedule.duration +
+      '. ' +
+      STORAGE_ONLY_NOTE,
+    ephemeral: true,
+  });
+}
+
+async function handleListReminders(
+  interaction: ChatInputCommandInteraction<'cached'>,
+  options: RemindersCommandOptions,
+): Promise<void> {
+  const settings = await options.store.getReminderSettings(interaction.guildId);
+  const type = parseReminderType(interaction.options.getString('type', true));
+  const clanFilter = interaction.options.getString('clans')?.trim();
+  const channelId = interaction.options.getChannel('channel')?.id;
+  const reminderId = interaction.options.getString('reminder_id')?.trim();
+  const compact = interaction.options.getBoolean('compact_list') ?? false;
+  const schedules = settings.schedules.filter(
+    (schedule) =>
+      schedule.type === type &&
+      (!reminderId || schedule.id === reminderId) &&
+      (!channelId || schedule.channelId === channelId) &&
+      (!clanFilter || schedule.clans.some((clan) => scheduleClanMatches(clan, clanFilter))),
+  );
+
+  await interaction.reply({
+    content:
+      schedules.length === 0
+        ? `No stored ${formatReminderType(type)} reminders matched. ${STORAGE_ONLY_NOTE}`
+        : `${formatReminderList(schedules, compact)}\n\n${STORAGE_ONLY_NOTE}`,
+    ephemeral: true,
+  });
+}
+
+async function handleEditReminder(
+  interaction: ChatInputCommandInteraction<'cached'>,
+  options: RemindersCommandOptions,
+): Promise<void> {
+  const duration = interaction.options.getString('duration');
+  if (!duration) {
+    await interaction.reply({ content: 'Provide a new duration to update.', ephemeral: true });
+    return;
+  }
+  const type = parseReminderType(interaction.options.getString('type', true));
+  const id = interaction.options.getString('id', true).trim();
+  const updated = await options.store.updateReminderScheduleDuration({
+    guildId: interaction.guildId,
+    guildName: interaction.guild.name,
+    actorDiscordUserId: interaction.user.id,
+    type,
+    id,
+    duration,
+  });
+  await interaction.reply({
+    content: updated
+      ? `Updated reminder ${inlineCode(id)} duration to ${duration}. ${STORAGE_ONLY_NOTE}`
+      : `No ${formatReminderType(type)} reminder was found with ID ${inlineCode(id)}.`,
+    ephemeral: true,
+  });
+}
+
+async function handleDeleteReminder(
+  interaction: ChatInputCommandInteraction<'cached'>,
+  options: RemindersCommandOptions,
+): Promise<void> {
+  const id = interaction.options.getString('id')?.trim();
+  if (!id) {
+    await interaction.reply({ content: 'Provide a reminder ID to delete.', ephemeral: true });
+    return;
+  }
+  const type = parseReminderType(interaction.options.getString('type', true));
+  const deleted = await options.store.deleteReminderSchedule({
+    guildId: interaction.guildId,
+    guildName: interaction.guild.name,
+    actorDiscordUserId: interaction.user.id,
+    type,
+    id,
+  });
+  await interaction.reply({
+    content: deleted
+      ? `Deleted reminder ${inlineCode(id)}. ${STORAGE_ONLY_NOTE}`
+      : `No ${formatReminderType(type)} reminder was found with ID ${inlineCode(id)}.`,
+    ephemeral: true,
+  });
+}
+
+async function handleReminderConfig(
+  interaction: ChatInputCommandInteraction<'cached'>,
+  options: RemindersCommandOptions,
+): Promise<void> {
+  const value = interaction.options.getString('reminder_ping_exclusion');
+  const settings = value
+    ? await options.store.setReminderPingExclusion({
+        guildId: interaction.guildId,
+        guildName: interaction.guild.name,
+        actorDiscordUserId: interaction.user.id,
+        enabled: value === 'enable',
+      })
+    : await options.store.getReminderSettings(interaction.guildId);
+  await interaction.reply({
+    content:
+      'Reminder ping exclusion is ' +
+      (settings.reminderPingExclusion ? 'enabled' : 'disabled') +
+      '. ' +
+      STORAGE_ONLY_NOTE,
+    ephemeral: true,
+  });
+}
 export function buildImmediateReminderMessage(input: {
   type: string;
   customMessage: string;
@@ -364,4 +572,74 @@ function formatClanLabel(clan: RemindersLinkedClan): string {
 
 function formatReminderType(type: string): string {
   return REMINDER_TYPES.find((entry) => entry.value === type)?.name ?? type;
+}
+
+function inlineCode(value: string): string {
+  return `\`${value.replaceAll('`', '')}\``;
+}
+
+function parseReminderType(type: string): ReminderScheduleType {
+  if (type === 'clan-wars' || type === 'capital-raids' || type === 'clan-games') return type;
+  return 'clan-wars';
+}
+
+function createReminderId(): string {
+  return `r${Date.now().toString(36).slice(-5)}${Math.random().toString(36).slice(2, 5)}`;
+}
+
+function splitClanInputs(value: string): string[] {
+  const inputs = value
+    .split(/[,\n]/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return inputs.length > 0 ? inputs : [value.trim()];
+}
+
+function toScheduleClan(
+  input: string,
+  clans: readonly RemindersLinkedClan[],
+): ReminderScheduleClan {
+  const clan = resolveReminderClan(clans, input);
+  return {
+    input,
+    clanTag: clan?.clanTag ?? (input.startsWith('#') ? normalizeClashTag(input) : null),
+    name: clan?.name ?? null,
+    alias: clan?.alias ?? null,
+  };
+}
+
+function formatScheduleClans(clans: readonly ReminderScheduleClan[]): string {
+  if (clans.length === 0) return 'no clans';
+  return clans
+    .map((clan) => clan.name ?? clan.alias ?? clan.clanTag ?? clan.input)
+    .join(', ')
+    .slice(0, 500);
+}
+
+function scheduleClanMatches(clan: ReminderScheduleClan, filter: string): boolean {
+  const lowered = filter.toLowerCase();
+  const normalized = normalizeClashTag(filter);
+  return [clan.input, clan.clanTag, clan.name, clan.alias]
+    .filter((value): value is string => Boolean(value))
+    .some(
+      (value) => value.toLowerCase().includes(lowered) || normalizeClashTag(value) === normalized,
+    );
+}
+
+function formatReminderList(schedules: readonly ReminderSchedule[], compact: boolean): string {
+  const lines = schedules
+    .slice(0, 20)
+    .map((schedule) =>
+      compact
+        ? `\`${schedule.id}\` ${schedule.duration} <#${schedule.channelId}> ${formatScheduleClans(schedule.clans)}`
+        : [
+            `**${formatReminderType(schedule.type)}** \`${schedule.id}\``,
+            `Duration: ${schedule.duration} • Channel: <#${schedule.channelId}>`,
+            `Clans: ${formatScheduleClans(schedule.clans)}`,
+            `Exclude participant list: ${schedule.excludeParticipantList ? 'yes' : 'no'}`,
+            `Message: ${schedule.message.slice(0, 180)}`,
+          ].join('\n'),
+    );
+  const extra = schedules.length > 20 ? `\n…and ${schedules.length - 20} more.` : '';
+  return `${lines.join(compact ? '\n' : '\n\n')}${extra}`;
 }
