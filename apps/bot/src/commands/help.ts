@@ -212,6 +212,16 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     details: ['Reads existing linked-clan polling snapshots without querying the Clash API.'],
   },
   {
+    name: 'leaderboard',
+    usage: '/leaderboard clans|players|capital [location] [season]',
+    description: 'Show linked-clan leaderboards from stored snapshots.',
+    category: 'Player & Clan',
+    details: [
+      'Reads linked clan and current member snapshots without querying the Clash API.',
+      'Location and season options are accepted for parity, but first-pass output uses current persisted snapshots only.',
+    ],
+  },
+  {
     name: 'members',
     usage: '/members [clan] [user] [option]',
     description: 'Show tracked clan members from polling snapshots.',

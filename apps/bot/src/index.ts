@@ -160,6 +160,12 @@ const commandRegistry = createBotCommandRegistry({
       listLastSeenSnapshots: databaseLastSeenSnapshots.listLastSeenSnapshots,
     },
   },
+  leaderboard: {
+    store: {
+      listClansForGuild: databaseTrackedClans.listClansForGuild,
+      listClanMemberSnapshotsForGuild: databaseClanMemberSnapshots.listClanMemberSnapshotsForGuild,
+    },
+  },
   members: {
     store: {
       listLinkedClans: databaseTrackedClans.listLinkedClans,
@@ -253,6 +259,7 @@ const commandRegistry = createBotCommandRegistry({
       'history',
       'invite',
       'lastseen',
+      'leaderboard',
       'lineup',
       'link',
       'members',
