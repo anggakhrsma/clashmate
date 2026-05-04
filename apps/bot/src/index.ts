@@ -192,6 +192,9 @@ const commandRegistry = createBotCommandRegistry({
   },
   clanGames: {
     reader: databaseClanGamesScoreboards,
+    links: {
+      listPlayerTagsForUser: databasePlayerLinks.listPlayerTagsForUser,
+    },
   },
   clan: {
     coc: cocClient,

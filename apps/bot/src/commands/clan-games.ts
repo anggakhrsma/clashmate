@@ -8,6 +8,7 @@ import {
   escapeMarkdown,
   SlashCommandBuilder,
   time,
+  type User,
 } from 'discord.js';
 
 export const CLAN_GAMES_COMMAND_NAME = 'clan-games';
@@ -28,10 +29,16 @@ export const clanGamesCommandData = new SlashCommandBuilder()
       .setDescription('Clan tag or autocomplete selection.')
       .setAutocomplete(true),
   )
+  .addUserOption((option) =>
+    option.setName('user').setDescription("Filter scoreboard to a Discord user's linked players."),
+  )
   .addStringOption((option) => option.setName('season').setDescription('Clan Games season id.'));
 
 export interface ClanGamesCommandOptions {
   readonly reader: ClanGamesScoreboardReader;
+  readonly links: {
+    readonly listPlayerTagsForUser: (guildId: string, discordUserId: string) => Promise<string[]>;
+  };
 }
 
 export function createClanGamesSlashCommand(
@@ -97,6 +104,7 @@ async function executeClanGames(
   }
 
   const clan = interaction.options.getString('clan') ?? undefined;
+  const user = interaction.options.getUser('user');
   const seasonId = interaction.options.getString('season') ?? undefined;
   const scoreboard = await options.reader.getLatestScoreboard({
     guildId: interaction.guildId,
@@ -112,11 +120,47 @@ async function executeClanGames(
     return;
   }
 
-  await interaction.reply({ embeds: [buildClanGamesEmbed(scoreboard, !clan)] });
+  if (!user) {
+    await interaction.reply({ embeds: [buildClanGamesEmbed(scoreboard, !clan)] });
+    return;
+  }
+
+  const playerTags = await options.links.listPlayerTagsForUser(interaction.guildId, user.id);
+  if (playerTags.length === 0) {
+    await interaction.reply({
+      content: `**${escapeMarkdown(user.displayName)}** does not have linked player accounts. Use \`/link create\` first.`,
+      ephemeral: true,
+    });
+    return;
+  }
+
+  await interaction.reply({
+    embeds: [buildClanGamesEmbed(filterScoreboardForUser(scoreboard, user, playerTags), !clan)],
+  });
+}
+
+function filterScoreboardForUser(
+  scoreboard: ClanGamesScoreboardSnapshot,
+  user: User,
+  playerTags: readonly string[],
+): ClanGamesScoreboardSnapshot & { readonly userFilterNote: string } {
+  const linkedTags = new Set(playerTags.map((tag) => tag.toUpperCase()));
+  const members = scoreboard.members.filter((member) =>
+    linkedTags.has(member.playerTag.toUpperCase()),
+  );
+  return {
+    ...scoreboard,
+    members,
+    totalPoints: members.reduce((total, member) => total + member.points, 0),
+    userFilterNote:
+      members.length === 0
+        ? `Filtered to linked players for **${escapeMarkdown(user.displayName)}**; no linked players are present in this stored scoreboard.`
+        : `Filtered to linked players for **${escapeMarkdown(user.displayName)}**.`,
+  };
 }
 
 export function buildClanGamesEmbed(
-  scoreboard: ClanGamesScoreboardSnapshot,
+  scoreboard: ClanGamesScoreboardSnapshot & { readonly userFilterNote?: string },
   mentionSelectedClan: boolean,
 ): EmbedBuilder {
   const clanLabel = `${scoreboard.clanName ?? scoreboard.clanTag} (${scoreboard.clanTag})`;
@@ -127,6 +171,7 @@ export function buildClanGamesEmbed(
       : null,
     `Season: **${escapeMarkdown(scoreboard.seasonId)}**`,
     `Source fetched: ${time(scoreboard.sourceFetchedAt, 'R')}`,
+    scoreboard.userFilterNote ?? null,
     '',
     '```txt',
     ...formatScoreboardRows(visibleMembers),
