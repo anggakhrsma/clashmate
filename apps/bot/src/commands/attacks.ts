@@ -72,6 +72,7 @@ export interface AttacksLinkedClan {
 
 export interface AttacksStore {
   readonly listLinkedClans: (guildId: string) => Promise<AttacksLinkedClan[]>;
+  readonly listPlayerTagsForUser: (guildId: string, discordUserId: string) => Promise<string[]>;
 }
 
 export interface AttacksCocApi {
@@ -182,7 +183,17 @@ export async function executeAttacks(
   }
 
   const clanOption = interaction.options.getString('clan');
-  const clan = clanOption ? resolveAttacksClan(clans, clanOption) : clans[0];
+  const userOption = interaction.options.getUser('user');
+  const resolution = clanOption
+    ? { clan: resolveAttacksClan(clans, clanOption), note: null }
+    : await resolveAttacksClanForUser({
+        clans,
+        coc: options.coc,
+        guildId: interaction.guildId,
+        store: options.store,
+        userId: userOption?.id ?? null,
+      });
+  const { clan } = resolution;
   if (!clan) {
     await interaction.editReply({ content: 'No linked clan was found for that clan option.' });
     return;
@@ -210,7 +221,47 @@ export async function executeAttacks(
   }
 
   const season = interaction.options.getString('season');
-  await interaction.editReply({ embeds: [buildAttacksEmbed(clashClan, rows, { season })] });
+  await interaction.editReply({
+    ...(resolution.note ? { content: resolution.note } : {}),
+    embeds: [buildAttacksEmbed(clashClan, rows, { season })],
+  });
+}
+
+async function resolveAttacksClanForUser(input: {
+  readonly clans: readonly AttacksLinkedClan[];
+  readonly coc: AttacksCocApi;
+  readonly guildId: string;
+  readonly store: AttacksStore;
+  readonly userId: string | null;
+}): Promise<{ readonly clan: AttacksLinkedClan | undefined; readonly note: string | null }> {
+  const fallbackClan = input.clans[0];
+  if (!input.userId) return { clan: fallbackClan, note: null };
+
+  const linkedPlayerTags = await input.store.listPlayerTagsForUser(input.guildId, input.userId);
+  if (linkedPlayerTags.length === 0) {
+    return {
+      clan: fallbackClan,
+      note: 'That Discord user has no linked players in this server, so I used the first linked clan.',
+    };
+  }
+
+  const normalizedLinkedTags = new Set(linkedPlayerTags.map(normalizeComparableTag));
+  for (const clan of input.clans) {
+    try {
+      const clashClan = await input.coc.getClan(clan.clanTag);
+      const hasLinkedPlayer = readClanMemberTags(clashClan.data)
+        .map(normalizeComparableTag)
+        .some((memberTag) => normalizedLinkedTags.has(memberTag));
+      if (hasLinkedPlayer) return { clan, note: null };
+    } catch {
+      // Ignore one-off lookup failures while trying other linked clans and the final fallback.
+    }
+  }
+
+  return {
+    clan: fallbackClan,
+    note: "I couldn't find that user's linked players in any linked clan, so I used the first linked clan.",
+  };
 }
 
 async function fetchPlayersForAttacks(
@@ -336,6 +387,14 @@ function clanMatchesQuery(clan: AttacksLinkedClan, normalizedQuery: string): boo
 function formatClanChoiceName(clan: AttacksLinkedClan): string {
   const label = clan.alias?.trim() || clan.name?.trim() || clan.clanTag;
   return `${escapeMarkdown(label)} (${clan.clanTag})`.slice(0, 100);
+}
+
+function normalizeComparableTag(tag: string): string {
+  try {
+    return normalizeClashTag(tag).toLowerCase();
+  } catch {
+    return tag.trim().toLowerCase();
+  }
 }
 
 function readBadgeUrl(data: unknown): string | undefined {

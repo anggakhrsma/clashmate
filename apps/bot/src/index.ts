@@ -155,6 +155,7 @@ const commandRegistry = createBotCommandRegistry({
   attacks: {
     store: {
       listLinkedClans: databaseTrackedClans.listLinkedClans,
+      listPlayerTagsForUser: databasePlayerLinks.listPlayerTagsForUser,
     },
     coc: cocClient,
   },
