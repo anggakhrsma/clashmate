@@ -10,6 +10,7 @@ import {
   SlashCommandBuilder,
   time,
 } from 'discord.js';
+import { filterTimezoneChoices } from './timezone.js';
 
 export const ACTIVITY_COMMAND_NAME = 'activity';
 export const ACTIVITY_COMMAND_DESCRIPTION = 'Show active members from tracked clan snapshots.';
@@ -59,6 +60,7 @@ export const activityCommandData = new SlashCommandBuilder()
     option
       .setName('timezone')
       .setDescription('IANA timezone used for display, for example Asia/Jakarta.')
+      .setAutocomplete(true)
       .setRequired(false),
   );
 
@@ -121,6 +123,10 @@ async function autocompleteActivity(
     return;
   }
   const focused = interaction.options.getFocused(true);
+  if (focused.name === 'timezone') {
+    await interaction.respond(filterTimezoneChoices(String(focused.value ?? '')));
+    return;
+  }
   if (focused.name !== 'clans') {
     await interaction.respond([]);
     return;
