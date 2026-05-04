@@ -1,3 +1,4 @@
+import type { DatabaseUserTimezonePreferenceStore } from '@clashmate/database';
 import type { CommandContext, SlashCommandDefinition } from '@clashmate/discord';
 import {
   type ChatInputCommandInteraction,
@@ -32,15 +33,23 @@ export interface EventsView {
   generatedAt: Date;
   events: readonly EventCalendarItem[];
   note: string;
+  timezone?: string;
+  timezoneSource?: 'preference';
 }
 
-export function createEventsSlashCommand(): SlashCommandDefinition {
+export interface EventsCommandOptions {
+  readonly timezones?: Pick<DatabaseUserTimezonePreferenceStore, 'getUserTimezonePreference'>;
+}
+
+export function createEventsSlashCommand(
+  options: EventsCommandOptions = {},
+): SlashCommandDefinition {
   return {
     name: EVENTS_COMMAND_NAME,
     data: eventsCommandData,
     execute: async (interaction, context) => {
       if (!interaction.isChatInputCommand()) return;
-      await executeEventsInteraction(interaction, context);
+      await executeEventsInteraction(interaction, context, options);
     },
   };
 }
@@ -48,8 +57,14 @@ export function createEventsSlashCommand(): SlashCommandDefinition {
 export async function executeEventsInteraction(
   interaction: ChatInputCommandInteraction,
   context: CommandContext,
+  options: EventsCommandOptions = {},
 ): Promise<void> {
-  const view = collectEventsView(interaction, context);
+  const timezone = await resolveEventsTimezone({
+    guildId: interaction.guildId,
+    userId: interaction.user.id,
+    ...(options.timezones ? { preferences: options.timezones } : {}),
+  });
+  const view = collectEventsView(interaction, context, new Date(), timezone);
 
   await interaction.reply({
     embeds: [buildEventsEmbed(view)],
@@ -61,6 +76,7 @@ export function collectEventsView(
   source: Pick<ChatInputCommandInteraction, 'guild'>,
   context: CommandContext,
   now = new Date(),
+  timezone: EventsResolvedTimezone = {},
 ): EventsView {
   const botAvatarUrl = context.client.user?.displayAvatarURL({ extension: 'png' });
 
@@ -70,7 +86,9 @@ export function collectEventsView(
     color: source.guild?.members.me?.displayColor || DEFAULT_EVENTS_EMBED_COLOR,
     generatedAt: now,
     events: buildApproximateEventCalendar(now),
-    note: EVENTS_FIRST_PASS_NOTE,
+    note: formatEventsNote(timezone),
+    ...(timezone.timezone ? { timezone: timezone.timezone } : {}),
+    ...(timezone.source ? { timezoneSource: timezone.source } : {}),
   };
 }
 
@@ -87,12 +105,37 @@ export function buildEventsEmbed(view: EventsView): EmbedBuilder {
     .addFields(
       view.events.map((event) => ({
         name: event.name,
-        value: formatCalendarItem(event),
+        value: formatCalendarItem(event, view.timezone),
         inline: false,
       })),
     )
-    .setFooter({ text: `Synced ${formatUtcDateTime(view.generatedAt)}` })
+    .setFooter({ text: `Synced ${formatFooterDateTime(view)}` })
     .setTimestamp(view.generatedAt);
+}
+
+interface EventsResolvedTimezone {
+  readonly timezone?: string;
+  readonly source?: 'preference';
+}
+
+async function resolveEventsTimezone(input: {
+  readonly guildId: string | null;
+  readonly userId: string;
+  readonly preferences?: Pick<DatabaseUserTimezonePreferenceStore, 'getUserTimezonePreference'>;
+}): Promise<EventsResolvedTimezone> {
+  if (!input.guildId || !input.preferences) return {};
+
+  try {
+    const preference = await input.preferences.getUserTimezonePreference(
+      input.guildId,
+      input.userId,
+    );
+    const timezone = preference?.timezone.trim();
+    if (!timezone || !isValidTimeZone(timezone)) return {};
+    return { timezone, source: 'preference' };
+  } catch {
+    return {};
+  }
 }
 
 export function buildApproximateEventCalendar(now = new Date()): EventCalendarItem[] {
@@ -165,11 +208,47 @@ function nextSeasonReset(now: Date): EventCalendarItem {
   };
 }
 
-function formatCalendarItem(event: EventCalendarItem): string {
+function formatCalendarItem(event: EventCalendarItem, timezone: string | undefined): string {
   const range = event.endsAt
-    ? `${formatTimestamp(event.startsAt)} → ${formatTimestamp(event.endsAt)}`
-    : formatTimestamp(event.startsAt);
+    ? `${formatEventTimestamp(event.startsAt, timezone)} → ${formatEventTimestamp(event.endsAt, timezone)}`
+    : formatEventTimestamp(event.startsAt, timezone);
   return `**${event.status}:** ${range}\n${event.description}`;
+}
+
+function formatEventTimestamp(date: Date, timezone: string | undefined): string {
+  const discordTimestamp = formatTimestamp(date);
+  if (!timezone) return discordTimestamp;
+  return `${formatZonedDateTime(date, timezone)} · ${discordTimestamp}`;
+}
+
+function formatEventsNote(timezone: EventsResolvedTimezone): string {
+  if (!timezone.timezone) return EVENTS_FIRST_PASS_NOTE;
+  return `${EVENTS_FIRST_PASS_NOTE} Local times use your saved /timezone preference (${timezone.timezone}).`;
+}
+
+function formatFooterDateTime(
+  view: Pick<EventsView, 'generatedAt' | 'timezone' | 'timezoneSource'>,
+): string {
+  if (!view.timezone) return formatUtcDateTime(view.generatedAt);
+  const source = view.timezoneSource === 'preference' ? 'saved preference' : 'configured timezone';
+  return `${formatZonedDateTime(view.generatedAt, view.timezone)} ${view.timezone} (${source})`;
+}
+
+function formatZonedDateTime(date: Date, timezone: string): string {
+  return new Intl.DateTimeFormat('en-US', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: timezone,
+  }).format(date);
+}
+
+function isValidTimeZone(timezone: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: timezone }).format(new Date());
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function getWindowStatus(now: Date, startsAt: Date, endsAt: Date): EventCalendarItem['status'] {

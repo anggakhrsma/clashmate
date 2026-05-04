@@ -230,6 +230,9 @@ const commandRegistry = createBotCommandRegistry({
       listDonationSnapshotsForGuild: databaseDonationSnapshots.listDonationSnapshotsForGuild,
     },
   },
+  events: {
+    timezones: databaseUserTimezonePreferences,
+  },
   guildBan: {
     accessBlocks: globalAccessBlocks,
   },

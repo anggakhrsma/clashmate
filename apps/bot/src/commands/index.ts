@@ -17,7 +17,7 @@ import { type ConfigCommandOptions, createConfigSlashCommand } from './config.js
 import { type CwlCommandOptions, createCwlSlashCommand } from './cwl.js';
 import { createDebugSlashCommand, type DebugCommandOptions } from './debug.js';
 import { createDonationsSlashCommand, type DonationsCommandOptions } from './donations.js';
-import { createEventsSlashCommand } from './events.js';
+import { createEventsSlashCommand, type EventsCommandOptions } from './events.js';
 import { createGuildBanSlashCommand, type GuildBanCommandOptions } from './guild-ban.js';
 import { createHelpSlashCommand } from './help.js';
 import { createHistorySlashCommand, type HistoryCommandOptions } from './history.js';
@@ -67,6 +67,7 @@ export interface BotCommandRegistryOptions {
   cwl: CwlCommandOptions;
   debug: DebugCommandOptions;
   donations: DonationsCommandOptions;
+  events: EventsCommandOptions;
   guildBan: GuildBanCommandOptions;
   history: HistoryCommandOptions;
   lastSeen: LastSeenCommandOptions;
@@ -118,7 +119,7 @@ export function createBotCommandRegistry(options: BotCommandRegistryOptions): Co
   registry.registerSlash(createCwlSlashCommand(options.cwl));
   registry.registerSlash(createDebugSlashCommand(options.debug));
   registry.registerSlash(createDonationsSlashCommand(options.donations));
-  registry.registerSlash(createEventsSlashCommand());
+  registry.registerSlash(createEventsSlashCommand(options.events));
   registry.registerSlash(createGuildBanSlashCommand(options.guildBan));
   registry.registerSlash(createHelpSlashCommand());
   registry.registerSlash(createHistorySlashCommand(options.history));
