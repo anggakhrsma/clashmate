@@ -168,9 +168,45 @@ export async function executeCapital(
   }
 
   if (subcommand === 'raids') {
+    const raidClans = clan ? [clan] : clans;
+    if (user && !clan && playerTags) {
+      const snapshots = await options.store.listClanMemberSnapshotsForGuild({
+        guildId: interaction.guildId,
+      });
+      const linkedTags = new Set(playerTags.map((tag) => tag.toUpperCase()));
+      const matchedClanTags = new Set(
+        snapshots
+          .filter((snapshot) =>
+            snapshot.members.some((member) => linkedTags.has(member.playerTag.toUpperCase())),
+          )
+          .map((snapshot) => snapshot.clan.clanTag),
+      );
+
+      if (matchedClanTags.size === 0) {
+        await interaction.editReply({
+          content:
+            'That Discord user has linked Clash accounts, but none are present in current linked-clan member snapshots. Link/configure their clan and wait for clan polling to observe members.',
+        });
+        return;
+      }
+
+      await interaction.editReply({
+        embeds: [
+          buildCapitalRaidsEmbed(
+            raidClans.filter((linkedClan) => matchedClanTags.has(linkedClan.clanTag)),
+            {
+              week,
+              userId: user.id,
+            },
+          ),
+        ],
+      });
+      return;
+    }
+
     await interaction.editReply({
       embeds: [
-        buildCapitalRaidsEmbed(clan ? [clan] : clans, {
+        buildCapitalRaidsEmbed(raidClans, {
           week,
           ...(user ? { userId: user.id } : {}),
         }),
