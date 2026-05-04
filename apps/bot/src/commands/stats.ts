@@ -21,8 +21,19 @@ export const STATS_DEFENSE_UNAVAILABLE_MESSAGE =
 const MAX_STATS_ROWS = 15;
 const EMBED_DESCRIPTION_LIMIT = 4096;
 const STARS_OPTIONS = ['==3', '==2', '>=2', '==1', '>=1'] as const;
+const WAR_TYPE_OPTIONS = ['regular', 'cwl', 'friendly', 'noFriendly', 'noCWL', 'all'] as const;
 type StarsOption = (typeof STARS_OPTIONS)[number];
 type AttemptOption = 'fresh' | 'cleanup';
+type WarTypeOption = (typeof WAR_TYPE_OPTIONS)[number];
+
+interface StatsParityFilters {
+  readonly season: string | null;
+  readonly type: WarTypeOption | null;
+  readonly wars: number | null;
+  readonly filterLootHits: boolean | null;
+  readonly filterFarmHits: boolean | null;
+  readonly clanOnly: boolean | null;
+}
 
 export const statsCommandData = new SlashCommandBuilder()
   .setName(STATS_COMMAND_NAME)
@@ -58,6 +69,27 @@ export const statsCommandData = new SlashCommandBuilder()
             { name: '>= 1', value: '>=1' },
           ),
       )
+      .addStringOption((option) =>
+        option
+          .setName('type')
+          .setDescription('War type filter label.')
+          .setRequired(false)
+          .addChoices(
+            { name: 'Regular', value: 'regular' },
+            { name: 'CWL', value: 'cwl' },
+            { name: 'Friendly', value: 'friendly' },
+            { name: 'Regular and CWL', value: 'noFriendly' },
+            { name: 'No CWL', value: 'noCWL' },
+            { name: 'All', value: 'all' },
+          ),
+      )
+      .addStringOption((option) =>
+        option
+          .setName('season')
+          .setDescription('Season since filter label.')
+          .setRequired(false)
+          .addChoices(...getSeasonSinceChoices()),
+      )
       .addIntegerOption((option) =>
         option
           .setName('days')
@@ -66,12 +98,38 @@ export const statsCommandData = new SlashCommandBuilder()
           .setMaxValue(180)
           .setRequired(false),
       )
+      .addIntegerOption((option) =>
+        option
+          .setName('wars')
+          .setDescription('War count filter label.')
+          .setMinValue(10)
+          .setMaxValue(300)
+          .setRequired(false),
+      )
       .addStringOption((option) =>
         option
           .setName('attempt')
           .setDescription('Show fresh or cleanup hit context where stored aggregates allow it.')
           .setRequired(false)
           .addChoices({ name: 'Fresh', value: 'fresh' }, { name: 'Cleanup', value: 'cleanup' }),
+      )
+      .addBooleanOption((option) =>
+        option
+          .setName('filter_loot_hits')
+          .setDescription('Accept loot-hit filter label without changing stored stats behavior.')
+          .setRequired(false),
+      )
+      .addBooleanOption((option) =>
+        option
+          .setName('filter_farm_hits')
+          .setDescription('Accept farm-hit filter label without changing stored stats behavior.')
+          .setRequired(false),
+      )
+      .addBooleanOption((option) =>
+        option
+          .setName('clan_only')
+          .setDescription('Accept clan-only filter label without changing stored stats behavior.')
+          .setRequired(false),
       ),
   )
   .addSubcommand((subcommand) =>
@@ -89,6 +147,53 @@ export const statsCommandData = new SlashCommandBuilder()
         option
           .setName('user')
           .setDescription('Discord user whose linked players should be matched.')
+          .setRequired(false),
+      )
+      .addStringOption((option) =>
+        option
+          .setName('stars')
+          .setDescription('Star result filter label.')
+          .setRequired(false)
+          .addChoices(
+            { name: '3', value: '==3' },
+            { name: '2', value: '==2' },
+            { name: '>= 2', value: '>=2' },
+            { name: '1', value: '==1' },
+            { name: '>= 1', value: '>=1' },
+          ),
+      )
+      .addStringOption((option) =>
+        option
+          .setName('type')
+          .setDescription('War type filter label.')
+          .setRequired(false)
+          .addChoices(
+            { name: 'Regular', value: 'regular' },
+            { name: 'CWL', value: 'cwl' },
+            { name: 'Friendly', value: 'friendly' },
+            { name: 'Regular and CWL', value: 'noFriendly' },
+            { name: 'No CWL', value: 'noCWL' },
+            { name: 'All', value: 'all' },
+          ),
+      )
+      .addStringOption((option) =>
+        option
+          .setName('season')
+          .setDescription('Season since filter label.')
+          .setRequired(false)
+          .addChoices(...getSeasonSinceChoices()),
+      )
+      .addStringOption((option) =>
+        option
+          .setName('attempt')
+          .setDescription('Show fresh or cleanup hit context where stored aggregates allow it.')
+          .setRequired(false)
+          .addChoices({ name: 'Fresh', value: 'fresh' }, { name: 'Cleanup', value: 'cleanup' }),
+      )
+      .addBooleanOption((option) =>
+        option
+          .setName('clan_only')
+          .setDescription('Accept clan-only filter label without changing stored stats behavior.')
           .setRequired(false),
       ),
   );
@@ -203,6 +308,7 @@ export async function executeStats(
   const starsOption = readStarsOption(interaction.options.getString('stars'));
   const attemptOption = readAttemptOption(interaction.options.getString('attempt'));
   const days = interaction.options.getInteger('days');
+  const parityFilters = readStatsParityFilters(interaction);
 
   let clanTags: string[] | undefined;
   let clanLabel: string | undefined;
@@ -246,6 +352,7 @@ export async function executeStats(
         starsOption,
         attemptOption,
         days,
+        parityFilters,
       }),
     ],
   });
@@ -281,6 +388,7 @@ export function buildStatsAttacksEmbed(
     readonly starsOption: StarsOption | null;
     readonly attemptOption: AttemptOption | null;
     readonly days: number | null;
+    readonly parityFilters: StatsParityFilters;
   },
 ): EmbedBuilder {
   const selectedRows = rows.slice(0, MAX_STATS_ROWS);
@@ -326,6 +434,14 @@ export function buildStatsAttacksEmbed(
       value: formatAttemptOption(input.attemptOption),
       inline: true,
     });
+  const parityLabels = formatStatsParityFilters(input.parityFilters);
+  if (parityLabels.length > 0) {
+    embed.addFields({
+      name: 'Accepted parity filters',
+      value: `${parityLabels.join(' · ')}\nAccepted for reference parity only; not applied to stored aggregate stats yet.`,
+      inline: false,
+    });
+  }
   if (input.user)
     embed.setAuthor({ name: input.user.displayName, iconURL: input.user.displayAvatarURL() });
   return embed;
@@ -370,12 +486,86 @@ function readAttemptOption(value: string | null): AttemptOption | null {
   return value === 'fresh' || value === 'cleanup' ? value : null;
 }
 
+function readWarTypeOption(value: string | null): WarTypeOption | null {
+  return value && WAR_TYPE_OPTIONS.includes(value as WarTypeOption)
+    ? (value as WarTypeOption)
+    : null;
+}
+
+function readStatsParityFilters(interaction: ChatInputCommandInteraction): StatsParityFilters {
+  return {
+    season: readSeasonOption(interaction.options.getString('season')),
+    type: readWarTypeOption(interaction.options.getString('type')),
+    wars: interaction.options.getInteger('wars'),
+    filterLootHits: interaction.options.getBoolean('filter_loot_hits'),
+    filterFarmHits: interaction.options.getBoolean('filter_farm_hits'),
+    clanOnly: interaction.options.getBoolean('clan_only'),
+  };
+}
+
+function readSeasonOption(value: string | null): string | null {
+  if (!value || !/^\d{4}-\d{2}$/.test(value)) return null;
+  return value;
+}
+
 function formatStarsOption(value: StarsOption): string {
   return value.replace('==', '').replace('>=', '>= ');
 }
 
 function formatAttemptOption(value: AttemptOption): string {
   return value === 'fresh' ? 'Fresh' : 'Cleanup';
+}
+
+function formatWarTypeOption(value: WarTypeOption): string {
+  const labels: Record<WarTypeOption, string> = {
+    regular: 'Regular',
+    cwl: 'CWL',
+    friendly: 'Friendly',
+    noFriendly: 'Regular and CWL',
+    noCWL: 'No CWL',
+    all: 'All',
+  };
+  return labels[value];
+}
+
+function formatStatsParityFilters(filters: StatsParityFilters): string[] {
+  const labels: string[] = [];
+  if (filters.season) labels.push(`Since ${formatSeasonLabel(filters.season)}`);
+  if (filters.type) labels.push(`Type: ${formatWarTypeOption(filters.type)}`);
+  if (filters.wars) labels.push(`Wars: ${filters.wars}`);
+  if (filters.filterLootHits !== null)
+    labels.push(`Filter loot hits: ${formatBoolean(filters.filterLootHits)}`);
+  if (filters.filterFarmHits !== null)
+    labels.push(`Filter farm hits: ${formatBoolean(filters.filterFarmHits)}`);
+  if (filters.clanOnly !== null) labels.push(`Clan only: ${formatBoolean(filters.clanOnly)}`);
+  return labels;
+}
+
+function formatBoolean(value: boolean): string {
+  return value ? 'Yes' : 'No';
+}
+
+function getSeasonSinceChoices(): ApplicationCommandOptionChoiceData<string>[] {
+  const choices: ApplicationCommandOptionChoiceData<string>[] = [];
+  const cursor = new Date();
+  cursor.setUTCDate(1);
+  cursor.setUTCHours(0, 0, 0, 0);
+  for (let index = 0; index < 12; index += 1) {
+    const value = `${cursor.getUTCFullYear()}-${String(cursor.getUTCMonth() + 1).padStart(2, '0')}`;
+    choices.push({ name: `Since ${formatSeasonLabel(value)}`, value });
+    cursor.setUTCMonth(cursor.getUTCMonth() - 1);
+  }
+  return choices;
+}
+
+function formatSeasonLabel(value: string): string {
+  const [year, month] = value.split('-');
+  const date = new Date(Date.UTC(Number(year), Number(month) - 1, 1));
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(date);
 }
 
 function formatNoLinkedPlayersMessage(user: User): string {
