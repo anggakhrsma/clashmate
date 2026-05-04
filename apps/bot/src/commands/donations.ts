@@ -32,6 +32,7 @@ export interface DonationsParityFilters {
 
 interface DonationHistoryQueryFilters extends DonationsParityFilters {
   readonly since: Date | null;
+  readonly until: Date | null;
 }
 
 export function createRecentSeasonChoices(
@@ -66,20 +67,20 @@ export const donationsCommandData = new SlashCommandBuilder()
   .addStringOption((option) =>
     option
       .setName('season')
-      .setDescription('Donation season to display (accepted but not applied yet).')
+      .setDescription('Donation season lower bound for persisted history (YYYY-MM).')
       .setRequired(false)
       .addChoices(...RECENT_SEASON_CHOICES),
   )
   .addStringOption((option) =>
     option
       .setName('start_date')
-      .setDescription('Start date to display (accepted but not applied yet).')
+      .setDescription('Start date lower bound for persisted history (YYYY-MM-DD).')
       .setRequired(false),
   )
   .addStringOption((option) =>
     option
       .setName('end_date')
-      .setDescription('End date to display (accepted but not applied yet).')
+      .setDescription('End date upper bound for persisted history (YYYY-MM-DD).')
       .setRequired(false),
   )
   .addStringOption((option) =>
@@ -137,6 +138,7 @@ export interface DonationsStore {
     clanTags?: readonly string[];
     playerTags?: readonly string[];
     since?: Date;
+    until?: Date;
   }) => Promise<DonationHistoryRow[]>;
 }
 
@@ -235,6 +237,7 @@ export async function executeDonations(
         clanTags: [clan.clanTag],
         ...(playerTags ? { playerTags } : {}),
         since: historyFilters.since,
+        until: historyFilters.until,
       });
       await replyWithDonations(
         interaction,
@@ -265,6 +268,7 @@ export async function executeDonations(
       guildId: interaction.guildId,
       ...(playerTags ? { playerTags } : {}),
       since: historyFilters.since,
+      until: historyFilters.until,
     });
     await replyWithDonations(
       interaction,
@@ -308,8 +312,17 @@ function parseDonationParityFilters(
 function toDonationHistoryQueryFilters(
   filters: DonationsParityFilters,
 ): DonationHistoryQueryFilters | null {
-  if (!filters.season && !filters.startDate) return null;
-  return { ...filters, since: parseDonationSince(filters) };
+  if (!filters.season && !filters.startDate && !filters.endDate) return null;
+  return { ...filters, since: parseDonationSince(filters), until: parseDonationUntil(filters) };
+}
+
+function parseDonationUntil(filters: DonationsParityFilters): Date | null {
+  if (!filters.endDate) return null;
+  const date = parseDateOnly(filters.endDate);
+  if (!date) return null;
+  return new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 23, 59, 59, 999),
+  );
 }
 
 function parseDonationSince(filters: DonationsParityFilters): Date | null {
@@ -347,6 +360,7 @@ async function listDonationHistory(
     clanTags?: readonly string[];
     playerTags?: readonly string[];
     since: Date | null;
+    until: Date | null;
   },
 ): Promise<DonationHistoryRow[]> {
   if (!store.listDonationHistoryForGuild) return [];
@@ -355,6 +369,7 @@ async function listDonationHistory(
     ...(input.clanTags ? { clanTags: input.clanTags } : {}),
     ...(input.playerTags ? { playerTags: input.playerTags } : {}),
     ...(input.since ? { since: input.since } : {}),
+    ...(input.until ? { until: input.until } : {}),
   });
 }
 
@@ -485,8 +500,8 @@ export function buildDonationsEmbed(
       name: 'Accepted filters',
       value:
         snapshots.source === 'history'
-          ? `${filterSummary}\nseason/start_date are applied as a persisted-history lower bound when valid; end_date is accepted but not applied yet.`
-          : `${filterSummary}\nThese parity options are accepted but latest-snapshot output is not filtered yet.`,
+          ? `${filterSummary}\nValid season/start_date values are applied as persisted-history lower bounds; valid end_date values are applied through the end of that UTC day.`
+          : `${filterSummary}\nDate and season options switch to persisted-history filtering; latest snapshots are only used when no date or season filters are supplied.`,
       inline: false,
     });
   }

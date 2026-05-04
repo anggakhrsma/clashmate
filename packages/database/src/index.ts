@@ -445,6 +445,7 @@ export interface DonationHistoryReader {
     clanTags?: readonly string[];
     playerTags?: readonly string[];
     since?: Date;
+    until?: Date;
   }) => Promise<DonationHistoryListRow[]>;
 }
 
@@ -3597,6 +3598,10 @@ export function createDonationHistoryReader(database: Database): DonationHistory
         eq(schema.trackedClans.isActive, true),
         gte(schema.clanDonationEvents.detectedAt, since),
       ];
+
+      if (input.until) {
+        filters.push(lte(schema.clanDonationEvents.detectedAt, input.until));
+      }
 
       if (input.clanTags?.length) {
         filters.push(inArray(schema.clanDonationEvents.clanTag, [...input.clanTags]));
