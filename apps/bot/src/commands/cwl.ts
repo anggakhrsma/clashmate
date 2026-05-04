@@ -18,6 +18,23 @@ export const CWL_COMMAND_DESCRIPTION = 'Show CWL summaries from stored war data.
 const SNAPSHOT_SUBCOMMANDS = ['roster', 'round', 'lineup', 'members'] as const;
 const HISTORY_SUBCOMMANDS = ['stars', 'attacks', 'stats'] as const;
 const MAX_ROWS = 20;
+const CWL_SEASON_CHOICE_COUNT = 12;
+const MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+] as const;
+
+const CWL_SEASON_CHOICES = buildRecentCwlSeasonChoices(new Date());
 
 export const cwlCommandData = new SlashCommandBuilder()
   .setName(CWL_COMMAND_NAME)
@@ -389,8 +406,22 @@ function addSeasonOption(subcommand: SlashCommandSubcommandBuilder): void {
     option
       .setName('season')
       .setDescription('CWL season label (display/filter label only in this first pass).')
+      .addChoices(...CWL_SEASON_CHOICES)
       .setRequired(false),
   );
+}
+
+function buildRecentCwlSeasonChoices(now: Date): ApplicationCommandOptionChoiceData<string>[] {
+  const choices: ApplicationCommandOptionChoiceData<string>[] = [];
+  const cursor = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  while (choices.length < CWL_SEASON_CHOICE_COUNT) {
+    const year = cursor.getUTCFullYear();
+    const month = cursor.getUTCMonth();
+    const seasonId = `${year}-${String(month + 1).padStart(2, '0')}`;
+    choices.push({ name: `${MONTH_NAMES[month]} ${year}`, value: seasonId });
+    cursor.setUTCMonth(cursor.getUTCMonth() - 1);
+  }
+  return choices;
 }
 
 function resolveCwlClan(clans: readonly CwlLinkedClan[], query: string): CwlLinkedClan | null {
@@ -456,9 +487,10 @@ function noDataMessage(source: string): string {
   return `No CWL ${source} data is available yet. Linked clans must be configured and war polling must detect/store CWL or war activity first.`;
 }
 function buildSourceFooter(season: string | null): string {
-  return season
-    ? `Season label: ${season} · persisted war data first pass`
-    : 'Persisted war data first pass';
+  if (!season) return 'Persisted war data first pass';
+  const choice = CWL_SEASON_CHOICES.find((candidate) => candidate.value === season);
+  const label = choice ? `${choice.name} (${season})` : season;
+  return `Season label: ${label} · persisted war data first pass`;
 }
 function formatState(value: string | undefined): string {
   const state = normalizeState(value);
