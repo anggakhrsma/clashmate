@@ -15,6 +15,8 @@ export const DONATIONS_COMMAND_NAME = 'donations';
 export const DONATIONS_COMMAND_DESCRIPTION = 'Show donation totals from tracked clan snapshots.';
 export const DONATIONS_NO_SNAPSHOT_MESSAGE =
   'No donation snapshot is available yet. Link/configure a clan and wait for clan polling to observe donations.';
+export const DONATIONS_NO_HISTORY_MESSAGE =
+  'No persisted donation history was found for those filters. Donation history is based on previously detected polling events and does not fall back to latest snapshots for date or season filters.';
 
 const DONATION_SORTS = ['donated', 'received', 'difference', 'ratio'] as const;
 export type DonationSort = (typeof DONATION_SORTS)[number];
@@ -26,6 +28,10 @@ export interface DonationsParityFilters {
   readonly season: string | null;
   readonly startDate: string | null;
   readonly endDate: string | null;
+}
+
+interface DonationHistoryQueryFilters extends DonationsParityFilters {
+  readonly since: Date | null;
 }
 
 export function createRecentSeasonChoices(
@@ -107,6 +113,16 @@ export interface DonationSnapshotRow {
 export interface DonationsClanSnapshots {
   readonly clan: DonationsLinkedClan;
   readonly members: readonly DonationSnapshotRow[];
+  readonly source?: 'snapshot' | 'history';
+}
+
+export interface DonationHistoryRow {
+  readonly playerTag: string;
+  readonly playerName: string;
+  readonly donated: number;
+  readonly received: number;
+  readonly eventCount: number;
+  readonly lastDetectedAt: Date;
 }
 
 export interface DonationsStore {
@@ -116,6 +132,12 @@ export interface DonationsStore {
     guildId: string;
     clanTag?: string;
   }) => Promise<DonationsClanSnapshots[]>;
+  readonly listDonationHistoryForGuild?: (input: {
+    guildId: string;
+    clanTags?: readonly string[];
+    playerTags?: readonly string[];
+    since?: Date;
+  }) => Promise<DonationHistoryRow[]>;
 }
 
 export interface DonationsCommandOptions {
@@ -192,6 +214,7 @@ export async function executeDonations(
   const sort = parseDonationSort(interaction.options.getString('sort'));
   const filters = parseDonationParityFilters(interaction);
   const clans = await options.store.listLinkedClans(interaction.guildId);
+  const historyFilters = toDonationHistoryQueryFilters(filters);
 
   if (clanOption) {
     const clan = resolveDonationClan(clans, clanOption);
@@ -199,11 +222,57 @@ export async function executeDonations(
       await interaction.editReply({ content: 'No linked clan was found for that clan option.' });
       return;
     }
+    if (historyFilters) {
+      const playerTags = userOption
+        ? await options.store.listPlayerTagsForUser(interaction.guildId, userOption.id)
+        : undefined;
+      if (userOption && playerTags?.length === 0) {
+        await interaction.editReply({ content: formatNoLinkedPlayersMessage(userOption) });
+        return;
+      }
+      const history = await listDonationHistory(options.store, {
+        guildId: interaction.guildId,
+        clanTags: [clan.clanTag],
+        ...(playerTags ? { playerTags } : {}),
+        since: historyFilters.since,
+      });
+      await replyWithDonations(
+        interaction,
+        historyRowsToDonations(clan, history),
+        sort,
+        userOption,
+        historyFilters,
+      );
+      return;
+    }
     const [snapshots] = await options.store.listDonationSnapshotsForGuild({
       guildId: interaction.guildId,
       clanTag: clan.clanTag,
     });
     await replyWithDonations(interaction, snapshots, sort, userOption, filters);
+    return;
+  }
+
+  if (historyFilters) {
+    const playerTags = userOption
+      ? await options.store.listPlayerTagsForUser(interaction.guildId, userOption.id)
+      : undefined;
+    if (userOption && playerTags?.length === 0) {
+      await interaction.editReply({ content: formatNoLinkedPlayersMessage(userOption) });
+      return;
+    }
+    const history = await listDonationHistory(options.store, {
+      guildId: interaction.guildId,
+      ...(playerTags ? { playerTags } : {}),
+      since: historyFilters.since,
+    });
+    await replyWithDonations(
+      interaction,
+      historyRowsToDonations(createAllLinkedClansHistoryClan(clans), history),
+      sort,
+      userOption,
+      historyFilters,
+    );
     return;
   }
 
@@ -236,6 +305,87 @@ function parseDonationParityFilters(
   };
 }
 
+function toDonationHistoryQueryFilters(
+  filters: DonationsParityFilters,
+): DonationHistoryQueryFilters | null {
+  if (!filters.season && !filters.startDate) return null;
+  return { ...filters, since: parseDonationSince(filters) };
+}
+
+function parseDonationSince(filters: DonationsParityFilters): Date | null {
+  if (filters.startDate) return parseDateOnly(filters.startDate);
+  if (!filters.season) return null;
+  const match = /^(\d{4})-(\d{2})$/.exec(filters.season);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  if (!Number.isInteger(year) || month < 1 || month > 12) return null;
+  return new Date(Date.UTC(year, month - 1, 1));
+}
+
+function parseDateOnly(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return date;
+}
+
+async function listDonationHistory(
+  store: DonationsStore,
+  input: {
+    guildId: string;
+    clanTags?: readonly string[];
+    playerTags?: readonly string[];
+    since: Date | null;
+  },
+): Promise<DonationHistoryRow[]> {
+  if (!store.listDonationHistoryForGuild) return [];
+  return store.listDonationHistoryForGuild({
+    guildId: input.guildId,
+    ...(input.clanTags ? { clanTags: input.clanTags } : {}),
+    ...(input.playerTags ? { playerTags: input.playerTags } : {}),
+    ...(input.since ? { since: input.since } : {}),
+  });
+}
+
+function historyRowsToDonations(
+  clan: DonationsLinkedClan,
+  rows: readonly DonationHistoryRow[],
+): DonationsClanSnapshots {
+  return {
+    clan,
+    source: 'history',
+    members: rows.map((row) => ({
+      playerTag: row.playerTag,
+      name: row.playerName,
+      donations: row.donated,
+      donationsReceived: row.received,
+      lastFetchedAt: row.lastDetectedAt,
+    })),
+  };
+}
+
+function createAllLinkedClansHistoryClan(
+  clans: readonly DonationsLinkedClan[],
+): DonationsLinkedClan {
+  return {
+    id: 'persisted-history',
+    clanTag: clans.length === 1 ? (clans[0]?.clanTag ?? 'all linked clans') : 'all linked clans',
+    name: 'Persisted donation history',
+    alias: null,
+  };
+}
+
 async function selectClanForUser(
   guildId: string,
   user: User,
@@ -264,7 +414,12 @@ async function replyWithDonations(
   filters: DonationsParityFilters,
 ): Promise<void> {
   if (!snapshots || snapshots.members.length === 0) {
-    await interaction.editReply({ content: DONATIONS_NO_SNAPSHOT_MESSAGE });
+    await interaction.editReply({
+      content:
+        snapshots?.source === 'history'
+          ? DONATIONS_NO_HISTORY_MESSAGE
+          : DONATIONS_NO_SNAPSHOT_MESSAGE,
+    });
     return;
   }
   await interaction.editReply({ embeds: [buildDonationsEmbed(snapshots, sort, user, filters)] });
@@ -314,8 +469,11 @@ export function buildDonationsEmbed(
         inline: false,
       },
       {
-        name: 'Snapshot source',
-        value: 'Values are based on latest polling snapshots, not live Clash API calls.',
+        name: snapshots.source === 'history' ? 'History source' : 'Snapshot source',
+        value:
+          snapshots.source === 'history'
+            ? 'Values are based on persisted donation history events from polling, not live Clash API calls.'
+            : 'Values are based on latest polling snapshots, not live Clash API calls.',
         inline: false,
       },
     )
@@ -325,7 +483,10 @@ export function buildDonationsEmbed(
   if (filterSummary) {
     embed.addFields({
       name: 'Accepted filters',
-      value: `${filterSummary}\nThese parity options are accepted but latest-snapshot output is not filtered yet.`,
+      value:
+        snapshots.source === 'history'
+          ? `${filterSummary}\nseason/start_date are applied as a persisted-history lower bound when valid; end_date is accepted but not applied yet.`
+          : `${filterSummary}\nThese parity options are accepted but latest-snapshot output is not filtered yet.`,
       inline: false,
     });
   }

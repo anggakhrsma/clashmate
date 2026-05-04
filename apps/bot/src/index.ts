@@ -232,6 +232,7 @@ const commandRegistry = createBotCommandRegistry({
       listLinkedClans: databaseTrackedClans.listLinkedClans,
       listPlayerTagsForUser: databasePlayerLinks.listPlayerTagsForUser,
       listDonationSnapshotsForGuild: databaseDonationSnapshots.listDonationSnapshotsForGuild,
+      listDonationHistoryForGuild: databaseDonationHistory.listDonationHistoryForGuild,
     },
   },
   events: {
