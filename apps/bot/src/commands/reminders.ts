@@ -80,7 +80,7 @@ export const remindersCommandData = new SlashCommandBuilder()
       .setDescription('Edit a scheduled reminder.')
       .addStringOption((option) => addReminderTypeOption(option).setRequired(true))
       .addStringOption((option) =>
-        option.setName('id').setDescription('Reminder ID.').setRequired(true),
+        option.setName('id').setDescription('Reminder ID.').setAutocomplete(true).setRequired(true),
       )
       .addStringOption((option) =>
         option
@@ -106,7 +106,11 @@ export const remindersCommandData = new SlashCommandBuilder()
           .setRequired(false),
       )
       .addStringOption((option) =>
-        option.setName('reminder_id').setDescription('Reminder ID filter.').setRequired(false),
+        option
+          .setName('reminder_id')
+          .setDescription('Reminder ID filter.')
+          .setAutocomplete(true)
+          .setRequired(false),
       ),
   )
   .addSubcommand((subcommand) =>
@@ -114,7 +118,9 @@ export const remindersCommandData = new SlashCommandBuilder()
       .setName('delete')
       .setDescription('Delete a scheduled reminder.')
       .addStringOption((option) => addReminderTypeOption(option).setRequired(true))
-      .addStringOption((option) => option.setName('id').setDescription('Reminder ID.')),
+      .addStringOption((option) =>
+        option.setName('id').setDescription('Reminder ID.').setAutocomplete(true),
+      ),
   )
   .addSubcommand((subcommand) =>
     subcommand
@@ -285,6 +291,18 @@ async function autocompleteReminders(
     );
     return;
   }
+  if (focused.name === 'id' || focused.name === 'reminder_id') {
+    try {
+      const settings = await options.store.getReminderSettings(interaction.guildId);
+      const selectedType = parseOptionalReminderType(interaction.options.getString('type'));
+      await interaction.respond(
+        filterReminderIdChoices(settings.schedules, String(focused.value ?? ''), selectedType),
+      );
+    } catch {
+      await interaction.respond([]);
+    }
+    return;
+  }
   if (focused.name !== 'clans') {
     await interaction.respond([]);
     return;
@@ -306,6 +324,21 @@ export function filterReminderClanChoices(
     .filter((clan) => clanMatchesQuery(clan, normalizedQuery))
     .slice(0, 25)
     .map((clan) => ({ name: formatClanChoiceName(clan), value: clan.alias ?? clan.clanTag }));
+}
+
+export function filterReminderIdChoices(
+  schedules: readonly ReminderSchedule[],
+  query: string,
+  type?: ReminderScheduleType,
+): ApplicationCommandOptionChoiceData<string>[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  return schedules
+    .filter(
+      (schedule) =>
+        (!type || schedule.type === type) && scheduleMatchesIdQuery(schedule, normalizedQuery),
+    )
+    .slice(0, 25)
+    .map((schedule) => ({ name: formatReminderIdChoiceName(schedule), value: schedule.id }));
 }
 
 export async function executeReminders(
@@ -598,6 +631,27 @@ function formatClanChoiceName(clan: RemindersLinkedClan): string {
   return `${label} (${clan.clanTag})`.slice(0, 100);
 }
 
+function scheduleMatchesIdQuery(schedule: ReminderSchedule, query: string): boolean {
+  if (!query) return true;
+  const typeLabel = formatReminderType(schedule.type);
+  return [
+    schedule.id,
+    schedule.type,
+    typeLabel,
+    schedule.channelId,
+    ...schedule.clans.flatMap((clan) => [clan.input, clan.clanTag, clan.name, clan.alias]),
+  ]
+    .filter((value): value is string => Boolean(value))
+    .some((value) => value.toLowerCase().includes(query));
+}
+
+function formatReminderIdChoiceName(schedule: ReminderSchedule): string {
+  const clanLabel = formatScheduleClans(schedule.clans) || 'No clans';
+  return [schedule.id, formatReminderType(schedule.type), clanLabel, schedule.duration]
+    .join(' · ')
+    .slice(0, 100);
+}
+
 function formatClanLabel(clan: RemindersLinkedClan): string {
   return `${clan.name ?? clan.alias ?? clan.clanTag} (${clan.clanTag})`;
 }
@@ -613,6 +667,11 @@ function inlineCode(value: string): string {
 function parseReminderType(type: string): ReminderScheduleType {
   if (type === 'clan-wars' || type === 'capital-raids' || type === 'clan-games') return type;
   return 'clan-wars';
+}
+
+function parseOptionalReminderType(type: string | null): ReminderScheduleType | undefined {
+  if (type === 'clan-wars' || type === 'capital-raids' || type === 'clan-games') return type;
+  return undefined;
 }
 
 function parseReminderDuration(
