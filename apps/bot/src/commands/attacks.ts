@@ -19,6 +19,24 @@ export const ATTACKS_NO_DATA_MESSAGE =
 
 const MAX_PLAYER_FETCHES = 50;
 const EMBED_DESCRIPTION_LIMIT = 4096;
+const ATTACKS_SEASON_CHOICE_LIMIT = 18;
+
+const MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+] as const;
+
+export const ATTACKS_SEASON_CHOICES = createAttacksSeasonChoices();
 
 export const attacksCommandData = new SlashCommandBuilder()
   .setName(ATTACKS_COMMAND_NAME)
@@ -41,7 +59,8 @@ export const attacksCommandData = new SlashCommandBuilder()
     option
       .setName('season')
       .setDescription('Season to show when historical data is available.')
-      .setRequired(false),
+      .setRequired(false)
+      .addChoices(...ATTACKS_SEASON_CHOICES),
   );
 
 export interface AttacksLinkedClan {
@@ -70,6 +89,25 @@ export interface AttackWinsRow {
   readonly tag: string;
   readonly attackWins: number;
   readonly defenseWins: number;
+}
+
+export function createAttacksSeasonChoices(
+  now: Date = new Date(),
+): ApplicationCommandOptionChoiceData<string>[] {
+  const monthIndex = now.getUTCMonth();
+  const year = now.getUTCFullYear();
+
+  return Array.from({ length: ATTACKS_SEASON_CHOICE_LIMIT }, (_, index) => {
+    const monthOffset = monthIndex - index;
+    const choiceYear = year + Math.floor(monthOffset / 12);
+    const choiceMonthIndex = ((monthOffset % 12) + 12) % 12;
+    const seasonId = `${choiceYear}-${(choiceMonthIndex + 1).toString().padStart(2, '0')}`;
+
+    return {
+      name: `${MONTH_NAMES[choiceMonthIndex]} ${choiceYear}`,
+      value: seasonId,
+    };
+  });
 }
 
 export function createAttacksSlashCommand(options: AttacksCommandOptions): SlashCommandDefinition {
@@ -231,8 +269,16 @@ export function buildAttacksEmbed(
     })
     .setTimestamp();
 
+  const seasonLabel = options.season ? formatAttacksSeasonLabel(options.season) : null;
+  if (seasonLabel) embed.addFields({ name: 'Season', value: seasonLabel, inline: true });
+
   if (badgeUrl) embed.setThumbnail(badgeUrl);
   return embed;
+}
+
+export function formatAttacksSeasonLabel(season: string): string {
+  const choice = ATTACKS_SEASON_CHOICES.find((entry) => entry.value === season);
+  return choice ? `${choice.name} (${season})` : season;
 }
 
 export function resolveAttacksClan(
