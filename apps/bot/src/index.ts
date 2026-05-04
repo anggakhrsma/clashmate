@@ -206,6 +206,7 @@ const commandRegistry = createBotCommandRegistry({
   compo: {
     store: {
       listLinkedClans: databaseTrackedClans.listLinkedClans,
+      listPlayerTagsForUser: databasePlayerLinks.listPlayerTagsForUser,
     },
     coc: cocClient,
   },

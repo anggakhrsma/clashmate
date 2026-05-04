@@ -16,6 +16,10 @@ export const COMPO_NO_LINKED_CLANS_MESSAGE =
   'No clans are linked to this server yet. Use `/setup clan` to link one.';
 export const COMPO_NO_DATA_MESSAGE =
   'The current Clash API clan response does not include member town hall levels for this clan.';
+export const COMPO_NO_LINKED_PLAYERS_MESSAGE =
+  'That Discord user does not have any linked Clash accounts in this server.';
+export const COMPO_NO_MATCHING_LINKED_CLAN_MESSAGE =
+  "None of that Discord user's linked Clash accounts were found in this server's linked clans.";
 
 export const compoCommandData = new SlashCommandBuilder()
   .setName(COMPO_COMMAND_NAME)
@@ -44,6 +48,7 @@ export interface CompoLinkedClan {
 
 export interface CompoStore {
   readonly listLinkedClans: (guildId: string) => Promise<CompoLinkedClan[]>;
+  readonly listPlayerTagsForUser: (guildId: string, userId: string) => Promise<string[]>;
 }
 
 export interface CompoCocApi {
@@ -129,20 +134,67 @@ export async function executeCompo(
   }
 
   const clanOption = interaction.options.getString('clan');
-  const clan = clanOption ? resolveCompoClan(clans, clanOption) : clans[0];
-  if (!clan) {
+  const userOption = interaction.options.getUser('user');
+  const clan = clanOption ? resolveCompoClan(clans, clanOption) : undefined;
+  if (clan) {
+    await replyWithSelectedClan(interaction, clan, options.coc);
+    return;
+  }
+
+  if (clanOption) {
     await interaction.editReply({ content: 'No linked clan was found for that clan option.' });
     return;
   }
 
+  if (userOption) {
+    const linkedPlayerTags = await options.store.listPlayerTagsForUser(
+      interaction.guildId,
+      userOption.id,
+    );
+    if (linkedPlayerTags.length === 0) {
+      await interaction.editReply({ content: COMPO_NO_LINKED_PLAYERS_MESSAGE });
+      return;
+    }
+
+    const userClan = await findClanForLinkedPlayerTags(clans, linkedPlayerTags, options.coc);
+    if (!userClan) {
+      await interaction.editReply({ content: COMPO_NO_MATCHING_LINKED_CLAN_MESSAGE });
+      return;
+    }
+
+    await replyWithCompo(interaction, userClan.clashClan);
+    return;
+  }
+
+  const defaultClan = clans[0];
+  if (!defaultClan) {
+    await interaction.editReply({ content: COMPO_NO_LINKED_CLANS_MESSAGE });
+    return;
+  }
+
+  await replyWithSelectedClan(interaction, defaultClan, options.coc);
+}
+
+async function replyWithSelectedClan(
+  interaction: ChatInputCommandInteraction,
+  clan: CompoLinkedClan,
+  coc: CompoCocApi,
+): Promise<void> {
   let clashClan: ClashClan;
   try {
-    clashClan = await options.coc.getClan(clan.clanTag);
+    clashClan = await coc.getClan(clan.clanTag);
   } catch {
     await interaction.editReply({ content: 'This clan tag is not valid or was not found.' });
     return;
   }
 
+  await replyWithCompo(interaction, clashClan);
+}
+
+async function replyWithCompo(
+  interaction: ChatInputCommandInteraction,
+  clashClan: ClashClan,
+): Promise<void> {
   const composition = collectTownHallComposition(clashClan.data);
   if (composition.length === 0) {
     await interaction.editReply({ content: COMPO_NO_DATA_MESSAGE });
@@ -150,6 +202,39 @@ export async function executeCompo(
   }
 
   await interaction.editReply({ embeds: [buildCompoEmbed(clashClan, composition)] });
+}
+
+async function findClanForLinkedPlayerTags(
+  clans: readonly CompoLinkedClan[],
+  linkedPlayerTags: readonly string[],
+  coc: CompoCocApi,
+): Promise<{ readonly clan: CompoLinkedClan; readonly clashClan: ClashClan } | undefined> {
+  const normalizedPlayerTags = new Set(linkedPlayerTags.map((tag) => normalizeClashTag(tag)));
+
+  for (const clan of clans) {
+    let clashClan: ClashClan;
+    try {
+      clashClan = await coc.getClan(clan.clanTag);
+    } catch {
+      continue;
+    }
+
+    if (clanHasAnyMemberTag(clashClan.data, normalizedPlayerTags)) return { clan, clashClan };
+  }
+
+  return undefined;
+}
+
+function clanHasAnyMemberTag(data: unknown, playerTags: ReadonlySet<string>): boolean {
+  if (!isRecord(data)) return false;
+  const memberList = readValue(data, 'memberList');
+  if (!Array.isArray(memberList)) return false;
+
+  return memberList.some((member) => {
+    if (!isRecord(member)) return false;
+    const tag = readValue(member, 'tag');
+    return typeof tag === 'string' && playerTags.has(normalizeClashTag(tag));
+  });
 }
 
 export function collectTownHallComposition(data: unknown): TownHallCompositionRow[] {
