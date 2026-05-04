@@ -16,6 +16,8 @@ export const SUMMARY_COMMAND_DESCRIPTION = 'Show persisted summaries for linked 
 
 const SUMMARY_ROW_LIMIT = 10;
 const EMBED_DESCRIPTION_LIMIT = 4096;
+const SUMMARY_SEASON_CHOICES = buildRecentSeasonChoices(new Date(), 12);
+const SUMMARY_RAID_WEEK_CHOICES = buildRecentRaidWeekChoices(new Date(), 6);
 
 export const summaryCommandData = new SlashCommandBuilder()
   .setName(SUMMARY_COMMAND_NAME)
@@ -118,7 +120,11 @@ function addClansOption(builder: SlashCommandSubcommandBuilder): SlashCommandSub
 
 function addSeasonOption(builder: SlashCommandSubcommandBuilder): SlashCommandSubcommandBuilder {
   return builder.addStringOption((option) =>
-    option.setName('season').setDescription('Season identifier.').setRequired(false),
+    option
+      .setName('season')
+      .setDescription('Season identifier.')
+      .addChoices(...SUMMARY_SEASON_CHOICES)
+      .setRequired(false),
   );
 }
 
@@ -160,8 +166,73 @@ function addWarTypeOption(builder: SlashCommandSubcommandBuilder): SlashCommandS
 
 function addWeekOption(builder: SlashCommandSubcommandBuilder): SlashCommandSubcommandBuilder {
   return builder.addStringOption((option) =>
-    option.setName('week').setDescription('Raid weekend identifier.').setRequired(false),
+    option
+      .setName('week')
+      .setDescription('Raid weekend identifier.')
+      .addChoices(...SUMMARY_RAID_WEEK_CHOICES)
+      .setRequired(false),
   );
+}
+
+function buildRecentSeasonChoices(
+  now: Date,
+  count: number,
+): ApplicationCommandOptionChoiceData<string>[] {
+  const choices: ApplicationCommandOptionChoiceData<string>[] = [];
+  let year = now.getUTCFullYear();
+  let month = now.getUTCMonth();
+  while (choices.length < count) {
+    const seasonId = `${year}-${String(month + 1).padStart(2, '0')}`;
+    choices.push({ name: formatSeasonChoiceName(year, month), value: seasonId });
+    month -= 1;
+    if (month < 0) {
+      month = 11;
+      year -= 1;
+    }
+  }
+  return choices;
+}
+
+function buildRecentRaidWeekChoices(
+  now: Date,
+  count: number,
+): ApplicationCommandOptionChoiceData<string>[] {
+  const choices: ApplicationCommandOptionChoiceData<string>[] = [];
+  const friday = utcFridayForCurrentMonthEnd(now);
+  while (choices.length < count) {
+    if (friday.getTime() < now.getTime()) {
+      choices.push({ name: formatRaidWeekChoiceName(friday), value: formatDateId(friday) });
+    }
+    friday.setUTCDate(friday.getUTCDate() - 7);
+  }
+  return choices;
+}
+
+function utcFridayForCurrentMonthEnd(now: Date): Date {
+  const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0));
+  monthEnd.setUTCDate(monthEnd.getUTCDate() + (5 - monthEnd.getUTCDay()));
+  return monthEnd;
+}
+
+function formatSeasonChoiceName(year: number, month: number): string {
+  return new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })
+    .format(new Date(Date.UTC(year, month, 1)))
+    .replace(',', '');
+}
+
+function formatRaidWeekChoiceName(date: Date): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  })
+    .format(date)
+    .replace(',', '');
+}
+
+function formatDateId(date: Date): string {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
 }
 
 export interface SummaryLinkedClan {
