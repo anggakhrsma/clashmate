@@ -239,7 +239,8 @@ export async function executeLegend(
   });
 
   if (subcommand === 'stats') {
-    await interaction.editReply({ embeds: [buildLegendStatsEmbed(snapshots)] });
+    const referenceDate = parseLegendReferenceDate(interaction.options.getString('reference_date'));
+    await interaction.editReply({ embeds: [buildLegendStatsEmbed(snapshots, referenceDate)] });
     return;
   }
 
@@ -303,7 +304,15 @@ export function buildLegendLeaderboardEmbed(
     .setFooter({ text: `Showing ${Math.min(rows.length, limit)}/${rows.length} snapshot players` });
 }
 
-export function buildLegendStatsEmbed(snapshots: readonly LegendClanSnapshots[]): EmbedBuilder {
+interface LegendReferenceDateSelection {
+  readonly raw: string | null;
+  readonly parsed: Date | null;
+}
+
+export function buildLegendStatsEmbed(
+  snapshots: readonly LegendClanSnapshots[],
+  referenceDate: LegendReferenceDateSelection = { raw: null, parsed: null },
+): EmbedBuilder {
   const rows = collectLegendRows(snapshots).filter((row) => row.member.trophies !== null);
   const legendCount = rows.filter(
     (row) => (row.member.trophies ?? 0) >= LEGEND_TROPHY_FLOOR,
@@ -318,8 +327,14 @@ export function buildLegendStatsEmbed(snapshots: readonly LegendClanSnapshots[])
   const embed = new EmbedBuilder()
     .setTitle('Legend Snapshot Stats')
     .setDescription(
-      'Persisted snapshot summary only. Reference dates, live thresholds, attack days, external feeds, and Clash API lookups are not available in this first pass.',
+      'Persisted snapshot summary only. Reference dates are accepted for command parity, but current stored member snapshots are used; no live Clash API lookups are made.',
     );
+
+  embed.addFields({
+    name: 'Reference date',
+    value: formatLegendReferenceDate(referenceDate),
+    inline: false,
+  });
 
   if (rows.length === 0) {
     return embed.addFields({
@@ -334,6 +349,12 @@ export function buildLegendStatsEmbed(snapshots: readonly LegendClanSnapshots[])
     { name: 'Snapshot players', value: rows.length.toLocaleString(), inline: true },
     { name: 'Legend League (≥ 5,000)', value: legendCount.toLocaleString(), inline: true },
     { name: 'Near Legend (4,900–4,999)', value: nearLegendCount.toLocaleString(), inline: true },
+    {
+      name: 'Current thresholds',
+      value:
+        'Counts use persisted snapshot trophies with Legend ≥ 5,000 and Near Legend 4,900–4,999.',
+      inline: false,
+    },
   );
 
   if (top) {
@@ -449,4 +470,36 @@ function formatLegendSeasonSelection(season: string): string {
   const choice = legendSeasonChoices.find((item) => item.value === season);
   if (!choice) return season;
   return `${choice.name} (${season})`;
+}
+
+function parseLegendReferenceDate(rawReferenceDate: string | null): LegendReferenceDateSelection {
+  const raw = rawReferenceDate?.trim() ?? '';
+  if (!raw) return { raw: null, parsed: null };
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  if (!match) return { raw, parsed: null };
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) {
+    return { raw, parsed: null };
+  }
+
+  return { raw, parsed };
+}
+
+function formatLegendReferenceDate(referenceDate: LegendReferenceDateSelection): string {
+  const parityNote = 'accepted for parity; current persisted member snapshots are used.';
+  if (!referenceDate.raw) return `Not provided; ${parityNote}`;
+  if (!referenceDate.parsed) {
+    return `Unparsed label: ${escapeMarkdown(referenceDate.raw)}; ${parityNote}`;
+  }
+
+  return `${referenceDate.parsed.toISOString().slice(0, 10)} UTC; ${parityNote}`;
 }
