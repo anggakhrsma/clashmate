@@ -14,6 +14,9 @@ export const CAPITAL_COMMAND_NAME = 'capital';
 export const CAPITAL_COMMAND_DESCRIPTION = 'Show Clan Capital data from persisted snapshots.';
 
 const CAPITAL_ROW_LIMIT = 25;
+const RAID_WEEK_CHOICE_LIMIT = 6;
+const RAID_WEEK_CHOICES = getRecentRaidWeekChoices(new Date());
+const RAID_WEEK_LABELS = new Map(RAID_WEEK_CHOICES.map((choice) => [choice.value, choice.name]));
 
 export const capitalCommandData = new SlashCommandBuilder()
   .setName(CAPITAL_COMMAND_NAME)
@@ -50,7 +53,8 @@ function addCapitalOptions(builder: SlashCommandSubcommandBuilder): SlashCommand
       option
         .setName('week')
         .setDescription('Raid week label accepted for parity; persisted snapshots are used.')
-        .setRequired(false),
+        .setRequired(false)
+        .addChoices(...RAID_WEEK_CHOICES),
     );
 }
 
@@ -330,10 +334,52 @@ function baseCapitalEmbed(
 ): EmbedBuilder {
   const notes = ['Uses current persisted linked-clan snapshots only.'];
   if (filters.week?.trim())
-    notes.push(`Week label accepted but not filtered: ${filters.week.trim()}.`);
+    notes.push(`Week label accepted but not filtered: ${formatRaidWeekFilter(filters.week)}.`);
   if (filters.userId)
     notes.push('User filter uses linked Clash account tags where member data exists.');
   return new EmbedBuilder().setTitle(title).addFields({ name: 'Source', value: notes.join('\n') });
+}
+
+function getRecentRaidWeekChoices(now: Date): ApplicationCommandOptionChoiceData<string>[] {
+  const choices: ApplicationCommandOptionChoiceData<string>[] = [];
+  const cursor = startOfUtcDay(now);
+  const daysSinceFriday = (cursor.getUTCDay() + 2) % 7;
+  cursor.setUTCDate(cursor.getUTCDate() - daysSinceFriday);
+
+  while (choices.length < RAID_WEEK_CHOICE_LIMIT) {
+    if (cursor.getTime() < now.getTime()) {
+      choices.push({
+        name: formatRaidWeekChoiceName(cursor),
+        value: formatRaidWeekChoiceValue(cursor),
+      });
+    }
+    cursor.setUTCDate(cursor.getUTCDate() - 7);
+  }
+
+  return choices;
+}
+
+function startOfUtcDay(date: Date): Date {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
+
+function formatRaidWeekChoiceName(date: Date): string {
+  return `${date.getUTCDate().toString().padStart(2, '0')} ${date.toLocaleString('en-US', {
+    month: 'short',
+    timeZone: 'UTC',
+  })}, ${date.getUTCFullYear()}`;
+}
+
+function formatRaidWeekChoiceValue(date: Date): string {
+  const month = (date.getUTCMonth() + 1).toString().padStart(2, '0');
+  const day = date.getUTCDate().toString().padStart(2, '0');
+  return `${date.getUTCFullYear()}-${month}-${day}`;
+}
+
+function formatRaidWeekFilter(week: string): string {
+  const trimmed = week.trim();
+  const label = RAID_WEEK_LABELS.get(trimmed);
+  return label ? `${label} (${trimmed})` : trimmed;
 }
 
 function clanMatchesQuery(clan: CapitalLinkedClan, normalizedQuery: string): boolean {
