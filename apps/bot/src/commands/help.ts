@@ -75,8 +75,8 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     category: 'Player & Clan',
     details: [
       'Uses a one-off Clash API clan lookup, then one-off player lookups for up to 50 current clan members.',
-      'The `user` option is accepted for parity but first-pass clan resolution uses the explicit clan or first linked clan.',
-      'The `season` option is accepted for parity, but first-pass output shows current public API attack/defense wins only.',
+      "When `clan` is omitted, `user` can select a linked clan that contains one of that user's linked player tags.",
+      'The `season` option is accepted for parity, but output shows current public API attack/defense wins only.',
     ],
   },
   {
@@ -115,6 +115,7 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     category: 'Player & Clan',
     details: [
       'Reads current linked-clan and member snapshots without querying the Clash API.',
+      '`/capital raids user:<user>` filters clans using linked player tags and persisted member snapshots.',
       'Raid-week attack logs are not persisted yet, so raids shows a compact capital overview/ranking.',
       'Contribution shows a no-data message until member snapshots include capital contribution fields.',
     ],
@@ -326,11 +327,13 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
   },
   {
     name: 'donations',
-    usage: '/donations [clan] [user] [sort]',
-    description: 'Show donation totals from tracked clan snapshots.',
+    usage: '/donations [clan] [user] [sort] [season] [start_date] [end_date]',
+    description: 'Show donation totals from tracked snapshots or history.',
     category: 'Player & Clan',
     details: [
       'Reads stored donation counters for linked clans without querying the Clash API.',
+      'When valid season or start_date filters are supplied, uses persisted donation history instead of latest snapshots.',
+      '`end_date` is accepted and displayed, but the current history query does not apply it yet.',
       'Sort by donated, received, difference, or ratio.',
     ],
   },
@@ -348,11 +351,12 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
   },
   {
     name: 'stats',
-    usage: '/stats attacks [clan] [user] [stars] [days] [attempt] or /stats defense',
+    usage: '/stats attacks [clan] [user] [stars] [season] [days] [attempt] or /stats defense',
     description: 'Show war attack stats from stored history.',
     category: 'Player & Clan',
     details: [
       'Reads persisted war attack history for linked clans without querying the Clash API.',
+      'The `season` option filters stored attacks since the selected season boundary.',
       'Defense stats are registered for parity but are not available until defense events are stored.',
       'Star and attempt filters are conservative because first-pass history rows are stored as attacker aggregates.',
     ],
@@ -430,7 +434,8 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     description: 'Configure and list linked clans and clan log channels.',
     category: 'Setup & Logs',
     details: [
-      'Server setup command for clan tracking, linked clan listing, and log notifications.',
+      'Server setup command for clan tracking, linked clan listing, and persisted log notifications.',
+      '`/setup clan-logs` can configure Join/Leave Log along with the other supported clan log channels.',
       '`/setup enable` and `/setup disable` are legacy stubs that point to current setup flows.',
     ],
   },
