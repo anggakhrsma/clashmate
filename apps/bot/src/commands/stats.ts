@@ -309,6 +309,8 @@ export async function executeStats(
   const attemptOption = readAttemptOption(interaction.options.getString('attempt'));
   const days = interaction.options.getInteger('days');
   const parityFilters = readStatsParityFilters(interaction);
+  const seasonSince = parseSeasonSince(parityFilters.season);
+  const historySince = getStatsHistorySince(days, seasonSince);
 
   let clanTags: string[] | undefined;
   let clanLabel: string | undefined;
@@ -335,7 +337,7 @@ export async function executeStats(
     guildId: interaction.guildId,
     ...(clanTags ? { clanTags } : {}),
     ...(playerTags ? { attackerTags: playerTags } : {}),
-    ...(days ? { since: new Date(Date.now() - days * 24 * 60 * 60 * 1000) } : {}),
+    ...(historySince ? { since: historySince } : {}),
   });
   const rankedRows = rankStatsRows(filterRowsByAttempt(rows, attemptOption));
 
@@ -352,6 +354,7 @@ export async function executeStats(
         starsOption,
         attemptOption,
         days,
+        season: seasonSince,
         parityFilters,
       }),
     ],
@@ -388,6 +391,7 @@ export function buildStatsAttacksEmbed(
     readonly starsOption: StarsOption | null;
     readonly attemptOption: AttemptOption | null;
     readonly days: number | null;
+    readonly season: Date | null;
     readonly parityFilters: StatsParityFilters;
   },
 ): EmbedBuilder {
@@ -418,7 +422,9 @@ export function buildStatsAttacksEmbed(
         inline: false,
       },
     )
-    .setFooter({ text: buildStatsFooter(selectedRows.length, rows.length, input.days) });
+    .setFooter({
+      text: buildStatsFooter(selectedRows.length, rows.length, input.days, input.season),
+    });
 
   if (input.clanLabel)
     embed.addFields({ name: 'Clan filter', value: input.clanLabel, inline: false });
@@ -432,6 +438,12 @@ export function buildStatsAttacksEmbed(
     embed.addFields({
       name: 'Attempt filter',
       value: formatAttemptOption(input.attemptOption),
+      inline: true,
+    });
+  if (input.season)
+    embed.addFields({
+      name: 'Season filter',
+      value: `Since ${formatSeasonLabel(formatSeasonValue(input.season))}`,
       inline: true,
     });
   const parityLabels = formatStatsParityFilters(input.parityFilters);
@@ -473,8 +485,17 @@ function buildSourceNote(stars: StarsOption | null, attempt: AttemptOption | nul
   return notes.join(' ');
 }
 
-function buildStatsFooter(shown: number, total: number, days: number | null): string {
-  const window = days ? ` from the last ${days} days` : '';
+function buildStatsFooter(
+  shown: number,
+  total: number,
+  days: number | null,
+  season: Date | null,
+): string {
+  const filters = [
+    ...(days ? [`last ${days} days`] : []),
+    ...(season ? [`since ${formatSeasonLabel(formatSeasonValue(season))}`] : []),
+  ];
+  const window = filters.length > 0 ? ` filtered by ${filters.join(' and ')}` : '';
   return `Showing ${shown}/${total} attackers${window} from stored events`;
 }
 
@@ -508,6 +529,21 @@ function readSeasonOption(value: string | null): string | null {
   return value;
 }
 
+function parseSeasonSince(value: string | null): Date | null {
+  if (!value) return null;
+  const [yearText, monthText] = value.split('-');
+  const year = Number(yearText);
+  const month = Number(monthText);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) return null;
+  return new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
+}
+
+function getStatsHistorySince(days: number | null, season: Date | null): Date | undefined {
+  const daysSince = days ? new Date(Date.now() - days * 24 * 60 * 60 * 1000) : null;
+  if (daysSince && season) return daysSince > season ? daysSince : season;
+  return daysSince ?? season ?? undefined;
+}
+
 function formatStarsOption(value: StarsOption): string {
   return value.replace('==', '').replace('>=', '>= ');
 }
@@ -530,7 +566,6 @@ function formatWarTypeOption(value: WarTypeOption): string {
 
 function formatStatsParityFilters(filters: StatsParityFilters): string[] {
   const labels: string[] = [];
-  if (filters.season) labels.push(`Since ${formatSeasonLabel(filters.season)}`);
   if (filters.type) labels.push(`Type: ${formatWarTypeOption(filters.type)}`);
   if (filters.wars) labels.push(`Wars: ${filters.wars}`);
   if (filters.filterLootHits !== null)
@@ -539,6 +574,10 @@ function formatStatsParityFilters(filters: StatsParityFilters): string[] {
     labels.push(`Filter farm hits: ${formatBoolean(filters.filterFarmHits)}`);
   if (filters.clanOnly !== null) labels.push(`Clan only: ${formatBoolean(filters.clanOnly)}`);
   return labels;
+}
+
+function formatSeasonValue(date: Date): string {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
 function formatBoolean(value: boolean): string {
