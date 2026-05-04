@@ -20,6 +20,25 @@ const DONATION_SORTS = ['donated', 'received', 'difference', 'ratio'] as const;
 export type DonationSort = (typeof DONATION_SORTS)[number];
 const MAX_DONATION_ROWS = 25;
 const EMBED_DESCRIPTION_LIMIT = 4096;
+const RECENT_SEASON_CHOICE_COUNT = 18;
+
+export interface DonationsParityFilters {
+  readonly season: string | null;
+  readonly startDate: string | null;
+  readonly endDate: string | null;
+}
+
+export function createRecentSeasonChoices(
+  now = new Date(),
+): ApplicationCommandOptionChoiceData<string>[] {
+  return Array.from({ length: RECENT_SEASON_CHOICE_COUNT }, (_, index) => {
+    const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - index, 1));
+    const value = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+    return { name: formatSeasonChoiceName(date), value };
+  });
+}
+
+const RECENT_SEASON_CHOICES = createRecentSeasonChoices();
 
 export const donationsCommandData = new SlashCommandBuilder()
   .setName(DONATIONS_COMMAND_NAME)
@@ -36,6 +55,25 @@ export const donationsCommandData = new SlashCommandBuilder()
     option
       .setName('user')
       .setDescription('Discord user whose linked players should be matched.')
+      .setRequired(false),
+  )
+  .addStringOption((option) =>
+    option
+      .setName('season')
+      .setDescription('Donation season to display (accepted but not applied yet).')
+      .setRequired(false)
+      .addChoices(...RECENT_SEASON_CHOICES),
+  )
+  .addStringOption((option) =>
+    option
+      .setName('start_date')
+      .setDescription('Start date to display (accepted but not applied yet).')
+      .setRequired(false),
+  )
+  .addStringOption((option) =>
+    option
+      .setName('end_date')
+      .setDescription('End date to display (accepted but not applied yet).')
       .setRequired(false),
   )
   .addStringOption((option) =>
@@ -152,6 +190,7 @@ export async function executeDonations(
   const clanOption = interaction.options.getString('clan');
   const userOption = interaction.options.getUser('user');
   const sort = parseDonationSort(interaction.options.getString('sort'));
+  const filters = parseDonationParityFilters(interaction);
   const clans = await options.store.listLinkedClans(interaction.guildId);
 
   if (clanOption) {
@@ -164,7 +203,7 @@ export async function executeDonations(
       guildId: interaction.guildId,
       clanTag: clan.clanTag,
     });
-    await replyWithDonations(interaction, snapshots, sort, userOption);
+    await replyWithDonations(interaction, snapshots, sort, userOption, filters);
     return;
   }
 
@@ -180,11 +219,21 @@ export async function executeDonations(
     return;
   }
 
-  await replyWithDonations(interaction, selected, sort, userOption);
+  await replyWithDonations(interaction, selected, sort, userOption, filters);
 }
 
 function parseDonationSort(value: string | null): DonationSort {
   return DONATION_SORTS.includes(value as DonationSort) ? (value as DonationSort) : 'donated';
+}
+
+function parseDonationParityFilters(
+  interaction: ChatInputCommandInteraction,
+): DonationsParityFilters {
+  return {
+    season: normalizeOptionalLabel(interaction.options.getString('season')),
+    startDate: normalizeOptionalLabel(interaction.options.getString('start_date')),
+    endDate: normalizeOptionalLabel(interaction.options.getString('end_date')),
+  };
 }
 
 async function selectClanForUser(
@@ -212,12 +261,13 @@ async function replyWithDonations(
   snapshots: DonationsClanSnapshots | undefined,
   sort: DonationSort,
   user: User | null,
+  filters: DonationsParityFilters,
 ): Promise<void> {
   if (!snapshots || snapshots.members.length === 0) {
     await interaction.editReply({ content: DONATIONS_NO_SNAPSHOT_MESSAGE });
     return;
   }
-  await interaction.editReply({ embeds: [buildDonationsEmbed(snapshots, sort, user)] });
+  await interaction.editReply({ embeds: [buildDonationsEmbed(snapshots, sort, user, filters)] });
 }
 
 export function resolveDonationClan(
@@ -244,6 +294,7 @@ export function buildDonationsEmbed(
   snapshots: DonationsClanSnapshots,
   sort: DonationSort,
   user: User | null,
+  filters: DonationsParityFilters = { season: null, startDate: null, endDate: null },
 ): EmbedBuilder {
   const rows = sortDonationRows(snapshots.members, sort).slice(0, MAX_DONATION_ROWS);
   const clanName = snapshots.clan.alias ?? snapshots.clan.name ?? 'Linked Clan';
@@ -270,8 +321,43 @@ export function buildDonationsEmbed(
     )
     .setFooter({ text: `Sorted by ${sort}; showing ${rows.length}/${snapshots.members.length}` });
 
+  const filterSummary = formatDonationParityFilters(filters);
+  if (filterSummary) {
+    embed.addFields({
+      name: 'Accepted filters',
+      value: `${filterSummary}\nThese parity options are accepted but latest-snapshot output is not filtered yet.`,
+      inline: false,
+    });
+  }
+
   if (user) embed.setAuthor({ name: user.displayName, iconURL: user.displayAvatarURL() });
   return embed;
+}
+
+function formatSeasonChoiceName(date: Date): string {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(date);
+}
+
+function normalizeOptionalLabel(value: string | null): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed.slice(0, 100) : null;
+}
+
+function formatDonationParityFilters(filters: DonationsParityFilters): string | null {
+  const parts = [
+    filters.season ? `season: \`${escapeBackticks(filters.season)}\`` : null,
+    filters.startDate ? `start_date: \`${escapeBackticks(filters.startDate)}\`` : null,
+    filters.endDate ? `end_date: \`${escapeBackticks(filters.endDate)}\`` : null,
+  ].filter((part): part is string => part !== null);
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
+
+function escapeBackticks(value: string): string {
+  return value.replace(/`/g, '');
 }
 
 function sortDonationRows(
