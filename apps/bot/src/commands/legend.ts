@@ -14,6 +14,24 @@ export const LEGEND_COMMAND_DESCRIPTION = 'Show persisted Legend League views fo
 
 const LEGEND_TROPHY_FLOOR = 5000;
 const NEAR_LEGEND_TROPHY_FLOOR = 4900;
+const LEGEND_SEASON_CHOICE_MONTHS = 18;
+const MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+] as const;
+
+export const legendSeasonChoices = buildLegendSeasonChoices();
+
 export const legendCommandData = new SlashCommandBuilder()
   .setName(LEGEND_COMMAND_NAME)
   .setDescription(LEGEND_COMMAND_DESCRIPTION)
@@ -91,6 +109,7 @@ export const legendCommandData = new SlashCommandBuilder()
         option
           .setName('season')
           .setDescription('Season accepted for parity; current persisted snapshots are used.')
+          .addChoices(...legendSeasonChoices)
           .setRequired(false),
       ),
   )
@@ -256,7 +275,7 @@ export function buildLegendLeaderboardEmbed(
   if (season)
     embed.addFields({
       name: 'Season',
-      value: `${season} (accepted for parity; current snapshots shown)`,
+      value: `${formatLegendSeasonSelection(season)} (accepted for parity; current snapshots shown)`,
       inline: false,
     });
 
@@ -405,4 +424,29 @@ function formatLegendClanChoiceName(clan: LegendLinkedClan): string {
 
 function labelForLegendClan(clan: LegendLinkedClan): string {
   return clan.alias ?? clan.name ?? clan.clanTag;
+}
+
+export function buildLegendSeasonChoices(
+  referenceDate = new Date(),
+): ApplicationCommandOptionChoiceData<string>[] {
+  const choices: ApplicationCommandOptionChoiceData<string>[] = [];
+  const monthIndex = referenceDate.getUTCMonth();
+  const year = referenceDate.getUTCFullYear();
+
+  for (let offset = 0; offset < LEGEND_SEASON_CHOICE_MONTHS; offset += 1) {
+    const date = new Date(Date.UTC(year, monthIndex - offset, 1));
+    const seasonId = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+    choices.push({
+      name: `${MONTH_NAMES[date.getUTCMonth()]} ${date.getUTCFullYear()}`,
+      value: seasonId,
+    });
+  }
+
+  return choices;
+}
+
+function formatLegendSeasonSelection(season: string): string {
+  const choice = legendSeasonChoices.find((item) => item.value === season);
+  if (!choice) return season;
+  return `${choice.name} (${season})`;
 }
