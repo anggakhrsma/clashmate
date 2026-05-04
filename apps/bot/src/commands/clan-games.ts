@@ -18,6 +18,9 @@ export const CLAN_GAMES_NO_DATA_MESSAGE =
 
 const SCOREBOARD_MEMBER_LIMIT = 55;
 const EMBED_DESCRIPTION_LIMIT = 4096;
+const SEASON_CHOICE_LIMIT = 18;
+
+export const clanGamesSeasonChoices = createClanGamesSeasonChoices(new Date());
 
 export const clanGamesCommandData = new SlashCommandBuilder()
   .setName(CLAN_GAMES_COMMAND_NAME)
@@ -32,7 +35,27 @@ export const clanGamesCommandData = new SlashCommandBuilder()
   .addUserOption((option) =>
     option.setName('user').setDescription("Filter scoreboard to a Discord user's linked players."),
   )
-  .addStringOption((option) => option.setName('season').setDescription('Clan Games season id.'));
+  .addStringOption((option) =>
+    option
+      .setName('season')
+      .setDescription('Clan Games season id.')
+      .addChoices(...clanGamesSeasonChoices),
+  );
+
+export function createClanGamesSeasonChoices(
+  now: Date,
+): ApplicationCommandOptionChoiceData<string>[] {
+  const currentMonth = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
+  return Array.from({ length: SEASON_CHOICE_LIMIT }, (_, index) => {
+    const seasonDate = new Date(currentMonth);
+    seasonDate.setUTCMonth(seasonDate.getUTCMonth() - index);
+    const seasonId = seasonDate.toISOString().slice(0, 7);
+    return {
+      name: formatClanGamesSeasonChoiceName(seasonDate),
+      value: seasonId,
+    };
+  });
+}
 
 export interface ClanGamesCommandOptions {
   readonly reader: ClanGamesScoreboardReader;
@@ -164,12 +187,18 @@ export function buildClanGamesEmbed(
   mentionSelectedClan: boolean,
 ): EmbedBuilder {
   const clanLabel = `${scoreboard.clanName ?? scoreboard.clanTag} (${scoreboard.clanTag})`;
+  const seasonChoice = clanGamesSeasonChoices.find(
+    (choice) => choice.value === scoreboard.seasonId,
+  );
+  const seasonLabel = seasonChoice
+    ? `${scoreboard.seasonId} (${seasonChoice.name})`
+    : scoreboard.seasonId;
   const visibleMembers = scoreboard.members.slice(0, SCOREBOARD_MEMBER_LIMIT);
   const descriptionLines = [
     mentionSelectedClan
       ? `Using latest stored snapshot for **${escapeMarkdown(clanLabel)}**.`
       : null,
-    `Season: **${escapeMarkdown(scoreboard.seasonId)}**`,
+    `Season: **${escapeMarkdown(seasonLabel)}**`,
     `Source fetched: ${time(scoreboard.sourceFetchedAt, 'R')}`,
     scoreboard.userFilterNote ?? null,
     '',
@@ -213,4 +242,12 @@ function formatScoreboardRows(
 function truncateDescription(description: string): string {
   if (description.length <= EMBED_DESCRIPTION_LIMIT) return description;
   return `${description.slice(0, EMBED_DESCRIPTION_LIMIT - 16)}\n\`\`\`\n…and more`;
+}
+
+function formatClanGamesSeasonChoiceName(seasonDate: Date): string {
+  return seasonDate.toLocaleString('en-US', {
+    month: 'long',
+    timeZone: 'UTC',
+    year: 'numeric',
+  });
 }
