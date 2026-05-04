@@ -1,6 +1,8 @@
 import type { ClashPlayer } from '@clashmate/coc';
 import type { CommandContext, SlashCommandDefinition } from '@clashmate/discord';
+import { normalizeClashTag } from '@clashmate/shared';
 import {
+  type ApplicationCommandOptionChoiceData,
   type AutocompleteInteraction,
   type ChatInputCommandInteraction,
   EmbedBuilder,
@@ -22,6 +24,8 @@ export const RUSHED_COMMAND_DESCRIPTION = 'Show likely rushed or incomplete play
 const EMBED_FIELD_VALUE_LIMIT = 1024;
 const EMBED_MAX_FIELDS = 25;
 const EMBED_DESCRIPTION_LIMIT = 4096;
+const RUSHED_CLAN_LOOKUP_LIMIT = 15;
+const RUSHED_CLAN_ROW_LIMIT = 10;
 
 export const rushedCommandData = new SlashCommandBuilder()
   .setName(RUSHED_COMMAND_NAME)
@@ -32,11 +36,38 @@ export const rushedCommandData = new SlashCommandBuilder()
   )
   .addUserOption((option) =>
     option.setName('user').setDescription('Discord user whose linked account to show.'),
+  )
+  .addStringOption((option) =>
+    option.setName('clan').setDescription('Clan tag or name or alias.').setAutocomplete(true),
   );
+
+export interface RushedLinkedClan {
+  readonly id: string;
+  readonly clanTag: string;
+  readonly name: string | null;
+  readonly alias: string | null;
+}
+
+export interface RushedSnapshotRow {
+  readonly playerTag: string;
+  readonly name: string;
+}
+
+export interface RushedClanSnapshots {
+  readonly clan: RushedLinkedClan;
+  readonly members: readonly RushedSnapshotRow[];
+}
 
 export interface RushedCommandOptions {
   readonly coc: PlayerCocApi;
   readonly links: Pick<PlayerLinkStore, 'listPlayerTagsForUser'>;
+  readonly clans: {
+    readonly listLinkedClans: (guildId: string) => Promise<RushedLinkedClan[]>;
+    readonly listClanMemberSnapshotsForGuild: (input: {
+      guildId: string;
+      clanTag?: string;
+    }) => Promise<RushedClanSnapshots[]>;
+  };
 }
 
 export interface RushedUnit {
@@ -79,7 +110,7 @@ export function createRushedSlashCommand(options: RushedCommandOptions): SlashCo
 
 export async function autocompleteRushed(
   interaction: AutocompleteInteraction,
-  options: Pick<RushedCommandOptions, 'links'>,
+  options: Pick<RushedCommandOptions, 'links' | 'clans'>,
 ): Promise<void> {
   if (!interaction.inCachedGuild()) {
     await interaction.respond([]);
@@ -87,19 +118,25 @@ export async function autocompleteRushed(
   }
 
   const focused = interaction.options.getFocused(true);
-  if (focused.name !== 'player') {
-    await interaction.respond([]);
-    return;
-  }
-
   try {
-    const tags = await options.links.listPlayerTagsForUser(
-      interaction.guildId,
-      interaction.user.id,
-    );
-    await interaction.respond(
-      filterPlayerTagAutocompleteChoices(tags, String(focused.value ?? '')),
-    );
+    if (focused.name === 'player') {
+      const tags = await options.links.listPlayerTagsForUser(
+        interaction.guildId,
+        interaction.user.id,
+      );
+      await interaction.respond(
+        filterPlayerTagAutocompleteChoices(tags, String(focused.value ?? '')),
+      );
+      return;
+    }
+
+    if (focused.name === 'clan') {
+      const clans = await options.clans.listLinkedClans(interaction.guildId);
+      await interaction.respond(filterRushedClanChoices(clans, String(focused.value ?? '')));
+      return;
+    }
+
+    await interaction.respond([]);
   } catch {
     await interaction.respond([]);
   }
@@ -118,11 +155,20 @@ export async function executeRushed(
     return;
   }
 
+  const clanOption = interaction.options.getString('clan');
+  const playerOption = interaction.options.getString('player');
+  const userOption = interaction.options.getUser('user');
+
+  if (clanOption && !playerOption && !userOption) {
+    await executeRushedClanMode(interaction, options, interaction.guildId, clanOption);
+    return;
+  }
+
   const resolution = await resolvePlayerTag({
     guildId: interaction.guildId,
     invokingUser: interaction.user,
-    tagOption: interaction.options.getString('player'),
-    userOption: interaction.options.getUser('user'),
+    tagOption: playerOption,
+    userOption,
     links: options.links,
   });
 
@@ -147,6 +193,136 @@ export async function executeRushed(
   }
 
   await interaction.editReply({ embeds: [buildRushedEmbed(player)] });
+}
+
+export function filterRushedClanChoices(
+  clans: readonly RushedLinkedClan[],
+  query: string,
+): ApplicationCommandOptionChoiceData<string>[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  return clans
+    .filter((clan) => clanMatchesQuery(clan, normalizedQuery))
+    .slice(0, 25)
+    .map((clan) => ({ name: formatClanChoiceName(clan), value: clan.alias ?? clan.clanTag }));
+}
+
+async function executeRushedClanMode(
+  interaction: ChatInputCommandInteraction,
+  options: RushedCommandOptions,
+  guildId: string,
+  clanOption: string,
+): Promise<void> {
+  await interaction.deferReply();
+
+  const clans = await options.clans.listLinkedClans(guildId);
+  const clan = resolveRushedClan(clans, clanOption);
+  if (!clan) {
+    await interaction.editReply({ content: 'No linked clan was found for that clan option.' });
+    return;
+  }
+
+  const [snapshots] = await options.clans.listClanMemberSnapshotsForGuild({
+    guildId,
+    clanTag: clan.clanTag,
+  });
+  if (!snapshots || snapshots.members.length === 0) {
+    await interaction.editReply({
+      content:
+        'No current member snapshot is available for that linked clan yet. Wait for clan polling to observe members.',
+    });
+    return;
+  }
+
+  const players: ClashPlayer[] = [];
+  for (const member of snapshots.members.slice(0, RUSHED_CLAN_LOOKUP_LIMIT)) {
+    try {
+      players.push(await options.coc.getPlayer(member.playerTag));
+    } catch {
+      // Keep clan mode best-effort and avoid failing the whole summary for one member lookup.
+    }
+  }
+
+  if (players.length === 0) {
+    await interaction.editReply({
+      content:
+        'No analyzable player data could be fetched for current members of that linked clan.',
+    });
+    return;
+  }
+
+  await interaction.editReply({
+    embeds: [buildRushedClanEmbed(clan, snapshots.members.length, players)],
+  });
+}
+
+export function buildRushedClanEmbed(
+  clan: RushedLinkedClan,
+  snapshotMemberCount: number,
+  players: readonly ClashPlayer[],
+): EmbedBuilder {
+  const rows = players
+    .map((player) => ({ player, summary: summarizeRushedGroups(collectRushedUnits(player)) }))
+    .filter((row) => row.summary.totalUnits > 0)
+    .sort(
+      (left, right) =>
+        right.summary.incompleteLevels - left.summary.incompleteLevels ||
+        right.summary.incompleteUnits - left.summary.incompleteUnits ||
+        left.player.name.localeCompare(right.player.name),
+    );
+  const clanName = clan.alias ?? clan.name ?? 'Linked Clan';
+  return new EmbedBuilder()
+    .setTitle(`Rushed Clan Summary: ${escapeMarkdown(clanName)} (${clan.clanTag})`)
+    .setDescription(
+      rows.length
+        ? rows
+            .slice(0, RUSHED_CLAN_ROW_LIMIT)
+            .map((row, index) => formatRushedClanRow(row, index))
+            .join('\n')
+        : 'No incomplete units found in fetched member data.',
+    )
+    .setFooter({
+      text: `Analyzed ${players.length}/${Math.min(snapshotMemberCount, RUSHED_CLAN_LOOKUP_LIMIT)} fetched from ${snapshotMemberCount} stored members`,
+    });
+}
+
+function formatRushedClanRow(
+  row: { readonly player: ClashPlayer; readonly summary: RushedSummary },
+  index: number,
+): string {
+  const percent = calculateIncompletePercent(row.summary);
+  return `${index + 1}. **${escapeMarkdown(row.player.name)}** (${row.player.tag}) · ${row.summary.incompleteUnits}/${row.summary.totalUnits} incomplete · ${percent}% short`;
+}
+
+export function resolveRushedClan(
+  clans: readonly RushedLinkedClan[],
+  query: string,
+): RushedLinkedClan | undefined {
+  const normalizedQuery = query.trim().toLowerCase();
+  let normalizedTag: string | undefined;
+  try {
+    normalizedTag = normalizeClashTag(query).toLowerCase();
+  } catch {
+    normalizedTag = undefined;
+  }
+  return clans.find(
+    (clan) =>
+      clan.clanTag.toLowerCase() === normalizedTag ||
+      clan.clanTag.replace(/^#/, '').toLowerCase() === normalizedQuery.replace(/^#/, '') ||
+      clan.alias?.trim().toLowerCase() === normalizedQuery ||
+      clan.name?.trim().toLowerCase() === normalizedQuery,
+  );
+}
+
+function clanMatchesQuery(clan: RushedLinkedClan, normalizedQuery: string): boolean {
+  if (!normalizedQuery) return true;
+  return [clan.clanTag, clan.clanTag.replace(/^#/, ''), clan.name ?? '', clan.alias ?? '']
+    .map((value) => value.toLowerCase())
+    .some((value) => value.includes(normalizedQuery));
+}
+
+function formatClanChoiceName(clan: RushedLinkedClan): string {
+  const label = clan.alias?.trim() || clan.name?.trim() || clan.clanTag;
+  return `${label} (${clan.clanTag})`.slice(0, 100);
 }
 
 export function buildRushedEmbed(player: ClashPlayer): EmbedBuilder {

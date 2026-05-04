@@ -344,6 +344,10 @@ const commandRegistry = createBotCommandRegistry({
   rushed: {
     coc: cocClient,
     links: databasePlayerLinks,
+    clans: {
+      listLinkedClans: databaseTrackedClans.listLinkedClans,
+      listClanMemberSnapshotsForGuild: databaseClanMemberSnapshots.listClanMemberSnapshotsForGuild,
+    },
   },
   setupClan: {
     clans: databaseTrackedClans,
