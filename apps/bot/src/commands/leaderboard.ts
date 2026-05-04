@@ -13,6 +13,23 @@ export const LEADERBOARD_COMMAND_DESCRIPTION =
   'Show linked-clan leaderboards from stored snapshots.';
 
 const MAX_ROWS = 25;
+const LEADERBOARD_SEASON_CHOICE_COUNT = 18;
+const MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+] as const;
+
+export const leaderboardSeasonChoices = buildLeaderboardSeasonChoices(new Date());
 
 export const leaderboardCommandData = new SlashCommandBuilder()
   .setName(LEADERBOARD_COMMAND_NAME)
@@ -33,7 +50,8 @@ export const leaderboardCommandData = new SlashCommandBuilder()
         option
           .setName('season')
           .setDescription('Season accepted for parity; current linked snapshots are used.')
-          .setRequired(false),
+          .setRequired(false)
+          .addChoices(...leaderboardSeasonChoices),
       ),
   )
   .addSubcommand((subcommand) =>
@@ -51,7 +69,8 @@ export const leaderboardCommandData = new SlashCommandBuilder()
         option
           .setName('season')
           .setDescription('Season accepted for parity; current member snapshots are used.')
-          .setRequired(false),
+          .setRequired(false)
+          .addChoices(...leaderboardSeasonChoices),
       ),
   )
   .addSubcommand((subcommand) =>
@@ -69,7 +88,8 @@ export const leaderboardCommandData = new SlashCommandBuilder()
         option
           .setName('season')
           .setDescription('Season accepted for parity; current linked snapshots are used.')
-          .setRequired(false),
+          .setRequired(false)
+          .addChoices(...leaderboardSeasonChoices),
       ),
   );
 
@@ -316,7 +336,8 @@ function baseEmbed(title: string, location: string | null, season: string | null
   if (location?.trim() && !isAllLocations(location))
     notes.push(`Filtered by stored linked-clan location: ${location.trim()}.`);
   if (isAllLocations(location)) notes.push('Location: all linked clans.');
-  if (season?.trim()) notes.push(`Season option accepted but not filtered: ${season.trim()}.`);
+  if (season?.trim())
+    notes.push(`Season option accepted but not filtered: ${formatSeasonNote(season.trim())}.`);
   return new EmbedBuilder().setTitle(title).addFields({ name: 'Source', value: notes.join('\n') });
 }
 
@@ -360,6 +381,25 @@ export function buildLocationChoices(
   return [allChoice, ...choices].slice(0, 25);
 }
 
+export function buildLeaderboardSeasonChoices(
+  now: Date,
+): ApplicationCommandOptionChoiceData<string>[] {
+  const currentYear = now.getUTCFullYear();
+  const currentMonth = now.getUTCMonth();
+
+  return Array.from({ length: LEADERBOARD_SEASON_CHOICE_COUNT }, (_, index) => {
+    const seasonDate = new Date(Date.UTC(currentYear, currentMonth - index, 1));
+    const year = seasonDate.getUTCFullYear();
+    const month = seasonDate.getUTCMonth();
+    const seasonId = `${year}-${String(month + 1).padStart(2, '0')}`;
+
+    return {
+      name: `${MONTH_NAMES[month]} ${year}`,
+      value: seasonId,
+    };
+  });
+}
+
 function filterClansByLocation(
   clans: readonly LeaderboardLinkedClan[],
   location: string | null,
@@ -377,6 +417,12 @@ function filterClansByLocation(
 
 function isAllLocations(location: string | null): boolean {
   return location?.trim().toLowerCase() === 'all';
+}
+
+function formatSeasonNote(season: string): string {
+  const seasonChoice = leaderboardSeasonChoices.find((choice) => choice.value === season);
+  if (!seasonChoice) return season;
+  return `${seasonChoice.name} (${seasonChoice.value})`;
 }
 
 function readSnapshotLocation(
