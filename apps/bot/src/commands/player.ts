@@ -13,7 +13,8 @@ import {
 
 export const PLAYER_COMMAND_NAME = 'player';
 export const PLAYER_COMMAND_DESCRIPTION = 'View a Clash of Clans player profile.';
-export const PLAYER_NOT_FOUND_MESSAGE = 'This player tag is not valid or was not found.';
+export const PLAYER_NOT_FOUND_MESSAGE =
+  'The player tag was accepted, but Clash API could not find that player. Check the tag and try again.';
 
 export const playerCommandData = new SlashCommandBuilder()
   .setName(PLAYER_COMMAND_NAME)
@@ -43,9 +44,16 @@ export interface PlayerCommandOptions {
 }
 
 export type PlayerResolutionResult =
-  | { readonly status: 'resolved'; readonly playerTag: string; readonly targetUser: User | null }
-  | { readonly status: 'invalid_tag' }
+  | {
+      readonly status: 'resolved';
+      readonly playerTag: string;
+      readonly targetUser: User | null;
+      readonly source: PlayerTagSource;
+    }
+  | { readonly status: 'invalid_tag'; readonly input: string }
   | { readonly status: 'no_link'; readonly targetUser: User; readonly isSelf: boolean };
+
+export type PlayerTagSource = 'explicit_tag' | 'stored_user_link';
 
 export function createPlayerSlashCommand(options: PlayerCommandOptions): SlashCommandDefinition {
   return {
@@ -136,12 +144,18 @@ export async function executePlayer(
   });
 
   if (resolution.status === 'invalid_tag') {
-    await interaction.reply({ content: PLAYER_NOT_FOUND_MESSAGE, ephemeral: true });
+    await interaction.reply({
+      content: formatInvalidPlayerTagMessage(resolution.input),
+      ephemeral: true,
+    });
     return;
   }
 
   if (resolution.status === 'no_link') {
-    await interaction.reply({ content: formatNoLinkedPlayerMessage(resolution), ephemeral: true });
+    await interaction.reply({
+      content: formatPlayerNoLinkedMessage(resolution),
+      ephemeral: true,
+    });
     return;
   }
 
@@ -157,7 +171,13 @@ export async function executePlayer(
 
   const links = await options.links.listPlayerLinksByTags([player.tag]);
   await interaction.editReply({
-    embeds: [buildPlayerEmbed(player, links[0]?.discordUserId ?? null)],
+    embeds: [
+      buildPlayerEmbed(player, {
+        linkedDiscordUserId: links[0]?.discordUserId ?? null,
+        source: resolution.source,
+        targetUser: resolution.targetUser,
+      }),
+    ],
   });
 }
 
@@ -170,13 +190,17 @@ export async function resolvePlayerTag(input: {
 }): Promise<PlayerResolutionResult> {
   if (input.tagOption) {
     try {
-      return {
-        status: 'resolved',
-        playerTag: normalizeClashTag(input.tagOption),
-        targetUser: input.userOption,
-      };
+      return withHiddenProperty(
+        {
+          status: 'resolved',
+          playerTag: normalizeClashTag(input.tagOption),
+          targetUser: input.userOption,
+        },
+        'source',
+        'explicit_tag' satisfies PlayerTagSource,
+      );
     } catch {
-      return { status: 'invalid_tag' };
+      return withHiddenProperty({ status: 'invalid_tag' }, 'input', input.tagOption);
     }
   }
 
@@ -192,7 +216,11 @@ export async function resolvePlayerTag(input: {
     };
   }
 
-  return { status: 'resolved', playerTag, targetUser };
+  return withHiddenProperty(
+    { status: 'resolved', playerTag, targetUser },
+    'source',
+    'stored_user_link' satisfies PlayerTagSource,
+  );
 }
 
 export function formatNoLinkedPlayerMessage(
@@ -202,10 +230,34 @@ export function formatNoLinkedPlayerMessage(
   return `**${result.targetUser.displayName}** does not have a linked player account.`;
 }
 
+export function formatPlayerNoLinkedMessage(
+  result: Extract<PlayerResolutionResult, { status: 'no_link' }>,
+): string {
+  if (result.isSelf) {
+    return [
+      'No stored Discord user link was found for you.',
+      'Use `/link create` first, or use `/player tag:<tag>` for a one-off lookup.',
+    ].join(' ');
+  }
+  return [
+    `No stored Discord user link was found for **${result.targetUser.displayName}**.`,
+    'Use `/player tag:<tag>` for a one-off lookup.',
+  ].join(' ');
+}
+
+export function formatInvalidPlayerTagMessage(input: string): string {
+  return [
+    `I could not normalize \`${input.trim() || 'that value'}\` as a Clash player tag.`,
+    'Use a tag like `#ABC123`, or omit `tag` to use a stored Discord user link.',
+  ].join(' ');
+}
+
 export function buildPlayerEmbed(
   player: ClashPlayer,
-  linkedDiscordUserId: string | null,
+  context: PlayerEmbedContext | string | null,
 ): EmbedBuilder {
+  const includeSourceField = typeof context === 'object' && context !== null;
+  const embedContext = normalizePlayerEmbedContext(context);
   const data = readPlayerData(player);
   const embed = new EmbedBuilder()
     .setTitle(`${escapeMarkdown(player.name)} (${player.tag})`)
@@ -221,7 +273,7 @@ export function buildPlayerEmbed(
 
   if (data.leagueIconUrl) embed.setThumbnail(data.leagueIconUrl);
 
-  embed.addFields(
+  const fields = [
     {
       name: '**Season Stats**',
       value: [
@@ -255,11 +307,62 @@ export function buildPlayerEmbed(
     },
     {
       name: '**Discord**',
-      value: linkedDiscordUserId ? `<@${linkedDiscordUserId}>` : 'Not Found',
+      value: embedContext.linkedDiscordUserId
+        ? `<@${embedContext.linkedDiscordUserId}>`
+        : 'Not Found',
     },
-  );
+  ];
+
+  if (includeSourceField) {
+    fields.push({
+      name: '**Source**',
+      value: formatPlayerSourceContext(embedContext),
+    });
+  }
+
+  embed.addFields(...fields);
 
   return embed;
+}
+
+interface PlayerEmbedContext {
+  readonly linkedDiscordUserId: string | null;
+  readonly source: PlayerTagSource;
+  readonly targetUser: User | null;
+}
+
+function withHiddenProperty<TBase extends object, TKey extends PropertyKey, const TValue>(
+  base: TBase,
+  key: TKey,
+  value: TValue,
+): TBase & { readonly [K in TKey]: TValue } {
+  Object.defineProperty(base, key, {
+    value,
+    enumerable: false,
+    configurable: true,
+  });
+  return base as TBase & { readonly [K in TKey]: TValue };
+}
+
+function normalizePlayerEmbedContext(
+  context: PlayerEmbedContext | string | null,
+): PlayerEmbedContext {
+  if (typeof context === 'string' || context === null) {
+    return { linkedDiscordUserId: context, source: 'explicit_tag', targetUser: null };
+  }
+  return context;
+}
+
+function formatPlayerSourceContext(context: PlayerEmbedContext): string {
+  const source =
+    context.source === 'explicit_tag'
+      ? 'Explicit tag option'
+      : `Stored Discord user link${context.targetUser ? ` for **${context.targetUser.displayName}**` : ''}`;
+  const owner = context.linkedDiscordUserId
+    ? `Stored owner link found: <@${context.linkedDiscordUserId}>`
+    : 'Stored owner link found: no';
+
+  return `${source}\n${owner}`;
 }
 
 interface PlayerDataView {
