@@ -369,6 +369,7 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     details: [
       'Reads persisted war attack history for linked clans without querying the Clash API.',
       'The `season` option filters stored attacks since the selected season boundary.',
+      'Responses show data source, active filters, rows considered, and visible rows for troubleshooting.',
       'Defense stats echo accepted clan, user, stars, season, days, and attempt filters but remain unavailable until defense events are stored.',
       'Star and attempt filters are conservative because first-pass history rows are stored as attacker aggregates.',
     ],
