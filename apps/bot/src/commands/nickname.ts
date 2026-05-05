@@ -10,6 +10,7 @@ export const NICKNAME_COMMAND_NAME = 'nickname';
 export const NICKNAME_COMMAND_DESCRIPTION = 'Configure ClashMate nickname preferences.';
 export const NICKNAME_FIRST_PASS_NOTE =
   'First pass: ClashMate stores these nickname preferences only. Discord nickname mutation and autorole refresh are not implemented yet.';
+export const DISCORD_NICKNAME_MAX_LENGTH = 32;
 
 export type NicknameChangePreference = 'true' | 'false';
 export type NicknameAccountPreference =
@@ -51,12 +52,14 @@ export const nicknameCommandData = new SlashCommandBuilder()
       .addStringOption((option) =>
         option
           .setName('family_nickname_format')
-          .setDescription('Nickname format for family clan members.'),
+          .setDescription('Nickname format for family clan members.')
+          .setMaxLength(DISCORD_NICKNAME_MAX_LENGTH),
       )
       .addStringOption((option) =>
         option
           .setName('non_family_nickname_format')
-          .setDescription('Nickname format for non-family clan members.'),
+          .setDescription('Nickname format for non-family clan members.')
+          .setMaxLength(DISCORD_NICKNAME_MAX_LENGTH),
       )
       .addStringOption((option) =>
         option
@@ -120,6 +123,11 @@ export async function executeNicknameInteraction(
     accountPreferenceForNaming: interaction.options.getString('account_preference_for_naming'),
   });
 
+  if (!input.ok) {
+    await interaction.reply({ content: input.error, ephemeral: true });
+    return;
+  }
+
   const view = input.hasUpdates
     ? await options.store.updateNicknameConfig({
         guildId: interaction.guildId,
@@ -137,12 +145,25 @@ export function parseNicknameConfigOptions(input: {
   nonFamilyNicknameFormat: string | null;
   changeNicknames: string | null;
   accountPreferenceForNaming: string | null;
-}): { hasUpdates: boolean; view: NicknameConfigView } {
+}): { ok: true; hasUpdates: boolean; view: NicknameConfigView } | { ok: false; error: string } {
+  const familyNicknameFormat = validateNicknameFormat(
+    input.familyNicknameFormat,
+    'family_nickname_format',
+  );
+  if (!familyNicknameFormat.ok) return familyNicknameFormat;
+
+  const nonFamilyNicknameFormat = validateNicknameFormat(
+    input.nonFamilyNicknameFormat,
+    'non_family_nickname_format',
+  );
+  if (!nonFamilyNicknameFormat.ok) return nonFamilyNicknameFormat;
+
   return {
+    ok: true,
     hasUpdates: Object.values(input).some((value) => value !== null),
     view: {
-      familyNicknameFormat: cleanOptionalString(input.familyNicknameFormat),
-      nonFamilyNicknameFormat: cleanOptionalString(input.nonFamilyNicknameFormat),
+      familyNicknameFormat: familyNicknameFormat.value,
+      nonFamilyNicknameFormat: nonFamilyNicknameFormat.value,
       changeNicknames: parseChangePreference(input.changeNicknames),
       accountPreferenceForNaming: parseAccountPreference(input.accountPreferenceForNaming),
     },
@@ -180,12 +201,36 @@ export function buildNicknameConfigEmbed(view: NicknameConfigView): EmbedBuilder
         value: view.accountPreferenceForNaming ?? 'Not set',
         inline: true,
       },
+      {
+        name: 'Preview only',
+        value: formatNicknamePreview(view),
+        inline: false,
+      },
     );
 }
 
-function cleanOptionalString(value: string | null): string | null {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : null;
+export function validateNicknameFormat(
+  value: string | null,
+  optionName: string,
+): { ok: true; value: string | null } | { ok: false; error: string } {
+  if (value === null) return { ok: true, value: null };
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return {
+      ok: false,
+      error: `\`${optionName}\` cannot be empty. Provide a nickname format up to ${DISCORD_NICKNAME_MAX_LENGTH} characters.`,
+    };
+  }
+
+  if (trimmed.length > DISCORD_NICKNAME_MAX_LENGTH) {
+    return {
+      ok: false,
+      error: `\`${optionName}\` is too long (${trimmed.length}/${DISCORD_NICKNAME_MAX_LENGTH} characters). Discord nicknames can be at most ${DISCORD_NICKNAME_MAX_LENGTH} characters.`,
+    };
+  }
+
+  return { ok: true, value: trimmed };
 }
 
 function parseChangePreference(value: string | null): NicknameChangePreference | null {
@@ -205,4 +250,33 @@ function parseAccountPreference(value: string | null): NicknameAccountPreference
 
 function formatStoredValue(value: string | null): string {
   return value ? `\`${value}\`` : 'Not set';
+}
+
+function formatNicknamePreview(view: NicknameConfigView): string {
+  const previews = [
+    formatPreviewLine('Family', view.familyNicknameFormat),
+    formatPreviewLine('Non-family', view.nonFamilyNicknameFormat),
+  ].filter((line) => line !== null);
+
+  return previews.length > 0
+    ? `${previews.join('\n')}\nNo Discord nicknames are changed by this command.`
+    : 'Set a nickname format to see an example. No Discord nicknames are changed by this command.';
+}
+
+function formatPreviewLine(label: string, format: string | null): string | null {
+  if (!format) return null;
+  return `${label}: \`${buildNicknamePreview(format)}\``;
+}
+
+export function buildNicknamePreview(format: string): string {
+  return format
+    .replaceAll('{player}', 'PlayerOne')
+    .replaceAll('{player_name}', 'PlayerOne')
+    .replaceAll('{playerName}', 'PlayerOne')
+    .replaceAll('{name}', 'PlayerOne')
+    .replaceAll('{tag}', '#2PP')
+    .replaceAll('{clan}', 'ClanMate')
+    .replaceAll('{townHall}', 'TH16')
+    .replaceAll('{town_hall}', 'TH16')
+    .replaceAll('{th}', 'TH16');
 }
