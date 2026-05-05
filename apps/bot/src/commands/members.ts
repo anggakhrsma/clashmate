@@ -16,7 +16,19 @@ export const MEMBERS_COMMAND_DESCRIPTION = 'Show tracked clan members from polli
 export const MEMBERS_NO_SNAPSHOT_MESSAGE =
   'No member snapshot is available yet. Link/configure a clan and wait for clan polling to observe members.';
 
-const MEMBERS_OPTIONS = ['overview', 'tags', 'trophies', 'donations'] as const;
+const MEMBERS_OPTIONS = [
+  'overview',
+  'tags',
+  'trophies',
+  'donations',
+  'heroes',
+  'link-list',
+  'war-pref',
+  'join-date',
+  'progress',
+  'attacks',
+  'clan',
+] as const;
 export type MembersOption = (typeof MEMBERS_OPTIONS)[number];
 const MAX_MEMBER_ROWS = 25;
 const EMBED_DESCRIPTION_LIMIT = 4096;
@@ -48,6 +60,13 @@ export const membersCommandData = new SlashCommandBuilder()
         { name: 'Tags', value: 'tags' },
         { name: 'Trophies', value: 'trophies' },
         { name: 'Donations', value: 'donations' },
+        { name: 'Heroes/War Weight', value: 'heroes' },
+        { name: 'Discord Links', value: 'link-list' },
+        { name: 'War Preferences', value: 'war-pref' },
+        { name: 'Last Joining Date', value: 'join-date' },
+        { name: 'Player Progress', value: 'progress' },
+        { name: 'Attacks & Defenses', value: 'attacks' },
+        { name: 'Clan Overview', value: 'clan' },
       ),
   );
 
@@ -266,6 +285,7 @@ export function buildMembersEmbed(
 ): EmbedBuilder {
   const members = sortMembers(snapshots.members, option).slice(0, MAX_MEMBER_ROWS);
   const clanName = snapshots.clan.alias ?? snapshots.clan.name ?? 'Linked Clan';
+  const limitation = formatMembersOptionLimitation(option);
   const embed = new EmbedBuilder()
     .setTitle(`${clanName} Members`)
     .setDescription(truncateEmbedDescription(formatMembersDescription(members, option)))
@@ -279,6 +299,9 @@ export function buildMembersEmbed(
     value: `${escapeMarkdown(clanName)} (${snapshots.clan.clanTag})`,
     inline: false,
   });
+  if (limitation) {
+    embed.addFields({ name: 'Snapshot limitation', value: limitation, inline: false });
+  }
   return embed;
 }
 
@@ -291,6 +314,10 @@ function sortMembers(
     return rows.sort((a, b) => (b.trophies ?? -1) - (a.trophies ?? -1) || compareNames(a, b));
   if (option === 'donations')
     return rows.sort((a, b) => (b.donations ?? -1) - (a.donations ?? -1) || compareNames(a, b));
+  if (option === 'join-date')
+    return rows.sort(
+      (a, b) => a.firstSeenAt.getTime() - b.firstSeenAt.getTime() || compareNames(a, b),
+    );
   if (option === 'tags')
     return rows.sort((a, b) => roleWeight(b.role) - roleWeight(a.role) || compareNames(a, b));
   return rows.sort((a, b) => (a.clanRank ?? 999) - (b.clanRank ?? 999) || compareNames(a, b));
@@ -324,12 +351,74 @@ function formatMembersDescription(
       )
       .join('\n');
   }
+  if (option === 'join-date') {
+    return members
+      .map(
+        (member, index) =>
+          `${index + 1}. ${escapeMarkdown(member.name)} · first seen ${time(member.firstSeenAt, 'R')} · last seen ${time(member.lastSeenAt, 'R')}`,
+      )
+      .join('\n');
+  }
+  if (option === 'heroes' || option === 'progress') {
+    return members
+      .map(
+        (member, index) =>
+          `${index + 1}. ${escapeMarkdown(member.name)} · XP ${member.expLevel ?? 0} · ${member.trophies ?? 0} trophies · rank ${member.clanRank ?? 'n/a'} · ${time(member.lastFetchedAt, 'R')}`,
+      )
+      .join('\n');
+  }
+  if (option === 'link-list') {
+    return members
+      .map(
+        (member, index) =>
+          `${index + 1}. ${escapeMarkdown(member.name)} · \`${member.playerTag}\` · Discord link not stored in member snapshot`,
+      )
+      .join('\n');
+  }
+  if (option === 'war-pref') {
+    return members
+      .map(
+        (member, index) =>
+          `${index + 1}. ${escapeMarkdown(member.name)} · ${formatRole(member.role)} · war preference not stored`,
+      )
+      .join('\n');
+  }
+  if (option === 'attacks') {
+    return members
+      .map(
+        (member, index) =>
+          `${index + 1}. ${escapeMarkdown(member.name)} · ${member.donations ?? 0}/${member.donationsReceived ?? 0} donated/received · attack and defense totals not stored`,
+      )
+      .join('\n');
+  }
   return members
     .map(
       (member) =>
         `**${escapeMarkdown(member.name)}** · ${formatRole(member.role)} · ${member.trophies ?? 0} trophies · ${member.donations ?? 0}/${member.donationsReceived ?? 0} donated/received · observed ${time(member.lastFetchedAt, 'R')}`,
     )
     .join('\n');
+}
+
+function formatMembersOptionLimitation(option: MembersOption): string | null {
+  if (option === 'heroes') {
+    return 'Hero levels and war weight are not stored in clan member snapshots; showing XP, trophies, rank, and snapshot age instead.';
+  }
+  if (option === 'link-list') {
+    return 'Discord link data is stored separately and is not embedded in persisted member snapshots.';
+  }
+  if (option === 'war-pref') return 'War preference is not stored in persisted member snapshots.';
+  if (option === 'join-date') {
+    return 'Join date is approximated from the first time this member appeared in stored snapshots.';
+  }
+  if (option === 'progress') {
+    return 'Detailed player progress is not stored in clan member snapshots; showing persisted XP, trophies, rank, and snapshot age instead.';
+  }
+  if (option === 'attacks') {
+    return 'Attack and defense totals are not stored in clan member snapshots; showing the closest persisted activity fields.';
+  }
+  if (option === 'clan')
+    return 'Clan overview uses the standard persisted member snapshot summary.';
+  return null;
 }
 
 function truncateEmbedDescription(text: string): string {
