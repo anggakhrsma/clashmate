@@ -243,7 +243,7 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     details: [
       'Create and edit validate reminder durations before storing schedules.',
       'Reminder channels are constrained to supported guild text, announcement, and thread channels.',
-      'Scheduled delivery and worker fan-out are not active yet; stored schedules are configuration only.',
+      'Scheduled delivery runs in the worker from persisted member snapshots; no live Clash API lookup is performed.',
       '`/reminders now` reads persisted linked-clan member snapshots and player links without calling the Clash API.',
       'Requires Manage Server permission.',
     ],

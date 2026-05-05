@@ -17,6 +17,7 @@ export interface DiscordNotificationEmbed {
 export interface DiscordNotificationMessage {
   readonly content: string;
   readonly embeds?: readonly DiscordNotificationEmbed[];
+  readonly allowedUserIds?: readonly string[];
 }
 
 export interface NotificationDeliveryLoopIntervalConfig {
@@ -263,6 +264,14 @@ export function formatDiscordNotificationMessage(entry: {
   const fallback = formatNotificationOutboxMessage(entry);
 
   try {
+    if (entry.sourceType === 'reminder_schedule') {
+      const payload = parseReminderNotificationPayload(entry.payload);
+      return {
+        content: formatDiscordNotificationContent(payload.content),
+        allowedUserIds: payload.mentionUserIds,
+      };
+    }
+
     return {
       content: formatDiscordNotificationContent(buildSafeNotificationContent(entry.sourceType)),
       embeds: [buildNotificationEmbed(entry)],
@@ -365,6 +374,10 @@ export function formatNotificationOutboxMessage(entry: {
     return `🎯 ${identity} updated Clan Games progress in clan **${payload.clanTag}** for **${payload.seasonId}** (${progress}).`;
   }
 
+  if (entry.sourceType === 'reminder_schedule') {
+    return parseReminderNotificationPayload(entry.payload).content;
+  }
+
   const payload = parseClanMemberNotificationPayload(entry.payload);
   const verb = payload.eventType === 'left' ? 'left' : 'joined';
   return `**${payload.playerName} (${payload.playerTag})** ${verb} clan **${payload.clanTag}**.`;
@@ -450,6 +463,15 @@ function buildNotificationEmbed(entry: {
     ]);
   }
 
+  if (entry.sourceType === 'reminder_schedule') {
+    const payload = parseReminderNotificationPayload(entry.payload);
+    return buildEmbed(style, payload.content, [
+      field('Reminder ID', payload.scheduleId, true),
+      field('Type', payload.type, true),
+      field('Duration', payload.duration, true),
+    ]);
+  }
+
   const payload = parseClanMemberNotificationPayload(entry.payload);
   const verb = payload.eventType === 'left' ? 'left' : 'joined';
   return buildEmbed(style, `${payload.playerName} ${verb} the clan`, [
@@ -500,6 +522,8 @@ function getNotificationStyle(sourceType?: string): NotificationStyle {
       return { title: 'Missed War Attack', icon: '🚨', color: 0xc0392b };
     case 'clan_games_event':
       return { title: 'Clan Games Update', icon: '🎯', color: 0x9b59b6 };
+    case 'reminder_schedule':
+      return { title: 'Scheduled Reminder', icon: '⏰', color: 0x5865f2 };
     default:
       return { title: 'Clan Member Update', icon: '👥', color: 0x95a5a6 };
   }
@@ -738,6 +762,30 @@ function parseMissedWarAttackNotificationPayload(payload: unknown): {
     throw new Error('Missed war attack notification requires missed attacks.');
   }
   return { clanTag, playerTag, playerName, attacksUsed, attacksAvailable };
+}
+
+function parseReminderNotificationPayload(payload: unknown): {
+  scheduleId: string;
+  type: string;
+  duration: string;
+  content: string;
+  mentionUserIds: readonly string[];
+} {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Notification payload must be an object.');
+  }
+  const record = payload as Record<string, unknown>;
+  const { mentionUserIds: rawMentionUserIds } = record;
+  const mentionUserIds = Array.isArray(rawMentionUserIds)
+    ? rawMentionUserIds.filter((value): value is string => typeof value === 'string')
+    : [];
+  return {
+    scheduleId: readPayloadString(record, 'scheduleId'),
+    type: readPayloadString(record, 'type'),
+    duration: readPayloadString(record, 'duration'),
+    content: readPayloadString(record, 'content'),
+    mentionUserIds,
+  };
 }
 
 function parseClanMemberNotificationPayload(payload: unknown): {

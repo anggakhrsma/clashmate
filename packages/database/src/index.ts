@@ -290,6 +290,23 @@ export interface DatabaseReminderSettingsStore {
   }) => Promise<ReminderSettingsRecord>;
 }
 
+export interface ReminderScheduleDeliveryRecord extends ReminderScheduleRecord {
+  guildId: string;
+}
+
+export interface ReminderScheduleDeliveryOutboxInput {
+  guildId: string;
+  schedule: ReminderScheduleRecord;
+  bucket: string;
+  payload: Record<string, unknown>;
+  now: Date;
+}
+
+export interface DatabaseReminderDeliveryStore {
+  listReminderSchedulesForDelivery: () => Promise<ReminderScheduleDeliveryRecord[]>;
+  insertReminderOutboxEntry: (input: ReminderScheduleDeliveryOutboxInput) => Promise<boolean>;
+}
+
 export interface CommandWhitelistEntryRecord {
   commandName: string;
   userOrRoleId: string;
@@ -677,7 +694,8 @@ export type NotificationSourceType =
   | 'missed_war_attack_event'
   | 'clan_donation_event'
   | 'clan_role_change_event'
-  | 'clan_games_event';
+  | 'clan_games_event'
+  | 'reminder_schedule';
 export type NotificationTargetType = 'discord_channel';
 
 export const CLAN_MEMBER_NOTIFICATION_FANOUT_CURSOR_NAME = 'clan_member_event';
@@ -2668,6 +2686,55 @@ export function createDatabaseReminderSettingsStore(
         });
         return updated;
       }),
+  };
+}
+
+export function createDatabaseReminderDeliveryStore(
+  database: Database,
+): DatabaseReminderDeliveryStore {
+  return {
+    listReminderSchedulesForDelivery: async () => {
+      const rows = await database
+        .select({ guildId: schema.guildSettings.guildId, value: schema.guildSettings.value })
+        .from(schema.guildSettings)
+        .where(eq(schema.guildSettings.key, REMINDER_SETTINGS_KEY));
+
+      return rows.flatMap((row) =>
+        normalizeReminderSettings(row.value).schedules.map((schedule) => ({
+          ...schedule,
+          guildId: row.guildId,
+        })),
+      );
+    },
+    insertReminderOutboxEntry: async (input) => {
+      const sourceId = `${input.schedule.id}:${input.bucket}`;
+      const idempotencyKey = buildNotificationOutboxIdempotencyKey({
+        guildId: input.guildId,
+        sourceType: 'reminder_schedule',
+        sourceId,
+        targetType: 'discord_channel',
+        targetId: input.schedule.channelId,
+      });
+      const rows = await database
+        .insert(schema.notificationOutbox)
+        .values({
+          guildId: input.guildId,
+          sourceType: 'reminder_schedule',
+          sourceId,
+          idempotencyKey,
+          targetType: 'discord_channel',
+          targetId: input.schedule.channelId,
+          status: 'pending',
+          payload: input.payload,
+          attempts: 0,
+          nextAttemptAt: input.now,
+          updatedAt: input.now,
+        })
+        .onConflictDoNothing({ target: schema.notificationOutbox.idempotencyKey })
+        .returning({ id: schema.notificationOutbox.id });
+
+      return rows.length > 0;
+    },
   };
 }
 

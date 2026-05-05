@@ -24,7 +24,7 @@ const MAX_REMINDER_DURATION_MINUTES = 30 * 24 * 60;
 const MAX_MENTIONS = 40;
 const MAX_MESSAGE_LENGTH = 1_800;
 const STORAGE_ONLY_NOTE =
-  'Delivery scheduling and worker fan-out are not implemented yet; stored schedules are configuration only for now.';
+  'Scheduled delivery is handled by the worker from persisted member snapshots; no live Clash API lookup is performed.';
 
 const allowedReminderChannelTypes = [
   ChannelType.GuildText,

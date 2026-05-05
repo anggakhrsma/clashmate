@@ -3,8 +3,11 @@ import { loadConfig } from '@clashmate/config';
 import {
   createClanGamesEventStore,
   createClanMemberEventStore,
+  createClanMemberSnapshotReader,
   createClanSnapshotStore,
   createDatabase,
+  createDatabasePlayerLinkStore,
+  createDatabaseReminderDeliveryStore,
   createMissedWarAttackEventStore,
   createNotificationFanOutStore,
   createNotificationOutboxDeliveryStore,
@@ -24,6 +27,7 @@ import { startNotificationDeliveryLoop } from './notification-delivery-loop.js';
 import { startNotificationFanOutLoop } from './notification-fanout-loop.js';
 import { createPlayerPollerHandler } from './player-poller.js';
 import { startPollingEnrollmentLoop, syncPollingLeases } from './polling-enrollment.js';
+import { startReminderSchedulerLoop } from './reminder-scheduler-loop.js';
 import { createWarPollerHandler } from './war-poller.js';
 import { createWorkerOwnerId, startWorkerPollingLoop } from './worker-loop.js';
 
@@ -74,6 +78,7 @@ const database = createDatabase(config.DATABASE_URL);
 const pollingEnrollment = createPollingEnrollmentStore(database);
 const pollingLeases = createPollingLeaseStore(database);
 const clanSnapshots = createClanSnapshotStore(database);
+const clanMemberSnapshots = createClanMemberSnapshotReader(database);
 const clanMemberEvents = createClanMemberEventStore(database);
 const clanGames = createClanGamesEventStore(database);
 const playerSnapshots = createPlayerSnapshotStore(database);
@@ -83,6 +88,8 @@ const warStateEvents = createWarStateEventStore(database);
 const missedWarAttackEvents = createMissedWarAttackEventStore(database);
 const notificationFanOut = createNotificationFanOutStore(database);
 const notificationDelivery = createNotificationOutboxDeliveryStore(database);
+const reminderDelivery = createDatabaseReminderDeliveryStore(database);
+const playerLinks = createDatabasePlayerLinkStore(database);
 const notificationSender = createDiscordRestNotificationSender(config.DISCORD_TOKEN);
 const coc = new ClashMateCocClient({ token: config.CLASH_OF_CLANS_API_TOKEN });
 const clanPollerHandler = createClanPollerHandler({
@@ -147,6 +154,18 @@ const notificationFanOutLoop = startNotificationFanOutLoop({
   logger,
 });
 
+const reminderSchedulerLoop = startReminderSchedulerLoop({
+  reminders: reminderDelivery,
+  snapshots: clanMemberSnapshots,
+  links: playerLinks,
+  interval: {
+    baseSeconds: config.NOTIFICATION_FANOUT_SECONDS,
+    jitterSeconds: config.NOTIFICATION_FANOUT_JITTER_SECONDS,
+  },
+  batchSize: config.NOTIFICATION_FANOUT_BATCH_SIZE,
+  logger,
+});
+
 const notificationDeliveryLoop = startNotificationDeliveryLoop({
   deliveryStore: notificationDelivery,
   sender: notificationSender,
@@ -176,7 +195,13 @@ const workerPollingLoop = startWorkerPollingLoop({
 });
 
 registerShutdownHandlers(
-  [pollingEnrollmentLoop, notificationFanOutLoop, notificationDeliveryLoop, workerPollingLoop],
+  [
+    pollingEnrollmentLoop,
+    notificationFanOutLoop,
+    reminderSchedulerLoop,
+    notificationDeliveryLoop,
+    workerPollingLoop,
+  ],
   logger,
 );
 
@@ -190,6 +215,7 @@ logger.info(
     clanGamesReady: Boolean(clanGames),
     notificationFanOutReady: Boolean(notificationFanOut),
     notificationDeliveryReady: Boolean(notificationDelivery),
+    reminderSchedulerReady: Boolean(reminderDelivery),
     notificationFanOutIntervalSeconds: config.NOTIFICATION_FANOUT_SECONDS,
     notificationFanOutJitterSeconds: config.NOTIFICATION_FANOUT_JITTER_SECONDS,
     notificationFanOutBatchSize: config.NOTIFICATION_FANOUT_BATCH_SIZE,

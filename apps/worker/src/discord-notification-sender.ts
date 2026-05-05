@@ -19,7 +19,10 @@ export function createDiscordRestNotificationSender(token: string): DiscordNotif
         body: {
           content: message.content,
           ...(message.embeds ? { embeds: message.embeds } : {}),
-          allowed_mentions: { parse: [] },
+          allowed_mentions:
+            message.allowedUserIds && message.allowedUserIds.length > 0
+              ? { parse: [], users: [...message.allowedUserIds] }
+              : { parse: [] },
         },
       });
     },
