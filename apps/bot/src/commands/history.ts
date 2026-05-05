@@ -51,6 +51,12 @@ type HistoryOption = (typeof HISTORY_OPTIONS)[number];
 const MAX_HISTORY_ROWS = 15;
 const EMBED_DESCRIPTION_LIMIT = 4096;
 
+interface HistoryFilterContext {
+  readonly clanLabel?: string;
+  readonly playerTag?: string;
+  readonly user: User | null;
+}
+
 export const historyCommandData = new SlashCommandBuilder()
   .setName(HISTORY_COMMAND_NAME)
   .setDescription(HISTORY_COMMAND_DESCRIPTION)
@@ -246,7 +252,7 @@ export async function executeHistory(
   if (!isHistoryOption(option)) {
     await interaction.editReply({
       content:
-        'Only stored history options are available. Unsupported history options do not query the Clash API or start polling.',
+        'Only stored history options are available. Accepted filters: `clans`, `player`, and `user` (date/season filters are not exposed on `/history` yet). Unsupported options do not query the Clash API or start polling.',
     });
     return;
   }
@@ -261,7 +267,10 @@ export async function executeHistory(
   if (clanOption) {
     const clan = resolveHistoryClan(clans, clanOption);
     if (!clan) {
-      await interaction.editReply({ content: 'No linked clan was found for that clan option.' });
+      await interaction.editReply({
+        content:
+          'No linked clan was found for that clan option. Accepted filters: `clans` must match a linked clan tag, name, or alias; `player` may be a player tag; `user` may be a linked Discord user. This command reads persisted history only and does not perform a live Clash API lookup or enroll polling.',
+      });
       return;
     }
     clanTags = [clan.clanTag];
@@ -272,10 +281,14 @@ export async function executeHistory(
   let playerTagLabel: string | undefined;
   if (playerOption) {
     try {
-      playerTagLabel = normalizeClashTag(playerOption);
-      playerTags = [playerTagLabel];
+      const normalizedPlayerTag = normalizeClashTag(playerOption);
+      playerTagLabel = normalizedPlayerTag;
+      playerTags = [normalizedPlayerTag];
     } catch {
-      await interaction.editReply({ content: 'That player tag is not valid.' });
+      await interaction.editReply({
+        content:
+          'That player tag is not valid. Accepted filters: `clans`, `player`, and `user` (date/season filters are not exposed on `/history` yet). This command reads persisted history only and does not perform a live Clash API lookup or enroll polling.',
+      });
       return;
     }
   } else if (userOption) {
@@ -285,6 +298,12 @@ export async function executeHistory(
       return;
     }
   }
+
+  const filterContext: HistoryFilterContext = {
+    ...(clanLabel ? { clanLabel } : {}),
+    ...(playerTagLabel ? { playerTag: playerTagLabel } : {}),
+    user: userOption,
+  };
 
   if (option === 'cwl-attacks' || option === 'war-attacks') {
     const rows = await options.store.listWarAttackHistoryForGuild({
@@ -299,7 +318,7 @@ export async function executeHistory(
     }
 
     await interaction.editReply({
-      embeds: [buildWarAttackHistoryEmbed(rows, clanLabel, userOption, option)],
+      embeds: [buildWarAttackHistoryEmbed(rows, filterContext, option)],
     });
     return;
   }
@@ -307,15 +326,7 @@ export async function executeHistory(
   const unavailableMessage = getUnavailableHistoryMessage(option);
   if (unavailableMessage) {
     await interaction.editReply({
-      embeds: [
-        buildUnavailableHistoryEmbed(
-          option,
-          unavailableMessage,
-          clanLabel,
-          playerTagLabel,
-          userOption,
-        ),
-      ],
+      embeds: [buildUnavailableHistoryEmbed(option, unavailableMessage, filterContext)],
     });
     return;
   }
@@ -333,7 +344,7 @@ export async function executeHistory(
     }
 
     await interaction.editReply({
-      embeds: [buildJoinLeaveHistoryEmbed(rows, clanLabel, userOption)],
+      embeds: [buildJoinLeaveHistoryEmbed(rows, filterContext)],
     });
     return;
   }
@@ -351,7 +362,7 @@ export async function executeHistory(
     }
 
     await interaction.editReply({
-      embeds: [buildClanGamesHistoryEmbed(rows, clanLabel, userOption)],
+      embeds: [buildClanGamesHistoryEmbed(rows, filterContext)],
     });
     return;
   }
@@ -367,15 +378,15 @@ export async function executeHistory(
     return;
   }
 
-  await interaction.editReply({ embeds: [buildDonationHistoryEmbed(rows, clanLabel, userOption)] });
+  await interaction.editReply({ embeds: [buildDonationHistoryEmbed(rows, filterContext)] });
 }
 
 export function buildClanGamesHistoryEmbed(
   rows: readonly ClanGamesHistoryRow[],
-  clanLabel: string | undefined,
-  user: User | null,
+  filters: HistoryFilterContext,
 ): EmbedBuilder {
   const selectedRows = rows.slice(0, MAX_HISTORY_ROWS);
+  const latestFetchedAt = getLatestDate(rows, (row) => row.latestUpdatedAt);
   const totals = rows.reduce(
     (acc, row) => ({
       seasons: acc.seasons + row.seasonCount,
@@ -395,7 +406,14 @@ export function buildClanGamesHistoryEmbed(
       },
       {
         name: 'Source',
-        value: 'Values are based on stored Clan Games snapshots over the recent history window.',
+        value: formatHistorySourceContext({
+          rowsConsidered: rows.length,
+          rowsVisible: selectedRows.length,
+          latestLabel: 'Latest fetched',
+          latestAt: latestFetchedAt,
+          filters,
+          note: 'Persisted Clan Games snapshots only; no live Clash API lookup or polling enrollment.',
+        }),
         inline: false,
       },
     )
@@ -403,8 +421,8 @@ export function buildClanGamesHistoryEmbed(
       text: `Showing ${selectedRows.length}/${rows.length} players from stored snapshots`,
     });
 
-  if (clanLabel) embed.addFields({ name: 'Clan filter', value: clanLabel, inline: false });
-  if (user) embed.setAuthor({ name: user.displayName, iconURL: user.displayAvatarURL() });
+  if (filters.user)
+    embed.setAuthor({ name: filters.user.displayName, iconURL: filters.user.displayAvatarURL() });
   return embed;
 }
 
@@ -419,10 +437,10 @@ function formatClanGamesHistoryRows(rows: readonly ClanGamesHistoryRow[]): strin
 
 export function buildJoinLeaveHistoryEmbed(
   rows: readonly JoinLeaveHistoryRow[],
-  clanLabel: string | undefined,
-  user: User | null,
+  filters: HistoryFilterContext,
 ): EmbedBuilder {
   const selectedRows = rows.slice(0, MAX_HISTORY_ROWS);
+  const latestDetectedAt = getLatestDate(rows, (row) => row.detectedAt);
   const totals = rows.reduce(
     (acc, row) => ({
       joined: acc.joined + (row.eventType === 'joined' ? 1 : 0),
@@ -441,7 +459,14 @@ export function buildJoinLeaveHistoryEmbed(
       },
       {
         name: 'Source',
-        value: 'Values are based on detected clan member events over the recent history window.',
+        value: formatHistorySourceContext({
+          rowsConsidered: rows.length,
+          rowsVisible: selectedRows.length,
+          latestLabel: 'Latest detected',
+          latestAt: latestDetectedAt,
+          filters,
+          note: 'Persisted clan member events only; no live Clash API lookup or polling enrollment.',
+        }),
         inline: false,
       },
     )
@@ -449,8 +474,8 @@ export function buildJoinLeaveHistoryEmbed(
       text: `Showing ${selectedRows.length}/${rows.length} events from stored events`,
     });
 
-  if (clanLabel) embed.addFields({ name: 'Clan filter', value: clanLabel, inline: false });
-  if (user) embed.setAuthor({ name: user.displayName, iconURL: user.displayAvatarURL() });
+  if (filters.user)
+    embed.setAuthor({ name: filters.user.displayName, iconURL: filters.user.displayAvatarURL() });
   return embed;
 }
 
@@ -466,11 +491,11 @@ function formatJoinLeaveHistoryRows(rows: readonly JoinLeaveHistoryRow[]): strin
 
 export function buildWarAttackHistoryEmbed(
   rows: readonly WarAttackHistoryRow[],
-  clanLabel: string | undefined,
-  user: User | null,
+  filters: HistoryFilterContext,
   option: 'war-attacks' | 'cwl-attacks' = 'war-attacks',
 ): EmbedBuilder {
   const selectedRows = rows.slice(0, MAX_HISTORY_ROWS);
+  const latestDetectedAt = getLatestDate(rows, (row) => row.lastAttackedAt);
   const totals = rows.reduce(
     (acc, row) => ({
       attacks: acc.attacks + row.attackCount,
@@ -496,9 +521,16 @@ export function buildWarAttackHistoryEmbed(
       },
       {
         name: 'Source',
-        value: isCwlApproximation
-          ? 'Values reuse stored war attack events over the recent history window. CWL-only classification is approximate because CWL metadata is not stored separately yet.'
-          : 'Values are based on detected war attack events over the recent history window.',
+        value: formatHistorySourceContext({
+          rowsConsidered: rows.length,
+          rowsVisible: selectedRows.length,
+          latestLabel: 'Latest detected',
+          latestAt: latestDetectedAt,
+          filters,
+          note: isCwlApproximation
+            ? 'Persisted war attack events only; CWL-only classification is approximate because CWL metadata is not stored separately yet. No live Clash API lookup or polling enrollment.'
+            : 'Persisted war attack events only; no live Clash API lookup or polling enrollment.',
+        }),
         inline: false,
       },
     )
@@ -506,8 +538,8 @@ export function buildWarAttackHistoryEmbed(
       text: `Showing ${selectedRows.length}/${rows.length} attackers from stored events`,
     });
 
-  if (clanLabel) embed.addFields({ name: 'Clan filter', value: clanLabel, inline: false });
-  if (user) embed.setAuthor({ name: user.displayName, iconURL: user.displayAvatarURL() });
+  if (filters.user)
+    embed.setAuthor({ name: filters.user.displayName, iconURL: filters.user.displayAvatarURL() });
   return embed;
 }
 
@@ -546,31 +578,27 @@ function getUnavailableHistoryMessage(option: HistoryOption): string | undefined
 export function buildUnavailableHistoryEmbed(
   option: HistoryOption,
   message: string,
-  clanLabel: string | undefined,
-  playerTag: string | undefined,
-  user: User | null,
+  filters: HistoryFilterContext,
 ): EmbedBuilder {
-  const filters = formatAcceptedHistoryFilters(clanLabel, playerTag, user);
+  const filterText = formatAcceptedHistoryFilters(filters);
   return new EmbedBuilder()
     .setTitle(`${formatHistoryOptionTitle(option)} History Unavailable`)
     .setDescription(
       `${message}\n\nNo Clash API calls or polling enrollment will be performed for this request.`,
     )
-    .addFields({ name: 'Accepted filters', value: filters, inline: false });
+    .addFields({ name: 'Accepted filters', value: filterText, inline: false });
 }
 
-function formatAcceptedHistoryFilters(
-  clanLabel: string | undefined,
-  playerTag: string | undefined,
-  user: User | null,
-): string {
-  const filters = [
-    clanLabel ? `Clan: ${clanLabel}` : undefined,
-    playerTag ? `Player: \`${playerTag}\`` : undefined,
-    user ? `User: <@${user.id}>` : undefined,
+function formatAcceptedHistoryFilters(filters: HistoryFilterContext): string {
+  const activeFilters = [
+    filters.clanLabel ? `Clan: ${filters.clanLabel}` : undefined,
+    filters.playerTag ? `Player: \`${filters.playerTag}\`` : undefined,
+    filters.user ? `User: <@${filters.user.id}>` : undefined,
   ].filter((value): value is string => Boolean(value));
 
-  return filters.length > 0 ? filters.join('\n') : 'No valid filters were provided.';
+  const accepted =
+    'Accepted: `clans`, `player`, `user`; date/season filters are not exposed on `/history` yet.';
+  return activeFilters.length > 0 ? `${activeFilters.join('\n')}\n${accepted}` : accepted;
 }
 
 function formatHistoryOptionTitle(option: HistoryOption): string {
@@ -601,7 +629,7 @@ function formatHistoryOptionTitle(option: HistoryOption): string {
 }
 
 function formatNoLinkedPlayersMessage(user: User): string {
-  return `**${escapeMarkdown(user.displayName)}** does not have linked player accounts. Use \`/link create\` first.`;
+  return `**${escapeMarkdown(user.displayName)}** does not have linked player accounts. Use \`/link create\` first. Accepted filters: \`clans\`, \`player\`, and \`user\` (date/season filters are not exposed on \`/history\` yet). This command reads persisted history only and does not perform a live Clash API lookup or enroll polling.`;
 }
 
 export function resolveHistoryClan(
@@ -626,10 +654,10 @@ export function resolveHistoryClan(
 
 export function buildDonationHistoryEmbed(
   rows: readonly DonationHistoryRow[],
-  clanLabel: string | undefined,
-  user: User | null,
+  filters: HistoryFilterContext,
 ): EmbedBuilder {
   const selectedRows = rows.slice(0, MAX_HISTORY_ROWS);
+  const latestDetectedAt = getLatestDate(rows, (row) => row.lastDetectedAt);
   const totals = rows.reduce(
     (acc, row) => ({ donated: acc.donated + row.donated, received: acc.received + row.received }),
     { donated: 0, received: 0 },
@@ -647,7 +675,14 @@ export function buildDonationHistoryEmbed(
       },
       {
         name: 'Source',
-        value: 'Values are based on detected donation delta events over the recent history window.',
+        value: formatHistorySourceContext({
+          rowsConsidered: rows.length,
+          rowsVisible: selectedRows.length,
+          latestLabel: 'Latest detected',
+          latestAt: latestDetectedAt,
+          filters,
+          note: 'Persisted donation delta events only; no live Clash API lookup or polling enrollment.',
+        }),
         inline: false,
       },
     )
@@ -655,9 +690,41 @@ export function buildDonationHistoryEmbed(
       text: `Showing ${selectedRows.length}/${rows.length} players from stored events`,
     });
 
-  if (clanLabel) embed.addFields({ name: 'Clan filter', value: clanLabel, inline: false });
-  if (user) embed.setAuthor({ name: user.displayName, iconURL: user.displayAvatarURL() });
+  if (filters.user)
+    embed.setAuthor({ name: filters.user.displayName, iconURL: filters.user.displayAvatarURL() });
   return embed;
+}
+
+function formatHistorySourceContext(input: {
+  readonly rowsConsidered: number;
+  readonly rowsVisible: number;
+  readonly latestLabel: string;
+  readonly latestAt: Date | undefined;
+  readonly filters: HistoryFilterContext;
+  readonly note: string;
+}): string {
+  return [
+    `Rows: ${input.rowsConsidered} considered · ${input.rowsVisible} visible.`,
+    `${input.latestLabel}: ${input.latestAt ? time(input.latestAt, 'f') : 'none'}.`,
+    `Active filters: ${formatActiveHistoryFilters(input.filters)}.`,
+    input.note,
+  ].join('\n');
+}
+
+function formatActiveHistoryFilters(filters: HistoryFilterContext): string {
+  const values = [
+    filters.clanLabel ? `clan ${filters.clanLabel}` : undefined,
+    filters.playerTag ? `player \`${filters.playerTag}\`` : undefined,
+    filters.user ? `user <@${filters.user.id}>` : undefined,
+  ].filter((value): value is string => Boolean(value));
+  return values.length > 0 ? values.join(', ') : 'none';
+}
+
+function getLatestDate<T>(rows: readonly T[], selector: (row: T) => Date): Date | undefined {
+  return rows.reduce<Date | undefined>((latest, row) => {
+    const value = selector(row);
+    return !latest || value.getTime() > latest.getTime() ? value : latest;
+  }, undefined);
 }
 
 function formatDonationHistoryRows(rows: readonly DonationHistoryRow[]): string {
