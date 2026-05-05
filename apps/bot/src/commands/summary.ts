@@ -22,6 +22,14 @@ const SUMMARY_RAID_WEEK_LABELS = new Map(
   SUMMARY_RAID_WEEK_CHOICES.map((choice) => [choice.value, choice.name]),
 );
 
+interface SummaryCoverageContext {
+  readonly linkedClanCount: number;
+  readonly consideredClanCount: number;
+  readonly usableRowCount: number;
+  readonly latestAt?: Date;
+  readonly filters?: readonly string[];
+}
+
 export const summaryCommandData = new SlashCommandBuilder()
   .setName(SUMMARY_COMMAND_NAME)
   .setDescription(SUMMARY_COMMAND_DESCRIPTION)
@@ -374,6 +382,7 @@ export async function executeSummary(
   }
 
   const clanTag = clan?.clanTag;
+  const baseFilters = collectSummaryFilters(interaction, clan);
   if (subcommand === 'best') {
     const snapshots = await options.store.listDonationSnapshotsForGuild({
       guildId: interaction.guildId,
@@ -381,13 +390,27 @@ export async function executeSummary(
     });
     const limit = interaction.options.getInteger('limit') ?? SUMMARY_ROW_LIMIT;
     const order = interaction.options.getString('order') === 'asc' ? 'asc' : 'desc';
-    await interaction.editReply(buildSummaryBestPayload(snapshots, limit, order));
+    await interaction.editReply(
+      buildSummaryBestPayload(
+        snapshots,
+        limit,
+        order,
+        buildSnapshotCoverage(clans.length, snapshots, baseFilters),
+      ),
+    );
     return;
   }
   if (subcommand === 'clans') {
     const rows = await options.store.listClansForGuild(interaction.guildId);
     await interaction.editReply(
-      buildSummaryClansPayload(clanTag ? rows.filter((row) => row.clanTag === clanTag) : rows),
+      buildSummaryClansPayload(
+        clanTag ? rows.filter((row) => row.clanTag === clanTag) : rows,
+        buildClanRowsCoverage(
+          clans.length,
+          clanTag ? rows.filter((row) => row.clanTag === clanTag) : rows,
+          baseFilters,
+        ),
+      ),
     );
     return;
   }
@@ -396,7 +419,12 @@ export async function executeSummary(
       guildId: interaction.guildId,
       ...(clanTag ? { clanTag } : {}),
     });
-    await interaction.editReply(buildSummaryDonationsPayload(snapshots));
+    await interaction.editReply(
+      buildSummaryDonationsPayload(
+        snapshots,
+        buildSnapshotCoverage(clans.length, snapshots, baseFilters),
+      ),
+    );
     return;
   }
   if (subcommand === 'activity') {
@@ -404,7 +432,12 @@ export async function executeSummary(
       guildId: interaction.guildId,
       ...(clanTag ? { clanTag } : {}),
     });
-    await interaction.editReply(buildSummaryActivityPayload(snapshots));
+    await interaction.editReply(
+      buildSummaryActivityPayload(
+        snapshots,
+        buildSnapshotCoverage(clans.length, snapshots, baseFilters),
+      ),
+    );
     return;
   }
   if (subcommand === 'attacks') {
@@ -412,13 +445,31 @@ export async function executeSummary(
       guildId: interaction.guildId,
       ...(clanTag ? { clanTags: [clanTag] } : {}),
     });
-    await interaction.editReply(buildSummaryAttacksPayload(rows));
+    await interaction.editReply(
+      buildSummaryAttacksPayload(
+        rows,
+        buildRowsCoverage(
+          clans.length,
+          clanTag ? 1 : clans.length,
+          rows.length,
+          latestWarAttackAt(rows),
+          baseFilters,
+        ),
+      ),
+    );
     return;
   }
   if (subcommand === 'compo') {
     const rows = await options.store.listClansForGuild(interaction.guildId);
     await interaction.editReply(
-      buildSummaryCompoPayload(clanTag ? rows.filter((row) => row.clanTag === clanTag) : rows),
+      buildSummaryCompoPayload(
+        clanTag ? rows.filter((row) => row.clanTag === clanTag) : rows,
+        buildClanRowsCoverage(
+          clans.length,
+          clanTag ? rows.filter((row) => row.clanTag === clanTag) : rows,
+          baseFilters,
+        ),
+      ),
     );
     return;
   }
@@ -431,6 +482,7 @@ export async function executeSummary(
       buildSummaryTrophiesPayload(
         snapshots,
         interaction.options.getInteger('limit') ?? SUMMARY_ROW_LIMIT,
+        buildSnapshotCoverage(clans.length, snapshots, baseFilters),
       ),
     );
     return;
@@ -438,7 +490,14 @@ export async function executeSummary(
   if (subcommand === 'leagues') {
     const rows = await options.store.listClansForGuild(interaction.guildId);
     await interaction.editReply(
-      buildSummaryLeaguesPayload(clanTag ? rows.filter((row) => row.clanTag === clanTag) : rows),
+      buildSummaryLeaguesPayload(
+        clanTag ? rows.filter((row) => row.clanTag === clanTag) : rows,
+        buildClanRowsCoverage(
+          clans.length,
+          clanTag ? rows.filter((row) => row.clanTag === clanTag) : rows,
+          baseFilters,
+        ),
+      ),
     );
     return;
   }
@@ -448,6 +507,11 @@ export async function executeSummary(
       buildSummaryCapitalRaidsPayload(
         clanTag ? rows.filter((row) => row.clanTag === clanTag) : rows,
         interaction.options.getString('week'),
+        buildClanRowsCoverage(
+          clans.length,
+          clanTag ? rows.filter((row) => row.clanTag === clanTag) : rows,
+          baseFilters,
+        ),
       ),
     );
     return;
@@ -458,21 +522,28 @@ export async function executeSummary(
       ...(clanTag ? { clanTag } : {}),
     });
     await interaction.editReply(
-      buildSummaryCapitalContributionPayload(snapshots, interaction.options.getString('week')),
+      buildSummaryCapitalContributionPayload(
+        snapshots,
+        interaction.options.getString('week'),
+        buildSnapshotCoverage(clans.length, snapshots, baseFilters),
+      ),
     );
     return;
   }
 
-  await interaction.editReply({ content: unavailableSummaryMessage(subcommand) });
+  await interaction.editReply({ content: unavailableSummaryMessage(subcommand, baseFilters) });
 }
 
-export function buildSummaryClansPayload(clans: readonly SummaryClanListRow[]): {
+export function buildSummaryClansPayload(
+  clans: readonly SummaryClanListRow[],
+  coverage?: SummaryCoverageContext,
+): {
   content?: string;
   embeds?: EmbedBuilder[];
 } {
   if (clans.length === 0)
     return {
-      content: 'No linked clan data is available. Use `/setup clan` and wait for clan polling.',
+      content: noDataMessage('linked clan snapshot data', coverage),
     };
   const totalMembers = clans.reduce(
     (sum, clan) => sum + (readNumber(clan.snapshot, 'members') ?? 0),
@@ -490,11 +561,14 @@ export function buildSummaryClansPayload(clans: readonly SummaryClanListRow[]): 
       new EmbedBuilder()
         .setTitle('Clan Summary')
         .setDescription(truncate(description))
-        .addFields({
-          name: 'Totals',
-          value: `${clans.length} linked clans · ${totalMembers} observed members`,
-          inline: false,
-        }),
+        .addFields(
+          {
+            name: 'Totals',
+            value: `${clans.length} linked clans · ${totalMembers} observed members`,
+            inline: false,
+          },
+          coverageField(coverage),
+        ),
     ],
   };
 }
@@ -503,14 +577,14 @@ export function buildSummaryBestPayload(
   snapshots: readonly SummaryClanMemberSnapshots[],
   limit: number,
   order: 'asc' | 'desc',
+  coverage?: SummaryCoverageContext,
 ): { content?: string; embeds?: EmbedBuilder[] } {
   const members = snapshots.flatMap((snapshot) =>
     snapshot.members.map((member) => ({ ...member, clan: snapshot.clan })),
   );
   if (members.length === 0)
     return {
-      content:
-        'No donation snapshot is available yet. Link/configure a clan and wait for clan polling to observe donations.',
+      content: noDataMessage('donation snapshot rows', coverage),
     };
   const direction = order === 'asc' ? -1 : 1;
   const sorted = [...members].sort(
@@ -524,6 +598,7 @@ export function buildSummaryBestPayload(
       new EmbedBuilder()
         .setTitle(order === 'asc' ? 'Lowest Donation Summary' : 'Best Donation Summary')
         .setDescription(truncate(formatDonationRows(sorted, clampSummaryLimit(limit))))
+        .addFields(coverageField(coverage))
         .setFooter({
           text: `Showing ${Math.min(sorted.length, clampSummaryLimit(limit))}/${sorted.length} members`,
         }),
@@ -531,7 +606,10 @@ export function buildSummaryBestPayload(
   };
 }
 
-export function buildSummaryDonationsPayload(snapshots: readonly SummaryClanMemberSnapshots[]): {
+export function buildSummaryDonationsPayload(
+  snapshots: readonly SummaryClanMemberSnapshots[],
+  coverage?: SummaryCoverageContext,
+): {
   content?: string;
   embeds?: EmbedBuilder[];
 } {
@@ -540,8 +618,7 @@ export function buildSummaryDonationsPayload(snapshots: readonly SummaryClanMemb
   );
   if (members.length === 0)
     return {
-      content:
-        'No donation snapshot is available yet. Link/configure a clan and wait for clan polling to observe donations.',
+      content: noDataMessage('donation snapshot rows', coverage),
     };
   const sorted = [...members].sort(
     (a, b) =>
@@ -555,16 +632,22 @@ export function buildSummaryDonationsPayload(snapshots: readonly SummaryClanMemb
       new EmbedBuilder()
         .setTitle('Donation Summary')
         .setDescription(truncate(formatDonationRows(sorted, SUMMARY_ROW_LIMIT)))
-        .addFields({
-          name: 'Totals',
-          value: `${donated} donated · ${received} received · ${members.length} members`,
-          inline: false,
-        }),
+        .addFields(
+          {
+            name: 'Totals',
+            value: `${donated} donated · ${received} received · ${members.length} members`,
+            inline: false,
+          },
+          coverageField(coverage),
+        ),
     ],
   };
 }
 
-export function buildSummaryActivityPayload(snapshots: readonly SummaryClanMemberSnapshots[]): {
+export function buildSummaryActivityPayload(
+  snapshots: readonly SummaryClanMemberSnapshots[],
+  coverage?: SummaryCoverageContext,
+): {
   content?: string;
   embeds?: EmbedBuilder[];
 } {
@@ -573,8 +656,7 @@ export function buildSummaryActivityPayload(snapshots: readonly SummaryClanMembe
   );
   if (members.length === 0)
     return {
-      content:
-        'No activity snapshot is available yet. Link/configure a clan and wait for clan polling to observe members.',
+      content: noDataMessage('activity snapshot rows', coverage),
     };
   const sorted = [...members].sort(
     (a, b) => (b.lastSeenAt?.getTime() ?? 0) - (a.lastSeenAt?.getTime() ?? 0),
@@ -584,23 +666,28 @@ export function buildSummaryActivityPayload(snapshots: readonly SummaryClanMembe
       new EmbedBuilder()
         .setTitle('Activity Summary')
         .setDescription(truncate(formatActivityRows(sorted)))
-        .addFields({
-          name: 'Totals',
-          value: `${members.length} observed members across ${snapshots.length} clans`,
-          inline: false,
-        }),
+        .addFields(
+          {
+            name: 'Totals',
+            value: `${members.length} observed members across ${snapshots.length} clans`,
+            inline: false,
+          },
+          coverageField(coverage),
+        ),
     ],
   };
 }
 
-export function buildSummaryAttacksPayload(rows: readonly SummaryWarAttackHistoryRow[]): {
+export function buildSummaryAttacksPayload(
+  rows: readonly SummaryWarAttackHistoryRow[],
+  coverage?: SummaryCoverageContext,
+): {
   content?: string;
   embeds?: EmbedBuilder[];
 } {
   if (rows.length === 0)
     return {
-      content:
-        'No war attack history is available yet. Link/configure a clan and wait for war attacks to be detected.',
+      content: noDataMessage('war attack history rows', coverage),
     };
   const sorted = [...rows].sort(
     (a, b) => b.attackCount - a.attackCount || b.averageStars - a.averageStars,
@@ -618,11 +705,14 @@ export function buildSummaryAttacksPayload(rows: readonly SummaryWarAttackHistor
       new EmbedBuilder()
         .setTitle('War Attack Summary')
         .setDescription(truncate(formatAttackRows(sorted)))
-        .addFields({
-          name: 'Totals',
-          value: `${totals.attacks} attacks · ${totals.stars} stars · ${totals.fresh} fresh hits · ${rows.length} attackers`,
-          inline: false,
-        }),
+        .addFields(
+          {
+            name: 'Totals',
+            value: `${totals.attacks} attacks · ${totals.stars} stars · ${totals.fresh} fresh hits · ${rows.length} attackers`,
+            inline: false,
+          },
+          coverageField(coverage),
+        ),
     ],
   };
 }
@@ -630,6 +720,7 @@ export function buildSummaryAttacksPayload(rows: readonly SummaryWarAttackHistor
 export function buildSummaryTrophiesPayload(
   snapshots: readonly SummaryClanMemberSnapshots[],
   limit: number,
+  coverage?: SummaryCoverageContext,
 ): { content?: string; embeds?: EmbedBuilder[] } {
   const rows = snapshots
     .flatMap((snapshot) => snapshot.members.map((member) => ({ member, clan: snapshot.clan })))
@@ -641,8 +732,7 @@ export function buildSummaryTrophiesPayload(
     );
   if (rows.length === 0)
     return {
-      content:
-        'No current member snapshot trophies are available yet. Link/configure a clan and wait for clan polling to observe members.',
+      content: noDataMessage('member snapshot trophy rows', coverage),
     };
   const rowLimit = clampSummaryLimit(limit);
   return {
@@ -660,12 +750,16 @@ export function buildSummaryTrophiesPayload(
               .join('\n'),
           ),
         )
+        .addFields(coverageField(coverage))
         .setFooter({ text: `Showing ${Math.min(rows.length, rowLimit)}/${rows.length} members` }),
     ],
   };
 }
 
-export function buildSummaryLeaguesPayload(clans: readonly SummaryClanListRow[]): {
+export function buildSummaryLeaguesPayload(
+  clans: readonly SummaryClanListRow[],
+  coverage?: SummaryCoverageContext,
+): {
   content?: string;
   embeds?: EmbedBuilder[];
 } {
@@ -681,8 +775,7 @@ export function buildSummaryLeaguesPayload(clans: readonly SummaryClanListRow[])
     );
   if (rows.length === 0)
     return {
-      content:
-        'No league data is available in persisted clan snapshots yet. Link/configure a clan and wait for clan polling.',
+      content: noDataMessage('league fields in persisted clan snapshots', coverage),
     };
   return {
     embeds: [
@@ -699,6 +792,7 @@ export function buildSummaryLeaguesPayload(clans: readonly SummaryClanListRow[])
               .join('\n'),
           ),
         )
+        .addFields(coverageField(coverage))
         .setFooter({
           text: `Showing ${Math.min(rows.length, SUMMARY_ROW_LIMIT)}/${rows.length} clans`,
         }),
@@ -709,6 +803,7 @@ export function buildSummaryLeaguesPayload(clans: readonly SummaryClanListRow[])
 export function buildSummaryCapitalRaidsPayload(
   clans: readonly SummaryClanListRow[],
   week: string | null,
+  coverage?: SummaryCoverageContext,
 ): { content?: string; embeds?: EmbedBuilder[] } {
   const rows = clans
     .map((clan) => ({
@@ -733,8 +828,10 @@ export function buildSummaryCapitalRaidsPayload(
 
   if (rows.length === 0)
     return {
-      content:
-        'No clan capital snapshot data is available for linked clans yet. Link/configure a clan and wait for clan polling to store capital hall, league, trophy, or point data. Raid-week attack logs are not persisted, so `/summary capital-raids` cannot show historical raid logs yet.',
+      content: noDataMessage(
+        'clan capital snapshot fields; raid-week attack logs are not persisted yet',
+        coverage,
+      ),
     };
 
   const weekNote = week?.trim()
@@ -756,11 +853,14 @@ export function buildSummaryCapitalRaidsPayload(
               .join('\n'),
           ),
         )
-        .addFields({
-          name: 'Source',
-          value: `${weekNote}Raid-week attack logs are not persisted in ClashMate yet; showing current linked-clan capital snapshots only.`,
-          inline: false,
-        })
+        .addFields(
+          {
+            name: 'Source',
+            value: `${weekNote}Raid-week attack logs are not persisted in ClashMate yet; showing current linked-clan capital snapshots only.`,
+            inline: false,
+          },
+          coverageField(coverage),
+        )
         .setFooter({
           text: `Showing ${Math.min(rows.length, SUMMARY_ROW_LIMIT)}/${rows.length} clans · ${clans.length} total linked clans considered`,
         }),
@@ -771,14 +871,14 @@ export function buildSummaryCapitalRaidsPayload(
 export function buildSummaryCapitalContributionPayload(
   snapshots: readonly SummaryClanMemberSnapshots[],
   week: string | null,
+  coverage?: SummaryCoverageContext,
 ): { content?: string; embeds?: EmbedBuilder[] } {
   const members = snapshots.flatMap((snapshot) =>
     snapshot.members.map((member) => ({ member, clan: snapshot.clan })),
   );
   if (members.length === 0)
     return {
-      content:
-        'No current member snapshots are available yet. Link/configure a clan and wait for clan polling to observe members.',
+      content: noDataMessage('current member snapshots', coverage),
     };
 
   const rows = members
@@ -797,8 +897,7 @@ export function buildSummaryCapitalContributionPayload(
 
   if (rows.length === 0)
     return {
-      content:
-        'No per-member capital contribution data is available in current persisted snapshots. Existing member snapshots do not include capital contribution or capital gold fields.',
+      content: noDataMessage('capital contribution fields in current member snapshots', coverage),
     };
 
   const weekNote = week?.trim()
@@ -832,6 +931,7 @@ export function buildSummaryCapitalContributionPayload(
             value: `${weekNote}Raid-week contribution history is not persisted in ClashMate yet; showing current persisted member snapshot fields only.`,
             inline: false,
           },
+          coverageField(coverage),
         )
         .setFooter({
           text: `Showing ${Math.min(rows.length, SUMMARY_ROW_LIMIT)}/${rows.length} members · ${members.length} current members considered`,
@@ -840,19 +940,21 @@ export function buildSummaryCapitalContributionPayload(
   };
 }
 
-export function buildSummaryCompoPayload(clans: readonly SummaryClanListRow[]): {
+export function buildSummaryCompoPayload(
+  clans: readonly SummaryClanListRow[],
+  coverage?: SummaryCoverageContext,
+): {
   content?: string;
   embeds?: EmbedBuilder[];
 } {
   if (clans.length === 0)
     return {
-      content: 'No linked clan data is available. Use `/setup clan` and wait for clan polling.',
+      content: noDataMessage('linked clan snapshot data', coverage),
     };
   const rows = collectComposition(clans);
   if (rows.length === 0)
     return {
-      content:
-        'No town hall composition is available in persisted clan snapshots yet. Wait for clan polling to store member town hall levels.',
+      content: noDataMessage('town hall levels in persisted clan snapshots', coverage),
     };
   const total = rows.reduce((sum, row) => sum + row.count, 0);
   const average = rows.reduce((sum, row) => sum + row.townHallLevel * row.count, 0) / total;
@@ -862,11 +964,14 @@ export function buildSummaryCompoPayload(clans: readonly SummaryClanListRow[]): 
       new EmbedBuilder()
         .setTitle('Town Hall Composition Summary')
         .setDescription(description)
-        .addFields({
-          name: 'Totals',
-          value: `${total} members · ${average.toFixed(2)} average TH`,
-          inline: false,
-        }),
+        .addFields(
+          {
+            name: 'Totals',
+            value: `${total} members · ${average.toFixed(2)} average TH`,
+            inline: false,
+          },
+          coverageField(coverage),
+        ),
     ],
   };
 }
@@ -882,6 +987,131 @@ function formatDonationRows(
         `${index + 1}. **${escapeMarkdown(row.name)}** · ${row.donations ?? 0} donated · ${row.donationsReceived ?? 0} received · ${escapeMarkdown(row.clan.alias ?? row.clan.name ?? row.clan.clanTag)}`,
     )
     .join('\n');
+}
+
+function collectSummaryFilters(
+  interaction: ChatInputCommandInteraction,
+  clan: SummaryLinkedClan | undefined,
+): readonly string[] {
+  const filters: string[] = [];
+  if (clan) filters.push(`clans: ${clan.alias ?? clan.name ?? clan.clanTag} (${clan.clanTag})`);
+  const season = interaction.options.getString('season');
+  if (season) filters.push(`season: ${season}`);
+  const week = interaction.options.getString('week');
+  if (week) filters.push(`week: ${formatRaidWeekFilter(week)}`);
+  const warType = interaction.options.getString('war_type');
+  if (warType) filters.push(`war_type: ${warType}`);
+  const order = interaction.options.getString('order');
+  if (order) filters.push(`order: ${order}`);
+  const limit = interaction.options.getInteger('limit');
+  if (limit !== null) filters.push(`limit: ${clampSummaryLimit(limit)}`);
+  return filters;
+}
+
+function buildSnapshotCoverage(
+  linkedClanCount: number,
+  snapshots: readonly SummaryClanMemberSnapshots[],
+  filters: readonly string[],
+): SummaryCoverageContext {
+  const members = snapshots.flatMap((snapshot) => snapshot.members);
+  return buildRowsCoverage(
+    linkedClanCount,
+    snapshots.length,
+    members.length,
+    latestMemberSnapshotAt(members),
+    filters,
+  );
+}
+
+function buildClanRowsCoverage(
+  linkedClanCount: number,
+  clans: readonly SummaryClanListRow[],
+  filters: readonly string[],
+): SummaryCoverageContext {
+  return buildRowsCoverage(
+    linkedClanCount,
+    clans.length,
+    clans.filter((clan) => clan.snapshot !== undefined && clan.snapshot !== null).length,
+    latestClanSnapshotAt(clans),
+    filters,
+  );
+}
+
+function buildRowsCoverage(
+  linkedClanCount: number,
+  consideredClanCount: number,
+  usableRowCount: number,
+  latestAt: Date | undefined,
+  filters: readonly string[],
+): SummaryCoverageContext {
+  return {
+    linkedClanCount,
+    consideredClanCount,
+    usableRowCount,
+    ...(latestAt ? { latestAt } : {}),
+    filters,
+  };
+}
+
+function coverageField(coverage: SummaryCoverageContext | undefined): {
+  name: string;
+  value: string;
+  inline: false;
+} {
+  if (!coverage) {
+    return {
+      name: 'Coverage',
+      value: 'Persisted snapshots only; no live Clash API lookup.',
+      inline: false,
+    };
+  }
+  const parts = [
+    `${coverage.consideredClanCount}/${coverage.linkedClanCount} linked clans considered`,
+    `${coverage.usableRowCount} rows with usable data`,
+    `latest ${coverage.latestAt ? time(coverage.latestAt, 'R') : 'unknown'}`,
+    `filters: ${coverage.filters?.length ? coverage.filters.join('; ') : 'none'}`,
+    'persisted snapshots only; no live Clash API lookup',
+  ];
+  return { name: 'Coverage', value: parts.join(' · '), inline: false };
+}
+
+function noDataMessage(subject: string, coverage: SummaryCoverageContext | undefined): string {
+  const field = coverageField(coverage).value;
+  return `No ${subject} are available for the accepted filters. ${field}. Link/configure clans and wait for polling to persist data.`;
+}
+
+function latestMemberSnapshotAt(members: readonly SummaryMemberSnapshotRow[]): Date | undefined {
+  return latestDate(members.flatMap((member) => [member.lastFetchedAt, member.lastSeenAt]));
+}
+
+function latestWarAttackAt(rows: readonly SummaryWarAttackHistoryRow[]): Date | undefined {
+  return latestDate(rows.map((row) => row.lastAttackedAt));
+}
+
+function latestClanSnapshotAt(clans: readonly SummaryClanListRow[]): Date | undefined {
+  return latestDate(clans.flatMap((clan) => datesFromUnknown(clan.snapshot)));
+}
+
+function latestDate(dates: readonly (Date | undefined)[]): Date | undefined {
+  return dates.reduce<Date | undefined>((latest, date) => {
+    if (!date) return latest;
+    if (!latest || date.getTime() > latest.getTime()) return date;
+    return latest;
+  }, undefined);
+}
+
+function datesFromUnknown(value: unknown): Date[] {
+  if (!isRecord(value)) return [];
+  return ['lastFetchedAt', 'fetchedAt', 'lastSeenAt', 'updatedAt']
+    .map((key) => readDate(value[key]))
+    .filter((date): date is Date => date !== undefined);
+}
+
+function readDate(value: unknown): Date | undefined {
+  if (value instanceof Date && Number.isFinite(value.getTime())) return value;
+  if (typeof value !== 'string' && typeof value !== 'number') return undefined;
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date : undefined;
 }
 
 function formatActivityRows(
@@ -1007,8 +1237,9 @@ function clampSummaryLimit(limit: number): number {
   return Math.min(Math.max(Math.trunc(limit), 3), SUMMARY_ROW_LIMIT);
 }
 
-function unavailableSummaryMessage(subcommand: string): string {
-  return `Stored data for \`/summary ${subcommand}\` is not available yet. This command only uses persisted ClashMate snapshots and will not call the Clash API or invent historical data.`;
+function unavailableSummaryMessage(subcommand: string, filters: readonly string[]): string {
+  const filterText = filters.length ? filters.join('; ') : 'none';
+  return `Stored data for \`/summary ${subcommand}\` is not available for the accepted filters (${filterText}) yet. This command only uses persisted ClashMate snapshots and will not call the Clash API or invent historical data.`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
