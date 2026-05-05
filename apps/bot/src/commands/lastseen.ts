@@ -23,6 +23,9 @@ export const lastSeenCommandData = new SlashCommandBuilder()
   .setDescription(LASTSEEN_COMMAND_DESCRIPTION)
   .setDMPermission(false)
   .addStringOption((option) =>
+    option.setName('clan').setDescription('Linked clan to check.').setAutocomplete(true),
+  )
+  .addStringOption((option) =>
     option.setName('player').setDescription('Player tag to check.').setAutocomplete(true),
   )
   .addUserOption((option) =>
@@ -39,12 +42,28 @@ export interface LastSeenSnapshotRecord {
   readonly lastFetchedAt: Date;
 }
 
+export interface LastSeenLinkedClan {
+  readonly clanTag: string;
+  readonly name: string | null;
+  readonly alias: string | null;
+}
+
+export interface LastSeenClanMemberSnapshots {
+  readonly clan: LastSeenLinkedClan;
+  readonly members: readonly { readonly playerTag: string }[];
+}
+
 export interface LastSeenStore {
+  readonly listLinkedClans: (guildId: string) => Promise<LastSeenLinkedClan[]>;
   readonly listPlayerTagsForUser: (guildId: string, discordUserId: string) => Promise<string[]>;
   readonly listLastSeenSnapshots: (
     guildId: string,
     playerTags: readonly string[],
   ) => Promise<LastSeenSnapshotRecord[]>;
+  readonly listClanMemberSnapshotsForGuild: (input: {
+    guildId: string;
+    clanTag?: string;
+  }) => Promise<LastSeenClanMemberSnapshots[]>;
 }
 
 export interface LastSeenCommandOptions {
@@ -57,8 +76,11 @@ type LastSeenResolution =
       readonly status: 'resolved';
       readonly playerTags: readonly string[];
       readonly targetUser: User | null;
+      readonly clan: LastSeenLinkedClan | null;
     }
   | { readonly status: 'invalid_tag' }
+  | { readonly status: 'unknown_clan' }
+  | { readonly status: 'no_clan_snapshot'; readonly clan: LastSeenLinkedClan }
   | { readonly status: 'no_link'; readonly targetUser: User; readonly isSelf: boolean };
 
 export function createLastSeenSlashCommand(
@@ -89,20 +111,35 @@ async function autocompleteLastSeen(
   }
 
   const focused = interaction.options.getFocused(true);
-  if (focused.name !== 'player') {
-    await interaction.respond([]);
-    return;
-  }
-
   try {
-    const tags = await options.store.listPlayerTagsForUser(
-      interaction.guildId,
-      interaction.user.id,
-    );
-    await interaction.respond(filterLastSeenPlayerChoices(tags, String(focused.value ?? '')));
+    if (focused.name === 'player') {
+      const tags = await options.store.listPlayerTagsForUser(
+        interaction.guildId,
+        interaction.user.id,
+      );
+      await interaction.respond(filterLastSeenPlayerChoices(tags, String(focused.value ?? '')));
+      return;
+    }
+    if (focused.name === 'clan') {
+      const clans = await options.store.listLinkedClans(interaction.guildId);
+      await interaction.respond(filterLastSeenClanChoices(clans, String(focused.value ?? '')));
+      return;
+    }
+    await interaction.respond([]);
   } catch {
     await interaction.respond([]);
   }
+}
+
+export function filterLastSeenClanChoices(
+  clans: readonly LastSeenLinkedClan[],
+  query: string,
+): ApplicationCommandOptionChoiceData<string>[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  return clans
+    .filter((clan) => clanMatchesQuery(clan, normalizedQuery))
+    .slice(0, 25)
+    .map((clan) => ({ name: formatClanChoiceName(clan), value: clan.alias ?? clan.clanTag }));
 }
 
 export function filterLastSeenPlayerChoices(
@@ -144,6 +181,7 @@ export async function executeLastSeen(
   const resolution = await resolveLastSeenPlayers({
     guildId: interaction.guildId,
     invokingUser: interaction.user,
+    clanOption: interaction.options.getString('clan'),
     playerOption: interaction.options.getString('player'),
     userOption: interaction.options.getUser('user'),
     store: options.store,
@@ -151,6 +189,22 @@ export async function executeLastSeen(
 
   if (resolution.status === 'invalid_tag') {
     await interaction.reply({ content: 'That player tag is not valid.', ephemeral: true });
+    return;
+  }
+
+  if (resolution.status === 'unknown_clan') {
+    await interaction.reply({
+      content: 'No linked clan was found for that clan option.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  if (resolution.status === 'no_clan_snapshot') {
+    await interaction.reply({
+      content: `No current member snapshot data is available yet for ${formatClanChoiceName(resolution.clan)}.`,
+      ephemeral: true,
+    });
     return;
   }
 
@@ -166,10 +220,17 @@ export async function executeLastSeen(
     interaction.guildId,
     resolution.playerTags,
   );
-  const latestRows = selectLatestLastSeenRows(resolution.playerTags, snapshots);
+  const latestRows = selectLatestLastSeenRows(resolution.playerTags, snapshots).filter(
+    (row) => !resolution.clan || tagsEqual(row.clanTag, resolution.clan.clanTag),
+  );
 
   if (latestRows.length === 0) {
-    await interaction.reply({ content: LASTSEEN_NO_DATA_MESSAGE, ephemeral: true });
+    await interaction.reply({
+      content: resolution.clan
+        ? `No last-seen data is available yet for ${formatClanChoiceName(resolution.clan)} with those filters.`
+        : LASTSEEN_NO_DATA_MESSAGE,
+      ephemeral: true,
+    });
     return;
   }
 
@@ -212,16 +273,31 @@ async function resolveLastSeenTimezone(input: {
 async function resolveLastSeenPlayers(input: {
   readonly guildId: string;
   readonly invokingUser: User;
+  readonly clanOption: string | null;
   readonly playerOption: string | null;
   readonly userOption: User | null;
-  readonly store: Pick<LastSeenStore, 'listPlayerTagsForUser'>;
+  readonly store: Pick<
+    LastSeenStore,
+    'listLinkedClans' | 'listPlayerTagsForUser' | 'listClanMemberSnapshotsForGuild'
+  >;
 }): Promise<LastSeenResolution> {
+  let clan: LastSeenLinkedClan | null = null;
+  if (input.clanOption) {
+    const resolvedClan = resolveLastSeenClan(
+      await input.store.listLinkedClans(input.guildId),
+      input.clanOption,
+    );
+    if (!resolvedClan) return { status: 'unknown_clan' };
+    clan = resolvedClan;
+  }
+
   if (input.playerOption) {
     try {
       return {
         status: 'resolved',
         playerTags: [normalizeClashTag(input.playerOption)],
         targetUser: input.userOption,
+        clan,
       };
     } catch {
       return { status: 'invalid_tag' };
@@ -230,11 +306,48 @@ async function resolveLastSeenPlayers(input: {
 
   const targetUser = input.userOption ?? input.invokingUser;
   const playerTags = await input.store.listPlayerTagsForUser(input.guildId, targetUser.id);
+  if (input.userOption && playerTags.length === 0) {
+    return { status: 'no_link', targetUser, isSelf: targetUser.id === input.invokingUser.id };
+  }
+
+  if (clan) {
+    const [snapshot] = await input.store.listClanMemberSnapshotsForGuild({
+      guildId: input.guildId,
+      clanTag: clan.clanTag,
+    });
+    const clanMemberTags = snapshot?.members.map((member) => member.playerTag) ?? [];
+    if (clanMemberTags.length === 0) return { status: 'no_clan_snapshot', clan };
+    const scopedTags = input.userOption
+      ? playerTags.filter((tag) => clanMemberTags.some((memberTag) => tagsEqual(memberTag, tag)))
+      : clanMemberTags;
+    return { status: 'resolved', playerTags: scopedTags, targetUser: input.userOption, clan };
+  }
+
   if (playerTags.length === 0) {
     return { status: 'no_link', targetUser, isSelf: targetUser.id === input.invokingUser.id };
   }
 
-  return { status: 'resolved', playerTags, targetUser };
+  return { status: 'resolved', playerTags, targetUser, clan };
+}
+
+export function resolveLastSeenClan(
+  clans: readonly LastSeenLinkedClan[],
+  query: string,
+): LastSeenLinkedClan | undefined {
+  const normalizedQuery = query.trim().toLowerCase();
+  let normalizedTag: string | undefined;
+  try {
+    normalizedTag = normalizeClashTag(query).toLowerCase();
+  } catch {
+    normalizedTag = undefined;
+  }
+  return clans.find(
+    (clan) =>
+      clan.clanTag.toLowerCase() === normalizedTag ||
+      clan.clanTag.replace(/^#/, '').toLowerCase() === normalizedQuery.replace(/^#/, '') ||
+      clan.alias?.trim().toLowerCase() === normalizedQuery ||
+      clan.name?.trim().toLowerCase() === normalizedQuery,
+  );
 }
 
 function formatNoLinkedLastSeenMessage(
@@ -330,4 +443,20 @@ function isValidTimeZone(timezone: string): boolean {
   } catch {
     return false;
   }
+}
+
+function clanMatchesQuery(clan: LastSeenLinkedClan, normalizedQuery: string): boolean {
+  if (!normalizedQuery) return true;
+  return [clan.clanTag, clan.clanTag.replace(/^#/, ''), clan.name ?? '', clan.alias ?? '']
+    .map((value) => value.toLowerCase())
+    .some((value) => value.includes(normalizedQuery));
+}
+
+function formatClanChoiceName(clan: LastSeenLinkedClan): string {
+  const label = clan.alias?.trim() || clan.name?.trim() || clan.clanTag;
+  return `${label} (${clan.clanTag})`.slice(0, 100);
+}
+
+function tagsEqual(left: string, right: string): boolean {
+  return left.trim().toUpperCase() === right.trim().toUpperCase();
 }

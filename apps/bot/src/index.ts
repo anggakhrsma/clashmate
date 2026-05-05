@@ -268,8 +268,10 @@ const commandRegistry = createBotCommandRegistry({
   },
   lastSeen: {
     store: {
+      listLinkedClans: databaseTrackedClans.listLinkedClans,
       listPlayerTagsForUser: databasePlayerLinks.listPlayerTagsForUser,
       listLastSeenSnapshots: databaseLastSeenSnapshots.listLastSeenSnapshots,
+      listClanMemberSnapshotsForGuild: databaseClanMemberSnapshots.listClanMemberSnapshotsForGuild,
     },
     timezones: databaseUserTimezonePreferences,
   },
