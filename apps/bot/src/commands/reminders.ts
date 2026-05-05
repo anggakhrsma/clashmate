@@ -454,6 +454,8 @@ async function handleCreateReminder(
       schedule.channelId +
       '> at ' +
       formatReminderDurationForDisplay(schedule.duration) +
+      '. Next due: ' +
+      formatReminderNextDue(schedule) +
       '. ' +
       STORAGE_ONLY_NOTE,
     ephemeral: true,
@@ -516,7 +518,7 @@ async function handleEditReminder(
   });
   await interaction.reply({
     content: updated
-      ? `Updated reminder ${inlineCode(id)} duration to ${formatReminderDurationForDisplay(updated.duration)}. ${STORAGE_ONLY_NOTE}`
+      ? `Updated reminder ${inlineCode(id)} duration to ${formatReminderDurationForDisplay(updated.duration)}. Next due: ${formatReminderNextDue(updated)}. ${STORAGE_ONLY_NOTE}`
       : `No ${formatReminderType(type)} reminder was found with ID ${inlineCode(id)}.`,
     ephemeral: true,
   });
@@ -694,6 +696,40 @@ function formatReminderDurationForDisplay(value: string): string {
   return `${duration.amount} ${unitName}${duration.amount === 1 ? '' : 's'} (${duration.normalized})`;
 }
 
+function reminderDurationMilliseconds(value: string): number | null {
+  const duration = parseReminderDuration(value);
+  if (!duration) return null;
+  const minutes =
+    duration.unit === 'm'
+      ? duration.amount
+      : duration.unit === 'h'
+        ? duration.amount * 60
+        : duration.amount * 24 * 60;
+  return minutes * 60 * 1000;
+}
+
+function formatReminderNextDue(schedule: Pick<ReminderSchedule, 'createdAt' | 'duration'>): string {
+  const durationMs = reminderDurationMilliseconds(schedule.duration);
+  const createdAtMs = new Date(schedule.createdAt).getTime();
+  if (!durationMs || Number.isNaN(createdAtMs)) return 'unknown';
+
+  const nowMs = Date.now();
+  const elapsedMs = nowMs - createdAtMs;
+  const bucket = elapsedMs < durationMs ? 1 : Math.floor(elapsedMs / durationMs) + 1;
+  const nextDueMs = createdAtMs + bucket * durationMs;
+  return `${formatDiscordTimestamp(nextDueMs, 'R')} (${formatDiscordTimestamp(nextDueMs, 'f')})`;
+}
+
+function formatReminderCadence(schedule: Pick<ReminderSchedule, 'createdAt' | 'duration'>): string {
+  const duration = parseReminderDuration(schedule.duration);
+  if (!duration || Number.isNaN(new Date(schedule.createdAt).getTime())) return 'Due: unknown';
+  return `Due every ${formatReminderDurationForDisplay(schedule.duration)} • Next due: ${formatReminderNextDue(schedule)}`;
+}
+
+function formatDiscordTimestamp(timeMs: number, style: 'R' | 'f'): string {
+  return `<t:${Math.floor(timeMs / 1000)}:${style}>`;
+}
+
 function createReminderId(): string {
   return `r${Date.now().toString(36).slice(-5)}${Math.random().toString(36).slice(2, 5)}`;
 }
@@ -742,10 +778,11 @@ function formatReminderList(schedules: readonly ReminderSchedule[], compact: boo
     .slice(0, 20)
     .map((schedule) =>
       compact
-        ? `\`${schedule.id}\` ${formatReminderDurationForDisplay(schedule.duration)} <#${schedule.channelId}> ${formatScheduleClans(schedule.clans)}`
+        ? `\`${schedule.id}\` ${formatReminderDurationForDisplay(schedule.duration)} • Next due: ${formatReminderNextDue(schedule)} • <#${schedule.channelId}> ${formatScheduleClans(schedule.clans)}`
         : [
             `**${formatReminderType(schedule.type)}** \`${schedule.id}\``,
             `Duration: ${formatReminderDurationForDisplay(schedule.duration)} • Channel: <#${schedule.channelId}>`,
+            formatReminderCadence(schedule),
             `Clans: ${formatScheduleClans(schedule.clans)}`,
             `Exclude participant list: ${schedule.excludeParticipantList ? 'yes' : 'no'}`,
             `Message: ${schedule.message.slice(0, 180)}`,
