@@ -17,6 +17,7 @@ export const INVALID_ARMY_LINK_MESSAGE =
 const COPY_ARMY_HOST = 'link.clashofclans.com';
 const MAX_FIELD_VALUE_LENGTH = 1024;
 const MAX_LIST_LINES = 20;
+const MAX_OVERVIEW_LINES = 8;
 
 export const armyCommandData = new SlashCommandBuilder()
   .setName(ARMY_COMMAND_NAME)
@@ -182,6 +183,7 @@ export function buildArmyEmbed(input: {
       ].join(' • '),
     );
 
+  addListField(embed, 'Parsed Overview', formatArmyOverview(input.army));
   addListField(embed, 'Troops', formatUnits(input.army.troops));
   addListField(embed, 'Spells', formatUnits(input.army.spells));
   addListField(embed, 'Heroes', formatHeroes(input.army.heroes));
@@ -198,12 +200,42 @@ export function calculateArmyTotals(army: ParsedArmyLink): {
   readonly troops: number;
   readonly spells: number;
   readonly heroes: number;
+  readonly clanCastleTroops: number;
+  readonly clanCastleSpells: number;
 } {
   return {
     troops: sumQuantities(army.troops),
     spells: sumQuantities(army.spells),
     heroes: army.heroes.length,
+    clanCastleTroops: sumQuantities(army.clanCastleTroops),
+    clanCastleSpells: sumQuantities(army.clanCastleSpells),
   };
+}
+
+function formatArmyOverview(army: ParsedArmyLink): string[] {
+  const lines = [
+    formatUnitSummary('Troops', army.troops),
+    formatUnitSummary('Spells', army.spells),
+    formatHeroSummary(army.heroes),
+    formatUnitSummary('Clan Castle Troops', army.clanCastleTroops),
+    formatUnitSummary('Clan Castle Spells', army.clanCastleSpells),
+  ].filter((line): line is string => Boolean(line));
+
+  return lines.slice(0, MAX_OVERVIEW_LINES);
+}
+
+function formatUnitSummary(label: string, units: readonly ParsedArmyUnit[]): string | null {
+  if (!units.length) return null;
+  const entries = units.length;
+  const total = sumQuantities(units);
+  return `**${label}:** ${entries} ${pluralize('entry', entries)} • ${total} total`;
+}
+
+function formatHeroSummary(heroes: readonly ParsedArmyHero[]): string | null {
+  if (!heroes.length) return null;
+  const equipped = heroes.filter((hero) => hero.components.length > 0).length;
+  const suffix = equipped > 0 ? ` • ${equipped} with equipment/pets` : '';
+  return `**Heroes:** ${heroes.length} ${pluralize('hero', heroes.length)}${suffix}`;
 }
 
 function parseUnitGroup(body: string): ParsedArmyUnit[] | null {
@@ -259,6 +291,10 @@ function addListField(embed: EmbedBuilder, name: string, lines: readonly string[
 
 function sumQuantities(units: readonly ParsedArmyUnit[]): number {
   return units.reduce((total, unit) => total + unit.quantity, 0);
+}
+
+function pluralize(word: string, count: number): string {
+  return count === 1 ? word : `${word}s`;
 }
 
 function isPositiveSafeInteger(value: number): boolean {
