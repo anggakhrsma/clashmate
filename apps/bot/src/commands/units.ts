@@ -46,6 +46,21 @@ interface UnitView {
   readonly village: string | null;
 }
 
+interface UnitGroupView {
+  readonly title: string;
+  readonly summaryTitle: string | null;
+  readonly units: readonly UnitView[];
+}
+
+interface UnitProgressSummary {
+  readonly totalUnits: number;
+  readonly maxedUnits: number;
+  readonly incompleteUnits: number;
+  readonly levelsGained: number;
+  readonly maxLevels: number;
+  readonly groupCounts: readonly string[];
+}
+
 export function createUnitsSlashCommand(options: UnitsCommandOptions): SlashCommandDefinition {
   return {
     name: UNITS_COMMAND_NAME,
@@ -141,16 +156,35 @@ export function buildUnitsEmbed(player: ClashPlayer): EmbedBuilder {
       `Units for TH${townHallLevel ?? 'Unknown'}${builderHallLevel ? ` and BH${builderHallLevel}` : ''}`,
     );
 
-  const groups = [
-    ['Home Troops', readUnits(readValue(data, 'troops'), { village: 'home' })],
-    ['Builder Base Troops', readUnits(readValue(data, 'troops'), { village: 'builderBase' })],
-    ['Spells', readUnits(readValue(data, 'spells'))],
-    ['Heroes', readUnits(readValue(data, 'heroes'))],
-    ['Hero Equipment', readUnits(readValue(data, 'heroEquipment'))],
-  ] as const;
+  const groups: UnitGroupView[] = [
+    {
+      title: 'Home Troops',
+      summaryTitle: 'Home',
+      units: readUnits(readValue(data, 'troops'), { village: 'home' }),
+    },
+    {
+      title: 'Builder Base Troops',
+      summaryTitle: 'Builder Base',
+      units: readUnits(readValue(data, 'troops'), { village: 'builderBase' }),
+    },
+    { title: 'Spells', summaryTitle: 'Home', units: readUnits(readValue(data, 'spells')) },
+    { title: 'Heroes', summaryTitle: 'Heroes', units: readUnits(readValue(data, 'heroes')) },
+    {
+      title: 'Hero Equipment',
+      summaryTitle: 'Hero Equipment',
+      units: readUnits(readValue(data, 'heroEquipment')),
+    },
+  ];
 
-  let fieldCount = 0;
-  for (const [title, units] of groups) {
+  embed.addFields({
+    name: 'Progress Summary',
+    value: formatProgressSummary(summarizeUnitProgress(groups)),
+    inline: false,
+  });
+
+  let fieldCount = 1;
+  let unitFieldCount = 0;
+  for (const { title, units } of groups) {
     if (units.length === 0 || fieldCount >= EMBED_MAX_FIELDS) continue;
     for (const [index, chunk] of chunkUnits(units).entries()) {
       if (fieldCount >= EMBED_MAX_FIELDS) break;
@@ -160,10 +194,11 @@ export function buildUnitsEmbed(player: ClashPlayer): EmbedBuilder {
         inline: false,
       });
       fieldCount += 1;
+      unitFieldCount += 1;
     }
   }
 
-  if (fieldCount === 0) {
+  if (unitFieldCount === 0) {
     embed.addFields({
       name: 'Units',
       value: 'No public unit level data was found.',
@@ -172,6 +207,59 @@ export function buildUnitsEmbed(player: ClashPlayer): EmbedBuilder {
   }
 
   return embed;
+}
+
+function summarizeUnitProgress(groups: readonly UnitGroupView[]): UnitProgressSummary {
+  let totalUnits = 0;
+  let maxedUnits = 0;
+  let levelsGained = 0;
+  let maxLevels = 0;
+  const groupedCounts = new Map<string, { total: number; maxed: number }>();
+
+  for (const group of groups) {
+    for (const unit of group.units) {
+      totalUnits += 1;
+      levelsGained += unit.level;
+      maxLevels += unit.maxLevel;
+      if (unit.level >= unit.maxLevel) maxedUnits += 1;
+
+      if (group.summaryTitle) {
+        const current = groupedCounts.get(group.summaryTitle) ?? { total: 0, maxed: 0 };
+        current.total += 1;
+        if (unit.level >= unit.maxLevel) current.maxed += 1;
+        groupedCounts.set(group.summaryTitle, current);
+      }
+    }
+  }
+
+  return {
+    totalUnits,
+    maxedUnits,
+    incompleteUnits: totalUnits - maxedUnits,
+    levelsGained,
+    maxLevels,
+    groupCounts: Array.from(
+      groupedCounts,
+      ([name, count]) => `${name}: ${count.maxed}/${count.total} maxed`,
+    ),
+  };
+}
+
+function formatProgressSummary(summary: UnitProgressSummary): string {
+  const percentage =
+    summary.maxLevels > 0
+      ? ` (${Math.floor((summary.levelsGained / summary.maxLevels) * 100)}%)`
+      : '';
+  const rows = [
+    `Shown: **${summary.totalUnits}** units • Maxed: **${summary.maxedUnits}** • Incomplete: **${summary.incompleteUnits}**`,
+    `Levels: **${summary.levelsGained}/${summary.maxLevels}**${percentage}`,
+  ];
+
+  if (summary.groupCounts.length > 0) {
+    rows.push(summary.groupCounts.join(' • '));
+  }
+
+  return rows.join('\n');
 }
 
 function readUnits(value: unknown, filter?: { readonly village: string }): UnitView[] {
