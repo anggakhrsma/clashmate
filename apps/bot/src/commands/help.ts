@@ -343,8 +343,8 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     category: 'Player & Clan',
     details: [
       'Reads stored donation counters for linked clans without querying the Clash API.',
-      'When valid season or start_date filters are supplied, uses persisted donation history instead of latest snapshots.',
-      '`end_date` is accepted and displayed, but the current history query does not apply it yet.',
+      'When valid season, start_date, or end_date filters are supplied, uses persisted donation history instead of latest snapshots.',
+      '`end_date` filters persisted history through the end of that UTC day.',
       'Sort by donated, received, difference, or ratio.',
     ],
   },

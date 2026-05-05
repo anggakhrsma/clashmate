@@ -35,6 +35,13 @@ interface DonationHistoryQueryFilters extends DonationsParityFilters {
   readonly until: Date | null;
 }
 
+interface DonationsReplyContext {
+  readonly clanLabel: string | null;
+  readonly user: User | null;
+  readonly filters: DonationsParityFilters;
+  readonly sort: DonationSort;
+}
+
 export function createRecentSeasonChoices(
   now = new Date(),
 ): ApplicationCommandOptionChoiceData<string>[] {
@@ -239,20 +246,24 @@ export async function executeDonations(
         since: historyFilters.since,
         until: historyFilters.until,
       });
-      await replyWithDonations(
-        interaction,
-        historyRowsToDonations(clan, history),
+      await replyWithDonations(interaction, historyRowsToDonations(clan, history), {
+        clanLabel: formatClanChoiceName(clan),
+        user: userOption,
+        filters: historyFilters,
         sort,
-        userOption,
-        historyFilters,
-      );
+      });
       return;
     }
     const [snapshots] = await options.store.listDonationSnapshotsForGuild({
       guildId: interaction.guildId,
       clanTag: clan.clanTag,
     });
-    await replyWithDonations(interaction, snapshots, sort, userOption, filters);
+    await replyWithDonations(interaction, snapshots, {
+      clanLabel: formatClanChoiceName(clan),
+      user: userOption,
+      filters,
+      sort,
+    });
     return;
   }
 
@@ -273,9 +284,7 @@ export async function executeDonations(
     await replyWithDonations(
       interaction,
       historyRowsToDonations(createAllLinkedClansHistoryClan(clans), history),
-      sort,
-      userOption,
-      historyFilters,
+      { clanLabel: null, user: userOption, filters: historyFilters, sort },
     );
     return;
   }
@@ -292,7 +301,12 @@ export async function executeDonations(
     return;
   }
 
-  await replyWithDonations(interaction, selected, sort, userOption, filters);
+  await replyWithDonations(interaction, selected, {
+    clanLabel: selected ? formatClanChoiceName(selected.clan) : null,
+    user: userOption,
+    filters,
+    sort,
+  });
 }
 
 function parseDonationSort(value: string | null): DonationSort {
@@ -424,20 +438,20 @@ function formatNoLinkedPlayersMessage(user: User | null): string {
 async function replyWithDonations(
   interaction: ChatInputCommandInteraction,
   snapshots: DonationsClanSnapshots | undefined,
-  sort: DonationSort,
-  user: User | null,
-  filters: DonationsParityFilters,
+  context: DonationsReplyContext,
 ): Promise<void> {
   if (!snapshots || snapshots.members.length === 0) {
     await interaction.editReply({
       content:
         snapshots?.source === 'history'
-          ? DONATIONS_NO_HISTORY_MESSAGE
+          ? formatNoDonationHistoryMessage(context)
           : DONATIONS_NO_SNAPSHOT_MESSAGE,
     });
     return;
   }
-  await interaction.editReply({ embeds: [buildDonationsEmbed(snapshots, sort, user, filters)] });
+  await interaction.editReply({
+    embeds: [buildDonationsEmbed(snapshots, context.sort, context.user, context.filters)],
+  });
 }
 
 export function resolveDonationClan(
@@ -484,11 +498,8 @@ export function buildDonationsEmbed(
         inline: false,
       },
       {
-        name: snapshots.source === 'history' ? 'History source' : 'Snapshot source',
-        value:
-          snapshots.source === 'history'
-            ? 'Values are based on persisted donation history events from polling, not live Clash API calls.'
-            : 'Values are based on latest polling snapshots, not live Clash API calls.',
+        name: 'Coverage',
+        value: formatDonationCoverage(snapshots, rows, filters, sort),
         inline: false,
       },
     )
@@ -508,6 +519,59 @@ export function buildDonationsEmbed(
 
   if (user) embed.setAuthor({ name: user.displayName, iconURL: user.displayAvatarURL() });
   return embed;
+}
+
+function formatNoDonationHistoryMessage(context: DonationsReplyContext): string {
+  const filterSummary = formatDonationActiveFilters(context.filters, context.sort, context.user);
+  const scope = [
+    context.clanLabel ? `clan: ${context.clanLabel}` : null,
+    context.user ? `user: ${escapeMarkdown(context.user.displayName)}` : null,
+  ].filter((part): part is string => part !== null);
+  const scopeText = scope.length > 0 ? ` Scope: ${scope.join(' · ')}.` : '';
+  return `${DONATIONS_NO_HISTORY_MESSAGE}${scopeText} Active filters: ${filterSummary}.`;
+}
+
+function formatDonationCoverage(
+  snapshots: DonationsClanSnapshots,
+  visibleRows: readonly DonationSnapshotRow[],
+  filters: DonationsParityFilters,
+  sort: DonationSort,
+): string {
+  const latest = getLatestDonationTimestamp(snapshots.members);
+  const source =
+    snapshots.source === 'history'
+      ? 'persisted donation history events'
+      : 'current member snapshots';
+  const fetchedLabel = snapshots.source === 'history' ? 'Latest detected' : 'Latest fetched';
+  return [
+    `Source: ${source}`,
+    `Rows considered: ${snapshots.members.length}`,
+    `Visible rows: ${visibleRows.length}`,
+    `${fetchedLabel}: ${latest ? time(latest, 'f') : 'unknown'}`,
+    `Active filters: ${formatDonationActiveFilters(filters, sort, null)}`,
+  ].join('\n');
+}
+
+function getLatestDonationTimestamp(members: readonly DonationSnapshotRow[]): Date | null {
+  return members.reduce<Date | null>((latest, member) => {
+    if (!latest || member.lastFetchedAt > latest) return member.lastFetchedAt;
+    return latest;
+  }, null);
+}
+
+function formatDonationActiveFilters(
+  filters: DonationsParityFilters,
+  sort: DonationSort,
+  user: User | null,
+): string {
+  const parts = [
+    user ? `user: ${escapeMarkdown(user.displayName)}` : null,
+    filters.season ? `season: \`${escapeBackticks(filters.season)}\`` : null,
+    filters.startDate ? `start_date: \`${escapeBackticks(filters.startDate)}\`` : null,
+    filters.endDate ? `end_date: \`${escapeBackticks(filters.endDate)}\`` : null,
+    `sort: \`${sort}\``,
+  ].filter((part): part is string => part !== null);
+  return parts.join(' · ');
 }
 
 function formatSeasonChoiceName(date: Date): string {
