@@ -35,6 +35,7 @@ export interface TimezoneView {
   localDateTime: string;
   gmtOffset: string;
   note: string;
+  preferenceSummary: string;
   botName: string;
   botAvatarUrl?: string;
   color?: ColorResolvable;
@@ -133,8 +134,9 @@ export async function executeTimezoneInteraction(
     return;
   }
 
-  const timezone = interaction.options.getString('location', true).trim();
-  if (!isValidTimeZone(timezone)) {
+  const timezoneInput = interaction.options.getString('location', true).trim();
+  const timezone = canonicalizeTimeZone(timezoneInput);
+  if (!timezone) {
     await interaction.reply({
       content:
         'Please provide a valid IANA timezone identifier, such as `UTC`, `America/New_York`, or `Asia/Jakarta`.',
@@ -170,6 +172,7 @@ export function collectTimezoneView(
     localDateTime: formatLocalDateTime(timezone, now),
     gmtOffset: formatGmtOffset(timezone, now),
     note: TIMEZONE_FIRST_PASS_NOTE,
+    preferenceSummary: `Canonical timezone: \`${timezone}\`\n${TIMEZONE_FIRST_PASS_NOTE}`,
     botName: context.client.user?.displayName ?? context.client.user?.username ?? 'ClashMate',
     ...(botAvatarUrl ? { botAvatarUrl } : {}),
     color: source.guild?.members.me?.displayColor || DEFAULT_TIMEZONE_EMBED_COLOR,
@@ -187,10 +190,35 @@ export function buildTimezoneEmbed(view: TimezoneView): EmbedBuilder {
         : { name: view.botName },
     )
     .addFields(
+      { name: 'Saved server preference', value: view.preferenceSummary, inline: false },
       { name: 'Timezone', value: `\`${view.timezone}\``, inline: false },
       { name: 'Current local time', value: view.localDateTime, inline: false },
       { name: 'Approximate GMT offset', value: `GMT${view.gmtOffset}`, inline: false },
     );
+}
+
+export function canonicalizeTimeZone(timezone: string): string | null {
+  const trimmed = timezone.trim();
+  if (!trimmed) return null;
+
+  const supported = listSupportedTimezones();
+  const supportedMatch = supported.find(
+    (supportedTimezone) => supportedTimezone.toLowerCase() === trimmed.toLowerCase(),
+  );
+  if (supportedMatch) return supportedMatch;
+
+  try {
+    const canonicalTimezone = new Intl.DateTimeFormat('en-US', {
+      timeZone: trimmed,
+    }).resolvedOptions().timeZone;
+    const canonicalSupportedMatch = supported.find(
+      (supportedTimezone) => supportedTimezone.toLowerCase() === canonicalTimezone.toLowerCase(),
+    );
+    return canonicalSupportedMatch ?? canonicalTimezone;
+  } catch (error) {
+    if (error instanceof RangeError) return null;
+    throw error;
+  }
 }
 
 export function isValidTimeZone(timezone: string): boolean {
@@ -214,16 +242,40 @@ function listSupportedTimezones(): string[] {
 
 function timezoneMatchesQuery(normalizedTimezone: string, normalizedQuery: string): boolean {
   if (!normalizedQuery) return true;
+  const timezoneTokens = tokenizeTimezone(normalizedTimezone);
+  const queryTokens = tokenizeTimezone(normalizedQuery);
   return (
-    normalizedTimezone.startsWith(normalizedQuery) || normalizedTimezone.includes(normalizedQuery)
+    normalizedTimezone.startsWith(normalizedQuery) ||
+    normalizedTimezone.includes(normalizedQuery) ||
+    queryTokens.every((queryToken) =>
+      timezoneTokens.some((timezoneToken) => timezoneToken.startsWith(queryToken)),
+    )
   );
 }
 
 function timezoneMatchRank(normalizedTimezone: string, normalizedQuery: string): number {
   if (!normalizedQuery) return normalizedTimezone === 'utc' ? 0 : 1;
   if (normalizedTimezone === 'utc' && 'utc'.startsWith(normalizedQuery)) return 0;
-  if (normalizedTimezone.startsWith(normalizedQuery)) return 1;
-  return 2;
+  if (normalizedTimezone === normalizedQuery) return 1;
+  if (normalizedTimezone.startsWith(normalizedQuery)) return 2;
+  const timezoneTokens = tokenizeTimezone(normalizedTimezone);
+  const queryTokens = tokenizeTimezone(normalizedQuery);
+  if (timezoneTokens.some((timezoneToken) => timezoneToken === normalizedQuery)) return 3;
+  if (
+    queryTokens.every((queryToken) =>
+      timezoneTokens.some((timezoneToken) => timezoneToken.startsWith(queryToken)),
+    )
+  ) {
+    return 4;
+  }
+  return 5;
+}
+
+function tokenizeTimezone(value: string): string[] {
+  return value
+    .split(/[\s/_-]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
 }
 
 export function formatLocalDateTime(timezone: string, date = new Date()): string {
