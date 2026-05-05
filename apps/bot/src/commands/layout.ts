@@ -48,17 +48,17 @@ export const layoutCommandData = new SlashCommandBuilder()
   .addSubcommand((subcommand) =>
     subcommand
       .setName('config')
-      .setDescription('Show first-pass layout configuration status.')
+      .setDescription('Show or update layout voting and tracking settings.')
       .addBooleanOption((option) =>
         option
           .setName('allow_voting')
-          .setDescription('Request layout voting when persistence is available.')
+          .setDescription('Save whether layout voting should be shown as enabled.')
           .setRequired(false),
       )
       .addBooleanOption((option) =>
         option
           .setName('allow_tracking')
-          .setDescription('Request layout tracking when persistence is available.')
+          .setDescription('Save whether layout submissions should be tracked.')
           .setRequired(false),
       ),
   );
@@ -276,6 +276,14 @@ export function buildLayoutPostEmbed(input: {
 
   if (input.layoutId) fields.push({ name: 'Layout ID', value: input.layoutId, inline: true });
 
+  fields.push({
+    name: 'Submission Tracking',
+    value: input.layoutId
+      ? 'Tracked and saved for this server.'
+      : 'Not tracked. Layout submission tracking is disabled for this server.',
+    inline: false,
+  });
+
   if (input.notes) fields.push({ name: 'Notes', value: input.notes, inline: false });
 
   return new EmbedBuilder()
@@ -286,7 +294,7 @@ export function buildLayoutPostEmbed(input: {
         ? { name: input.view.botName, iconURL: input.view.botAvatarUrl }
         : { name: input.view.botName },
     )
-    .setFooter({ text: 'Voting/download tracking collectors are not implemented yet.' })
+    .setFooter({ text: 'Voting and download collectors are not implemented yet.' })
     .setImage(input.screenshot.url)
     .addFields(fields);
 }
@@ -298,8 +306,8 @@ export function buildLayoutConfigEmbed(input: {
   updated: boolean;
 }): EmbedBuilder {
   const settings = [
-    `Layout voting: ${formatEnabledBoolean(input.config.allowVoting)}`,
-    `Layout tracking: ${formatEnabledBoolean(input.config.allowTracking)}`,
+    `Saved voting setting: ${formatEnabledBoolean(input.config.allowVoting)}`,
+    `Saved submission tracking: ${formatEnabledBoolean(input.config.allowTracking)}`,
   ].join('\n');
   const trackedSubmissionSummary = formatLayoutSubmissionSummary(input.submissionSummary);
 
@@ -309,7 +317,7 @@ export function buildLayoutConfigEmbed(input: {
     .setDescription(
       [
         input.updated ? 'Layout configuration was saved.' : 'Current saved layout configuration.',
-        'Voting/tracking collectors and layout download tracking are not implemented yet.',
+        'Saved submission tracking works when enabled; voting and download collectors are not implemented yet.',
         '',
         settings,
         '',
@@ -365,7 +373,7 @@ function formatEnabledBoolean(value: boolean): string {
 }
 
 function formatLayoutSubmissionSummary(summary: LayoutSubmissionSummaryRecord): string {
-  if (summary.count === 0) return 'Tracked layout submissions: 0';
+  if (summary.count === 0) return 'Stored submission summary: 0 tracked layouts';
 
   const latest = summary.latest
     .map((submission) => {
@@ -374,7 +382,11 @@ function formatLayoutSubmissionSummary(summary: LayoutSubmissionSummaryRecord): 
     })
     .join('\n');
 
-  return [`Tracked layout submissions: ${summary.count}`, 'Latest tracked submissions:', latest]
+  return [
+    `Stored submission summary: ${summary.count} tracked layouts`,
+    'Latest tracked submissions:',
+    latest,
+  ]
     .filter(Boolean)
     .join('\n');
 }
