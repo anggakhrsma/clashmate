@@ -90,6 +90,7 @@ interface WarData {
 interface WarEntry {
   readonly snapshot: WarSnapshotRecord;
   readonly war: WarData;
+  readonly source: 'current' | 'historical';
 }
 
 export function createWarSlashCommand(options: WarCommandOptions): SlashCommandDefinition {
@@ -230,7 +231,13 @@ async function executeWar(
     ? await resolveWarClan(interaction.guildId, clanOption, options.store)
     : null;
   if (clanOption && !clan) {
-    await interaction.editReply('No linked clan was found for that clan option.');
+    await interaction.editReply(
+      buildWarNoDataMessage('No linked clan was found for the accepted clan filter.', {
+        clan: clanOption,
+        userMention: user?.toString(),
+        warKey,
+      }),
+    );
     return;
   }
 
@@ -239,7 +246,10 @@ async function executeWar(
     : [];
   if (user && playerTags.length === 0) {
     await interaction.editReply(
-      'No linked player tags were found for that user. Use `/link create` to link a Clash account first.',
+      buildWarNoDataMessage(
+        'No linked player tags were found for the accepted user filter. Use `/link create` to link a Clash account first.',
+        { clan: clanOption, userMention: user.toString(), warKey },
+      ),
     );
     return;
   }
@@ -249,30 +259,54 @@ async function executeWar(
     warKey,
   });
   if (warKey && snapshots.length === 0) {
-    await interaction.editReply('No historical war snapshot was found for that war id.');
+    await interaction.editReply(
+      buildWarNoDataMessage(
+        'No historical war snapshot was found for the accepted war_id filter.',
+        {
+          clan: clanOption,
+          userMention: user?.toString(),
+          warKey,
+        },
+      ),
+    );
     return;
   }
   if (snapshots.length === 0) {
     await interaction.editReply(
-      'No current war snapshot is available yet. Link/configure a clan and wait for war polling to run.',
+      buildWarNoDataMessage(
+        'No current persisted war snapshot is available yet. Link/configure a clan and wait for war polling to run.',
+        { clan: clanOption, userMention: user?.toString(), warKey },
+      ),
     );
     return;
   }
 
   const entries = snapshots
-    .map((snapshot) => ({ snapshot, war: extractWarData(snapshot.snapshot) }))
+    .map((snapshot) => ({
+      snapshot,
+      war: extractWarData(snapshot.snapshot),
+      source: warKey ? 'historical' : 'current',
+    }))
     .filter((entry): entry is WarEntry => Boolean(entry.war))
     .filter((entry) => playerTags.length === 0 || warIncludesPlayer(entry.war, playerTags));
 
   if (user && entries.length === 0) {
-    await interaction.editReply('No readable war snapshot includes linked players for that user.');
+    await interaction.editReply(
+      buildWarNoDataMessage(
+        'No readable persisted war snapshot includes linked players for the accepted user filter.',
+        { clan: clanOption, userMention: user.toString(), warKey },
+      ),
+    );
     return;
   }
 
   const entry = chooseWarEntry(entries);
   if (!entry) {
     await interaction.editReply(
-      'No readable war snapshot is available yet. Please try again after the next war poll.',
+      buildWarNoDataMessage(
+        'No readable persisted war snapshot is available yet. Please try again after the next war poll.',
+        { clan: clanOption, userMention: user?.toString(), warKey },
+      ),
     );
     return;
   }
@@ -441,9 +475,10 @@ export function buildWarEmbed(entry: WarEntry): EmbedBuilder {
   const opponent = clan === war.clan ? war.opponent : war.clan;
   const embed = new EmbedBuilder().setAuthor(buildWarAuthor(clan, entry.snapshot.trackedClan));
   const state = normalizeWarState(war.state ?? entry.snapshot.state);
+  const contextRows = buildWarContextRows(entry, state, war);
 
   if (state === 'notinwar') {
-    return embed.setDescription('The clan is not in a war.');
+    return embed.setDescription(['The clan is not in a war.', '', ...contextRows].join('\n'));
   }
 
   const description = [
@@ -461,6 +496,8 @@ export function buildWarEmbed(entry: WarEntry): EmbedBuilder {
     `Destruction: ${formatPercent(clan?.destructionPercentage)} / ${formatPercent(opponent?.destructionPercentage)}`,
     `Attacks: ${formatNumber(clan?.attacks)} / ${formatNumber(opponent?.attacks)} of ${formatTotalAttacks(war)}`,
     `Attacks/Member: ${formatNumber(war.attacksPerMember ?? 2)}`,
+    '',
+    ...contextRows,
   ];
 
   const dates = formatWarDates(war);
@@ -469,6 +506,53 @@ export function buildWarEmbed(entry: WarEntry): EmbedBuilder {
   if (warId) description.push('', `war_id: \`${warId}\``);
 
   return embed.setDescription(description.join('\n'));
+}
+
+function buildWarContextRows(entry: WarEntry, normalizedState: string, war: WarData): string[] {
+  const coverage = formatWarCoverage(war);
+  return [
+    '**Snapshot Context**',
+    `Source: ${entry.source === 'historical' ? 'Historical retained snapshot' : 'Current latest snapshot'}`,
+    `Fetched: ${time(entry.snapshot.fetchedAt, 'R')}`,
+    `Stored State: ${formatWarState(normalizeWarState(entry.snapshot.state))}`,
+    `War State: ${formatWarState(normalizedState)}`,
+    `Coverage: ${coverage}`,
+    'Note: persisted snapshot only; no live Clash API lookup is performed by `/war`.',
+  ];
+}
+
+function formatWarCoverage(war: WarData): string {
+  const attacks = formatAttackCoverage(war);
+  const members = formatMemberCoverage(war);
+  return [attacks, members].filter((value) => value !== '?').join(' • ') || 'snapshot fields only';
+}
+
+function formatAttackCoverage(war: WarData): string {
+  const clanAttacks = war.clan?.attacks;
+  const opponentAttacks = war.opponent?.attacks;
+  if (typeof clanAttacks !== 'number' && typeof opponentAttacks !== 'number') return '?';
+  return `attacks ${formatNumber(clanAttacks)} / ${formatNumber(opponentAttacks)} of ${formatTotalAttacks(war)}`;
+}
+
+function formatMemberCoverage(war: WarData): string {
+  const clanMembers = war.clan?.members?.length;
+  const opponentMembers = war.opponent?.members?.length;
+  if (!clanMembers && !opponentMembers) return '?';
+  return `members ${formatNumber(clanMembers)} / ${formatNumber(opponentMembers)}`;
+}
+
+function buildWarNoDataMessage(
+  message: string,
+  filters: { clan: string | null; userMention: string | undefined; warKey: string | null },
+): string {
+  const rows = [message, '', 'Accepted filters:'];
+  rows.push(`- clan: ${filters.clan ? `\`${filters.clan}\`` : 'not provided'}`);
+  rows.push(`- user: ${filters.userMention ?? 'not provided'}`);
+  rows.push(`- war_id: ${filters.warKey ? `\`${filters.warKey}\`` : 'not provided'}`);
+  rows.push(
+    '`/war` reads persisted war snapshots only and does not perform live Clash API lookups.',
+  );
+  return rows.join('\n');
 }
 
 function choosePerspectiveClan(war: WarData, clanTag: string): WarClan | undefined {
