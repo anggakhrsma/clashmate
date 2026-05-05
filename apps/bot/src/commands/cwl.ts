@@ -147,6 +147,12 @@ interface CwlEntry {
   readonly war: WarData;
 }
 
+interface CwlSnapshotSourceContext {
+  readonly scannedCount: number;
+  readonly latestFetchedAt: Date | null;
+  readonly season: string | null;
+}
+
 export function createCwlSlashCommand(options: CwlCommandOptions): SlashCommandDefinition {
   return {
     name: CWL_COMMAND_NAME,
@@ -200,7 +206,13 @@ async function executeCwl(
     });
     const ranked = rankCwlAttackRows(rows);
     if (ranked.length === 0) {
-      await interaction.editReply(noDataMessage('war attack history'));
+      await interaction.editReply(
+        noDataMessage('war attack history', {
+          clan,
+          user,
+          season: interaction.options.getString('season'),
+        }),
+      );
       return;
     }
     await interaction.editReply({
@@ -220,17 +232,35 @@ async function executeCwl(
         (value): value is CwlWarSnapshotRecord => Boolean(value),
       )
     : await options.store.getLatestWarSnapshotsForGuild(interaction.guildId);
+  const snapshotContext = buildSnapshotSourceContext(
+    snapshots,
+    interaction.options.getString('season'),
+  );
   const entries = snapshots
     .map((snapshot) => ({ snapshot, war: extractCwlWarData(snapshot.snapshot) }))
     .filter((entry): entry is CwlEntry => Boolean(entry.war))
     .filter((entry) => playerTags.length === 0 || warIncludesPlayer(entry.war, playerTags));
   const entry = chooseCwlEntry(entries);
   if (!entry) {
-    await interaction.editReply(noDataMessage('war snapshots'));
+    await interaction.editReply(
+      noDataMessage('war snapshots', {
+        clan,
+        user,
+        season: interaction.options.getString('season'),
+        snapshotContext,
+      }),
+    );
     return;
   }
   await interaction.editReply({
-    embeds: [buildCwlSnapshotEmbed(subcommand, entry, interaction.options.getString('season'))],
+    embeds: [
+      buildCwlSnapshotEmbed(
+        subcommand,
+        entry,
+        interaction.options.getString('season'),
+        snapshotContext,
+      ),
+    ],
   });
 }
 
@@ -272,6 +302,7 @@ export function buildCwlSnapshotEmbed(
   subcommand: CwlSubcommand,
   entry: CwlEntry,
   season: string | null,
+  sourceContext = buildSnapshotSourceContext([entry.snapshot], season),
 ): EmbedBuilder {
   const clan = choosePerspectiveClan(
     entry.war,
@@ -285,7 +316,6 @@ export function buildCwlSnapshotEmbed(
   if (subcommand === 'round') {
     embed.setDescription(
       [
-        `Source: persisted war snapshot first pass (${formatState(entry.war.state ?? entry.snapshot.state)})`,
         `Against: **${opponent?.name ?? 'Unknown Clan'}** (${opponent?.tag ?? 'unknown'})`,
         `Score: ${formatNumber(clan?.stars)} ⭐ / ${formatNumber(opponent?.stars)} ⭐`,
         `Attacks: ${formatNumber(clan?.attacks)} / ${formatNumber(opponent?.attacks)}`,
@@ -293,6 +323,7 @@ export function buildCwlSnapshotEmbed(
         ...(entry.war.endTime ? [`Ends: ${time(new Date(entry.war.endTime), 'R')}`] : []),
       ].join('\n'),
     );
+    embed.addFields(buildSnapshotSourceField(entry, sourceContext));
     return embed;
   }
   embed.setDescription(formatMembers(clan?.members ?? []));
@@ -302,6 +333,7 @@ export function buildCwlSnapshotEmbed(
       value: formatMembers(opponent.members),
       inline: false,
     });
+  embed.addFields(buildSnapshotSourceField(entry, sourceContext));
   return embed;
 }
 
@@ -328,8 +360,7 @@ export function buildCwlHistoryEmbed(
       { name: 'Totals', value: `${totals.attacks} attacks · ${totals.stars} stars`, inline: false },
       {
         name: 'Source',
-        value:
-          'Uses persisted war attack history. Exact CWL-only filtering may be approximate until stored event metadata identifies CWL rounds.',
+        value: `Persisted-only: scanned ${rows.length} stored attack ${rows.length === 1 ? 'row' : 'rows'}${formatLatestDate('latest attack', maxDate(rows.map((row) => row.lastAttackedAt)))}. Exact CWL-only filtering may be approximate until stored event metadata identifies CWL rounds.`,
         inline: false,
       },
     )
@@ -483,14 +514,95 @@ function warIncludesPlayer(war: WarData, tags: readonly string[]): boolean {
     clan?.members?.some((member) => member.tag && set.has(member.tag.toUpperCase())),
   );
 }
-function noDataMessage(source: string): string {
-  return `No CWL ${source} data is available yet. Linked clans must be configured and war polling must detect/store CWL or war activity first.`;
+function noDataMessage(
+  source: string,
+  input: {
+    clan: CwlLinkedClan | null;
+    user: User | null;
+    season: string | null;
+    snapshotContext?: CwlSnapshotSourceContext;
+  },
+): string {
+  const filters = formatAcceptedFilters(input);
+  const coverage = input.snapshotContext
+    ? ` Scanned ${input.snapshotContext.scannedCount} persisted war ${input.snapshotContext.scannedCount === 1 ? 'snapshot' : 'snapshots'}${input.snapshotContext.latestFetchedAt ? `; latest fetched ${time(input.snapshotContext.latestFetchedAt, 'R')}` : ''}.`
+    : '';
+  return [
+    `No CWL ${source} data is available for the accepted filters${filters ? ` (${filters})` : ''}.`,
+    `${coverage} ClashMate only reads persisted war data here; it did not make a live Clash API lookup or enroll new polling.`,
+    'Linked clans must be configured and war polling must store matching CWL or war activity first.',
+  ].join(' ');
 }
 function buildSourceFooter(season: string | null): string {
   if (!season) return 'Persisted war data first pass';
   const choice = CWL_SEASON_CHOICES.find((candidate) => candidate.value === season);
   const label = choice ? `${choice.name} (${season})` : season;
   return `Season label: ${label} · persisted war data first pass`;
+}
+function buildSnapshotSourceContext(
+  snapshots: readonly CwlWarSnapshotRecord[],
+  season: string | null,
+): CwlSnapshotSourceContext {
+  return {
+    scannedCount: snapshots.length,
+    latestFetchedAt: maxDate(snapshots.map((snapshot) => snapshot.fetchedAt)),
+    season,
+  };
+}
+function buildSnapshotSourceField(
+  entry: CwlEntry,
+  context: CwlSnapshotSourceContext,
+): { name: string; value: string; inline: false } {
+  const details = [
+    `Persisted-only: scanned ${context.scannedCount} stored war ${context.scannedCount === 1 ? 'snapshot' : 'snapshots'}`,
+    formatLatestDate('latest fetched', context.latestFetchedAt).replace(/^; /, ''),
+    ...(context.season ? [`season label ${context.season}`] : []),
+    `state ${formatState(entry.war.state ?? entry.snapshot.state)}`,
+    ...formatRoundContext(entry.snapshot, entry.war),
+  ].filter((detail) => detail.length > 0);
+  return { name: 'Source / coverage', value: details.join(' · '), inline: false };
+}
+function formatRoundContext(snapshot: CwlWarSnapshotRecord, war: WarData): string[] {
+  const details: string[] = [];
+  const round = readRoundLabel(snapshot.snapshot);
+  if (round) details.push(`round ${round}`);
+  if (war.teamSize) details.push(`${war.teamSize}v${war.teamSize}`);
+  if (snapshot.warKey) details.push(`war ${snapshot.warKey}`);
+  return details;
+}
+function readRoundLabel(snapshot: unknown): string | null {
+  const value = unwrapSnapshot(snapshot);
+  if (!isRecord(value)) return null;
+  const record = value as {
+    readonly round?: unknown;
+    readonly roundNumber?: unknown;
+    readonly warRound?: unknown;
+  };
+  return (
+    readString(record.round) ??
+    readNumber(record.roundNumber)?.toString() ??
+    readString(record.warRound)
+  );
+}
+function formatAcceptedFilters(input: {
+  clan: CwlLinkedClan | null;
+  user: User | null;
+  season: string | null;
+}): string {
+  return [
+    ...(input.clan ? [`clan ${input.clan.alias ?? input.clan.name ?? input.clan.clanTag}`] : []),
+    ...(input.user ? [`user ${input.user.displayName}`] : []),
+    ...(input.season ? [`season ${input.season}`] : []),
+  ].join(', ');
+}
+function maxDate(values: readonly Date[]): Date | null {
+  return values.reduce<Date | null>(
+    (latest, value) => (!latest || value.getTime() > latest.getTime() ? value : latest),
+    null,
+  );
+}
+function formatLatestDate(label: string, value: Date | null): string {
+  return value ? `; ${label} ${time(value, 'R')}` : '';
 }
 function formatState(value: string | undefined): string {
   const state = normalizeState(value);
