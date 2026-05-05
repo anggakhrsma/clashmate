@@ -22,7 +22,9 @@ export const warCommandData = new SlashCommandBuilder()
   .addUserOption((option) =>
     option.setName('user').setDescription('Discord user whose linked players should be matched.'),
   )
-  .addStringOption((option) => option.setName('war_id').setDescription('Historical war id.'));
+  .addStringOption((option) =>
+    option.setName('war_id').setDescription('Historical war id.').setAutocomplete(true),
+  );
 
 export interface WarTrackedClan {
   readonly id: string;
@@ -115,12 +117,18 @@ async function autocompleteWar(
     return;
   }
   const focused = interaction.options.getFocused(true);
-  if (focused.name !== 'clan') {
-    await interaction.respond([]);
+  if (focused.name === 'clan') {
+    const clans = await options.store.listLinkedClans(interaction.guildId);
+    await interaction.respond(filterWarClanChoices(clans, String(focused.value ?? '')));
     return;
   }
-  const clans = await options.store.listLinkedClans(interaction.guildId);
-  await interaction.respond(filterWarClanChoices(clans, String(focused.value ?? '')));
+  if (focused.name === 'war_id') {
+    await interaction.respond(
+      await buildWarIdChoices(interaction, options.store, String(focused.value ?? '')),
+    );
+    return;
+  }
+  await interaction.respond([]);
 }
 
 export function filterWarClanChoices(
@@ -140,6 +148,66 @@ export function filterWarClanChoices(
       name: `${clan.name ?? clan.clanTag} (${clan.clanTag})`,
       value: clan.clanTag,
     }));
+}
+
+async function buildWarIdChoices(
+  interaction: AutocompleteInteraction,
+  store: WarStore,
+  query: string,
+): Promise<ApplicationCommandOptionChoiceData<string>[]> {
+  if (!interaction.guildId) return [];
+
+  const clanOption = interaction.options.getString('clan');
+  const clan = clanOption ? await resolveWarClan(interaction.guildId, clanOption, store) : null;
+  const snapshots = clan
+    ? await loadCandidateSnapshots(interaction.guildId, store, { clan, warKey: null })
+    : await store.getLatestWarSnapshotsForGuild(interaction.guildId);
+
+  return filterWarIdChoices(snapshots, query);
+}
+
+function filterWarIdChoices(
+  snapshots: readonly WarSnapshotRecord[],
+  query: string,
+): ApplicationCommandOptionChoiceData<string>[] {
+  const normalized = query.trim().toLowerCase();
+  const choices = new Map<string, ApplicationCommandOptionChoiceData<string>>();
+
+  for (const snapshot of snapshots) {
+    const war = extractWarData(snapshot.snapshot);
+    const warKey = snapshot.warKey ?? (war ? deriveWarKey(snapshot.clanTag, war) : null);
+    if (!warKey) continue;
+    const value = warKey.trim().toLowerCase();
+    if (choices.has(value)) continue;
+    const label = buildWarIdChoiceLabel(snapshot, war, value);
+    if (normalized && !`${label} ${value}`.toLowerCase().includes(normalized)) continue;
+    choices.set(value, { name: truncateChoiceName(label), value });
+  }
+
+  return [...choices.values()].slice(0, 25);
+}
+
+function buildWarIdChoiceLabel(
+  snapshot: WarSnapshotRecord,
+  war: WarData | null,
+  warKey: string,
+): string {
+  const clanName = war?.clan?.name ?? snapshot.trackedClan?.name ?? snapshot.clanTag;
+  const opponentName = war?.opponent?.name ?? 'Unknown opponent';
+  const state = formatWarState(normalizeWarState(war?.state ?? snapshot.state));
+  return `${clanName} vs ${opponentName} • ${state} • ${formatChoiceDate(snapshot.fetchedAt)} • ${warKey}`;
+}
+
+function formatChoiceDate(date: Date): string {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(date);
+}
+
+function truncateChoiceName(name: string): string {
+  return name.length <= 100 ? name : `${name.slice(0, 97)}...`;
 }
 
 async function executeWar(
