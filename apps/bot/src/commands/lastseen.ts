@@ -17,6 +17,8 @@ export const LASTSEEN_COMMAND_DESCRIPTION =
   'Show when linked players were last seen in tracked clans.';
 export const LASTSEEN_NO_DATA_MESSAGE =
   'No last-seen data is available yet. Link/configure a clan and wait for polling to observe the player.';
+const LASTSEEN_PERSISTED_SNAPSHOT_NOTE =
+  'Results are based on persisted linked-clan snapshots only; no live Clash API lookup is performed.';
 
 export const lastSeenCommandData = new SlashCommandBuilder()
   .setName(LASTSEEN_COMMAND_NAME)
@@ -202,7 +204,7 @@ export async function executeLastSeen(
 
   if (resolution.status === 'no_clan_snapshot') {
     await interaction.reply({
-      content: `No current member snapshot data is available yet for ${formatClanChoiceName(resolution.clan)}.`,
+      content: `Clan filter accepted for ${formatClanChoiceName(resolution.clan)}, but no stored member snapshot matched that linked clan yet. ${LASTSEEN_PERSISTED_SNAPSHOT_NOTE}`,
       ephemeral: true,
     });
     return;
@@ -220,6 +222,7 @@ export async function executeLastSeen(
     interaction.guildId,
     resolution.playerTags,
   );
+  const snapshotContext = collectLastSeenSnapshotContext(resolution.playerTags.length, snapshots);
   const latestRows = selectLatestLastSeenRows(resolution.playerTags, snapshots).filter(
     (row) => !resolution.clan || tagsEqual(row.clanTag, resolution.clan.clanTag),
   );
@@ -227,8 +230,8 @@ export async function executeLastSeen(
   if (latestRows.length === 0) {
     await interaction.reply({
       content: resolution.clan
-        ? `No last-seen data is available yet for ${formatClanChoiceName(resolution.clan)} with those filters.`
-        : LASTSEEN_NO_DATA_MESSAGE,
+        ? `No last-seen data is available yet for ${formatClanChoiceName(resolution.clan)} with those filters. ${formatLastSeenSnapshotContext(snapshotContext)} ${LASTSEEN_PERSISTED_SNAPSHOT_NOTE}`
+        : `${LASTSEEN_NO_DATA_MESSAGE} ${formatLastSeenSnapshotContext(snapshotContext)} ${LASTSEEN_PERSISTED_SNAPSHOT_NOTE}`,
       ephemeral: true,
     });
     return;
@@ -241,8 +244,27 @@ export async function executeLastSeen(
   });
 
   await interaction.reply({
-    embeds: [buildLastSeenEmbed(latestRows, resolution.targetUser, timezone)],
+    embeds: [buildLastSeenEmbed(latestRows, resolution.targetUser, timezone, snapshotContext)],
   });
+}
+
+interface LastSeenSnapshotContext {
+  readonly requestedMembers: number;
+  readonly snapshotRows: number;
+  readonly latestSnapshotAt: Date | null;
+}
+
+function collectLastSeenSnapshotContext(
+  requestedMembers: number,
+  snapshots: readonly LastSeenSnapshotRecord[],
+): LastSeenSnapshotContext {
+  const latestSnapshotAt = snapshots.reduce<Date | null>((latest, snapshot) => {
+    if (!latest || snapshot.lastFetchedAt.getTime() > latest.getTime())
+      return snapshot.lastFetchedAt;
+    return latest;
+  }, null);
+
+  return { requestedMembers, snapshotRows: snapshots.length, latestSnapshotAt };
 }
 
 interface LastSeenResolvedTimezone {
@@ -383,10 +405,11 @@ export function buildLastSeenEmbed(
   rows: readonly LastSeenSnapshotRecord[],
   targetUser: User | null,
   timezone: LastSeenResolvedTimezone = {},
+  snapshotContext: LastSeenSnapshotContext = collectLastSeenSnapshotContext(rows.length, rows),
 ): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setTitle('Last Seen')
-    .setDescription(formatLastSeenDescription(timezone));
+    .setDescription(formatLastSeenDescription(timezone, snapshotContext));
 
   if (targetUser) {
     embed.setAuthor({ name: targetUser.displayName, iconURL: targetUser.displayAvatarURL() });
@@ -412,10 +435,18 @@ export function buildLastSeenEmbed(
   return embed;
 }
 
-function formatLastSeenDescription(timezone: LastSeenResolvedTimezone): string {
-  const base = 'Based on linked-clan polling snapshots already stored by ClashMate.';
+function formatLastSeenDescription(
+  timezone: LastSeenResolvedTimezone,
+  snapshotContext: LastSeenSnapshotContext,
+): string {
+  const base = `${LASTSEEN_PERSISTED_SNAPSHOT_NOTE}\n${formatLastSeenSnapshotContext(snapshotContext)}`;
   if (!timezone.timezone) return base;
-  return `${base} Local absolute times use your saved /timezone preference.`;
+  return `${base}\nLocal absolute times use your saved /timezone preference.`;
+}
+
+function formatLastSeenSnapshotContext(context: LastSeenSnapshotContext): string {
+  const latest = context.latestSnapshotAt ? time(context.latestSnapshotAt, 'R') : 'none';
+  return `Snapshot context: latest considered ${latest}; ${context.snapshotRows} row${context.snapshotRows === 1 ? '' : 's'} / ${context.requestedMembers} member${context.requestedMembers === 1 ? '' : 's'} considered.`;
 }
 
 function formatLastSeenTimestamp(
