@@ -219,11 +219,12 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
   },
   {
     name: 'summary',
-    usage: '/summary clans|donations|activity|attacks|compo [clans]',
+    usage: '/summary clans|donations|activity|attacks|compo|capital-raids [clans] [week]',
     description: 'Show persisted summaries for linked clans.',
     category: 'Player & Clan',
     details: [
-      'Reads existing linked clan, member, donation, and war attack data without querying the Clash API.',
+      'Reads existing linked clan, member, donation, war attack, and capital snapshot data without querying the Clash API.',
+      'Capital raids summarizes the latest persisted capital snapshots; `week` is accepted as a display label only.',
       'First pass returns compact embeds with totals and top rows instead of image charts.',
     ],
   },
@@ -266,8 +267,8 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     details: [
       'Post validates public Clash of Clans OpenLayout links and image screenshots.',
       'Post shows parsed OpenLayout metadata when the link exposes it.',
-      'Config requires Manage Server and shows saved voting/tracking preferences plus stored tracking summary.',
-      'Voting/tracking collectors and layout download tracking are not active yet.',
+      'Config requires Manage Server and persists saved voting/tracking preferences plus submission tracking when enabled.',
+      'Voting collectors and layout download collectors are not active yet.',
       'Does not add collectors, webhooks, Clash API calls, or polling enrollment.',
     ],
   },
@@ -317,7 +318,7 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     details: [
       'Leaderboard and stats read linked-clan member snapshots without querying the Clash API.',
       '`/legend stats reference_date:<YYYY-MM-DD>` accepts and displays the date, but current persisted snapshots are still used.',
-      'Attacks and days return honest no-data messages until Legend attack/day data is persisted.',
+      'Attacks and days return honest no-data messages with accepted filter context until Legend attack/day data is persisted.',
       'No exports, auto-updating boards, external feeds, or polling enrollment are used.',
     ],
   },
@@ -353,7 +354,8 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     details: [
       'Reads persisted donation delta, war attack, clan member join/leave, and Clan Games snapshot history for linked clans without querying the Clash API.',
       'CWL attacks reuse stored war attack history with approximate CWL-only classification until separate CWL metadata is stored.',
-      'Capital raids, capital contribution, loot, Legend attacks, EOS trophies, and multiplayer attacks return clear no-data messages until those snapshots are stored.',
+      'Unsupported filters return honest no-data embeds that echo accepted clan, player, user, season, and date context where applicable.',
+      'Capital raids, capital contribution, loot, Legend attacks, EOS trophies, and multiplayer attacks remain unavailable until those snapshots are stored.',
     ],
   },
   {
@@ -364,7 +366,7 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     details: [
       'Reads persisted war attack history for linked clans without querying the Clash API.',
       'The `season` option filters stored attacks since the selected season boundary.',
-      'Defense stats are registered for parity but are not available until defense events are stored.',
+      'Defense stats echo accepted clan, user, stars, season, days, and attempt filters but remain unavailable until defense events are stored.',
       'Star and attempt filters are conservative because first-pass history rows are stored as attacker aggregates.',
     ],
   },
