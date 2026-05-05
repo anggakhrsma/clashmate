@@ -78,6 +78,12 @@ interface LineupEntry {
   readonly war: WarData;
 }
 
+interface LineupOutputContext {
+  readonly userFilter: string;
+  readonly rowsConsidered: number;
+  readonly rowsVisible: number;
+}
+
 export interface LineupRow {
   readonly mapPosition: number;
   readonly clanMember: WarMember | null;
@@ -156,7 +162,9 @@ async function executeLineup(
     ? await resolveLineupClan(interaction.guildId, clanOption, options.store)
     : null;
   if (clanOption && !clan) {
-    await interaction.editReply('No linked clan was found for that clan option.');
+    await interaction.editReply(
+      `No linked clan matched ${formatCode(clanOption.trim())}. ${formatCode('/lineup')} only reads persisted snapshots for clans linked to this server and does not perform a live Clash API lookup.`,
+    );
     return;
   }
 
@@ -165,7 +173,7 @@ async function executeLineup(
     : [];
   if (user && playerTags.length === 0) {
     await interaction.editReply(
-      'No linked player tags were found for that user. Use `/link create` to link a Clash account first.',
+      `No linked player tags were found for ${user.toString()}. ${formatCode('/lineup user:')} only filters persisted war snapshots by already linked player tags; use ${formatCode('/link create')} to link a Clash account first.`,
     );
     return;
   }
@@ -173,7 +181,7 @@ async function executeLineup(
   const snapshots = await loadLineupSnapshots(interaction.guildId, options.store, clan);
   if (snapshots.length === 0) {
     await interaction.editReply(
-      'No current war snapshot is available yet. Link/configure a clan and wait for war polling to run.',
+      `No persisted current-war snapshot is available${clan ? ` for ${formatTrackedClanName(clan)}` : ' for this server'}. Link/configure a clan and wait for war polling to store a snapshot; ${formatCode('/lineup')} does not perform a live Clash API lookup.`,
     );
     return;
   }
@@ -184,14 +192,16 @@ async function executeLineup(
     .filter((entry) => playerTags.length === 0 || warIncludesPlayer(entry.war, playerTags));
 
   if (user && entries.length === 0) {
-    await interaction.editReply('No readable war snapshot includes linked players for that user.');
+    await interaction.editReply(
+      `No readable persisted war snapshot includes linked player tags for ${user.toString()}${clan ? ` in ${formatTrackedClanName(clan)}` : ''}. User filtering checks stored war members only and does not refresh data live.`,
+    );
     return;
   }
 
   const entry = chooseLineupEntry(entries);
   if (!entry) {
     await interaction.editReply(
-      'No readable war snapshot is available yet. Please try again after the next war poll.',
+      `No readable persisted war snapshot is available${clan ? ` for ${formatTrackedClanName(clan)}` : ' for this server'} yet. Please try again after the next war poll; no live Clash API lookup is performed.`,
     );
     return;
   }
@@ -204,11 +214,23 @@ async function executeLineup(
     normalizeWarState(entry.war.state ?? entry.snapshot.state) === 'notinwar' ||
     rows.length === 0
   ) {
-    await interaction.editReply('No member lineup is available for the latest war snapshot.');
+    await interaction.editReply(
+      `No member lineup is available in the latest persisted war snapshot${clan ? ` for ${formatTrackedClanName(clan)}` : ''}. War state: ${formatWarState(normalizeWarState(entry.war.state ?? entry.snapshot.state))}.`,
+    );
     return;
   }
 
-  await interaction.editReply({ embeds: [buildLineupEmbed(entry, rows)] });
+  await interaction.editReply({
+    embeds: [
+      buildLineupEmbed(entry, rows, {
+        userFilter: user
+          ? `Applied to ${user.toString()} (${playerTags.length} linked tag${playerTags.length === 1 ? '' : 's'})`
+          : 'Not applied',
+        rowsConsidered: rows.length,
+        rowsVisible: rows.length,
+      }),
+    ],
+  });
 }
 
 async function loadLineupSnapshots(
@@ -371,17 +393,32 @@ export function buildLineupRows(war: WarData, perspectiveClanTag: string): Lineu
   }));
 }
 
-export function buildLineupEmbed(entry: LineupEntry, rows: readonly LineupRow[]): EmbedBuilder {
+export function buildLineupEmbed(
+  entry: LineupEntry,
+  rows: readonly LineupRow[],
+  context?: LineupOutputContext,
+): EmbedBuilder {
   const trackedTag = entry.snapshot.trackedClan?.clanTag ?? entry.snapshot.clanTag;
   const clan = choosePerspectiveClan(entry.war, trackedTag);
   const opponent = clan === entry.war.clan ? entry.war.opponent : entry.war.clan;
+  const warState = normalizeWarState(entry.war.state ?? entry.snapshot.state);
+  const rowsConsidered = context?.rowsConsidered ?? rows.length;
+  const rowsVisible = context?.rowsVisible ?? rows.length;
   const embed = new EmbedBuilder().setAuthor(buildWarAuthor(clan, entry.snapshot.trackedClan));
   const description = [
     '**War Against**',
     `**${opponent?.name ?? 'Unknown Clan'} (${opponent?.tag ?? 'unknown'})**`,
     '',
+    '**Source**',
+    `Persisted war snapshot fetched ${formatDiscordTimestamp(entry.snapshot.fetchedAt)}.`,
+    'No live Clash API lookup is performed by `/lineup`.',
+    '',
     '**War State**',
-    formatWarState(normalizeWarState(entry.war.state ?? entry.snapshot.state)),
+    formatWarState(warState),
+    '',
+    '**Coverage**',
+    `Member rows considered: ${rowsConsidered}. Visible: ${rowsVisible}.`,
+    `User filter: ${context?.userFilter ?? 'Not applied'}.`,
     '',
     '**Lineup**',
     ...rows.map(formatLineupRow),
@@ -409,6 +446,19 @@ function buildWarAuthor(
 
 function formatLineupRow(row: LineupRow): string {
   return `\`${String(row.mapPosition).padStart(2, ' ')}\` ${formatMember(row.clanMember)} vs ${formatMember(row.opponentMember)}`;
+}
+
+function formatTrackedClanName(clan: LineupTrackedClan): string {
+  return formatCode(`${clan.name ?? clan.alias ?? clan.clanTag} (${clan.clanTag})`);
+}
+
+function formatCode(value: string): string {
+  return `\`${value.replaceAll('`', '')}\``;
+}
+
+function formatDiscordTimestamp(date: Date): string {
+  const seconds = Math.floor(date.getTime() / 1000);
+  return Number.isFinite(seconds) ? `<t:${seconds}:R> (<t:${seconds}:f>)` : 'at an unknown time';
 }
 
 function formatMember(member: WarMember | null): string {
