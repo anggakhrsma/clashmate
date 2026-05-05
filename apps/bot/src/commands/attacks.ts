@@ -92,6 +92,15 @@ export interface AttackWinsRow {
   readonly defenseWins: number;
 }
 
+export interface AttacksScanCoverage {
+  readonly clanMembersDiscovered: number;
+  readonly playerLookupsAttempted: number;
+  readonly playerLookupsAnalyzed: number;
+  readonly skippedDueToMaxPlayerFetches: number;
+  readonly failedLookups: number;
+  readonly rowsWithData: number;
+}
+
 export function createAttacksSeasonChoices(
   now: Date = new Date(),
 ): ApplicationCommandOptionChoiceData<string>[] {
@@ -207,23 +216,43 @@ export async function executeAttacks(
     return;
   }
 
-  const memberTags = readClanMemberTags(clashClan.data).slice(0, MAX_PLAYER_FETCHES);
-  if (memberTags.length === 0) {
-    await interaction.editReply({ content: ATTACKS_NO_DATA_MESSAGE });
+  const discoveredMemberTags = readClanMemberTags(clashClan.data);
+  const memberTags = discoveredMemberTags.slice(0, MAX_PLAYER_FETCHES);
+  if (discoveredMemberTags.length === 0) {
+    await interaction.editReply({
+      content: `${ATTACKS_NO_DATA_MESSAGE}\n${formatAttacksCoverageText(
+        createAttacksScanCoverage({
+          clanMembersDiscovered: 0,
+          playerLookupsAttempted: 0,
+          playerLookupsAnalyzed: 0,
+          failedLookups: 0,
+          rowsWithData: 0,
+        }),
+      )}`,
+    });
     return;
   }
 
-  const players = await fetchPlayersForAttacks(memberTags, options.coc);
-  const rows = collectAttackWins(players);
+  const playerScan = await fetchPlayersForAttacks(memberTags, options.coc);
+  const rows = collectAttackWins(playerScan.players);
+  const coverage = createAttacksScanCoverage({
+    clanMembersDiscovered: discoveredMemberTags.length,
+    playerLookupsAttempted: memberTags.length,
+    playerLookupsAnalyzed: playerScan.players.length,
+    failedLookups: playerScan.failedLookups,
+    rowsWithData: rows.length,
+  });
   if (rows.length === 0) {
-    await interaction.editReply({ content: ATTACKS_NO_DATA_MESSAGE });
+    await interaction.editReply({
+      content: `${ATTACKS_NO_DATA_MESSAGE}\n${formatAttacksCoverageText(coverage)}`,
+    });
     return;
   }
 
   const season = interaction.options.getString('season');
   await interaction.editReply({
     ...(resolution.note ? { content: resolution.note } : {}),
-    embeds: [buildAttacksEmbed(clashClan, rows, { season })],
+    embeds: [buildAttacksEmbed(clashClan, rows, { coverage, season })],
   });
 }
 
@@ -267,16 +296,18 @@ async function resolveAttacksClanForUser(input: {
 async function fetchPlayersForAttacks(
   memberTags: readonly string[],
   coc: AttacksCocApi,
-): Promise<ClashPlayer[]> {
+): Promise<{ readonly players: ClashPlayer[]; readonly failedLookups: number }> {
   const players: ClashPlayer[] = [];
+  let failedLookups = 0;
   for (const tag of memberTags) {
     try {
       players.push(await coc.getPlayer(tag));
     } catch {
+      failedLookups += 1;
       // Ignore individual one-off lookup failures so one unavailable player does not fail the command.
     }
   }
-  return players;
+  return { players, failedLookups };
 }
 
 export function collectAttackWins(players: readonly ClashPlayer[]): AttackWinsRow[] {
@@ -306,7 +337,10 @@ export function collectAttackWins(players: readonly ClashPlayer[]): AttackWinsRo
 export function buildAttacksEmbed(
   clan: Pick<ClashClan, 'name' | 'tag' | 'data'>,
   rows: readonly AttackWinsRow[],
-  options: { readonly season?: string | null } = {},
+  options: {
+    readonly coverage?: AttacksScanCoverage | null;
+    readonly season?: string | null;
+  } = {},
 ): EmbedBuilder {
   const badgeUrl = readBadgeUrl(clan.data);
   const embed = new EmbedBuilder()
@@ -322,9 +356,38 @@ export function buildAttacksEmbed(
 
   const seasonLabel = options.season ? formatAttacksSeasonLabel(options.season) : null;
   if (seasonLabel) embed.addFields({ name: 'Season', value: seasonLabel, inline: true });
+  if (options.coverage) {
+    embed.addFields({ name: 'Scan Coverage', value: formatAttacksCoverageText(options.coverage) });
+  }
 
   if (badgeUrl) embed.setThumbnail(badgeUrl);
   return embed;
+}
+
+export function createAttacksScanCoverage(input: {
+  readonly clanMembersDiscovered: number;
+  readonly playerLookupsAttempted: number;
+  readonly playerLookupsAnalyzed: number;
+  readonly failedLookups: number;
+  readonly rowsWithData: number;
+}): AttacksScanCoverage {
+  return {
+    ...input,
+    skippedDueToMaxPlayerFetches: Math.max(
+      0,
+      input.clanMembersDiscovered - input.playerLookupsAttempted,
+    ),
+  };
+}
+
+export function formatAttacksCoverageText(coverage: AttacksScanCoverage): string {
+  return [
+    `Clan members discovered: ${coverage.clanMembersDiscovered}`,
+    `Player lookups attempted/analyzed: ${coverage.playerLookupsAttempted}/${coverage.playerLookupsAnalyzed}`,
+    `Skipped due to MAX_PLAYER_FETCHES (${MAX_PLAYER_FETCHES}): ${coverage.skippedDueToMaxPlayerFetches}`,
+    `Failed lookups: ${coverage.failedLookups}`,
+    `Rows with attack/defense data: ${coverage.rowsWithData}`,
+  ].join('\n');
 }
 
 export function formatAttacksSeasonLabel(season: string): string {
