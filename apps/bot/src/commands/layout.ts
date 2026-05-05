@@ -1,7 +1,10 @@
 import type { CommandContext, SlashCommandDefinition } from '@clashmate/discord';
 import {
+  ActionRowBuilder,
   type APIEmbedField,
   type Attachment,
+  ButtonBuilder,
+  ButtonStyle,
   type ChatInputCommandInteraction,
   type ColorResolvable,
   EmbedBuilder,
@@ -188,12 +191,14 @@ export async function executeLayoutPost(
         view,
         screenshot,
         layoutLink,
+        allowVoting: config?.allowVoting ?? false,
         ...(parseLayoutLinkMetadata(layoutLink) ?? {}),
         ...(notes ? { notes } : {}),
         submitterId: interaction.user.id,
         ...(submission ? { layoutId: submission.id } : {}),
       }),
     ],
+    components: [buildOpenLayoutButtonRow(layoutLink)],
     allowedMentions: { users: [] },
   });
 }
@@ -257,6 +262,7 @@ export function buildLayoutPostEmbed(input: {
   view: LayoutView;
   screenshot: Attachment;
   layoutLink: string;
+  allowVoting: boolean;
   gameLayoutId?: string;
   townHall?: string;
   notes?: string;
@@ -284,6 +290,14 @@ export function buildLayoutPostEmbed(input: {
     inline: false,
   });
 
+  if (input.allowVoting) {
+    fields.push({
+      name: 'Voting',
+      value: 'Voting is enabled in server settings, but vote collection is not implemented yet.',
+      inline: false,
+    });
+  }
+
   if (input.notes) fields.push({ name: 'Notes', value: input.notes, inline: false });
 
   return new EmbedBuilder()
@@ -294,9 +308,15 @@ export function buildLayoutPostEmbed(input: {
         ? { name: input.view.botName, iconURL: input.view.botAvatarUrl }
         : { name: input.view.botName },
     )
-    .setFooter({ text: 'Voting and download collectors are not implemented yet.' })
+    .setFooter({ text: 'Use the button below to open this layout in Clash of Clans.' })
     .setImage(input.screenshot.url)
     .addFields(fields);
+}
+
+export function buildOpenLayoutButtonRow(layoutLink: string): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Open Layout').setURL(layoutLink),
+  );
 }
 
 export function buildLayoutConfigEmbed(input: {
@@ -317,7 +337,9 @@ export function buildLayoutConfigEmbed(input: {
     .setDescription(
       [
         input.updated ? 'Layout configuration was saved.' : 'Current saved layout configuration.',
-        'Saved submission tracking works when enabled; voting and download collectors are not implemented yet.',
+        input.config.allowVoting
+          ? 'Saved submission tracking works when enabled. Voting is enabled, but vote collection is not implemented yet.'
+          : 'Saved submission tracking works when enabled. Voting is disabled.',
         '',
         settings,
         '',
