@@ -195,7 +195,11 @@ export async function executeActivity(
       guildId: interaction.guildId,
       clanTag: clan.clanTag,
     });
-    await replyWithActivity(interaction, snapshots, buildActivityOptions(days, limit, timezone));
+    await replyWithActivity(
+      interaction,
+      snapshots,
+      buildActivityOptions(days, limit, timezone, formatActivityClanLabel(clan)),
+    );
     return;
   }
 
@@ -211,7 +215,7 @@ async function replyWithActivity(
   options: BuildActivityOptions,
 ): Promise<void> {
   if (snapshots.length === 0 || snapshots.every((entry) => entry.members.length === 0)) {
-    await interaction.editReply({ content: ACTIVITY_NO_SNAPSHOT_MESSAGE });
+    await interaction.editReply({ content: formatActivityNoDataMessage(options) });
     return;
   }
   await interaction.editReply({ embeds: [buildActivityEmbed(snapshots, options)] });
@@ -222,6 +226,7 @@ interface BuildActivityOptions {
   readonly limit: number;
   readonly timezone?: string;
   readonly timezoneSource?: ActivityTimezoneSource;
+  readonly clanFilter?: string;
   readonly now?: Date;
 }
 
@@ -231,12 +236,14 @@ function buildActivityOptions(
   days: ActivityDays,
   limit: number,
   timezone: ActivityResolvedTimezone,
+  clanFilter?: string,
 ): BuildActivityOptions {
   return {
     days,
     limit,
     ...(timezone.timezone ? { timezone: timezone.timezone } : {}),
     ...(timezone.source ? { timezoneSource: timezone.source } : {}),
+    ...(clanFilter ? { clanFilter } : {}),
   };
 }
 
@@ -270,6 +277,7 @@ export function buildActivityEmbed(
     .map((snapshot) => summarizeClanActivity(snapshot, cutoff, options.limit))
     .filter((summary) => summary.totalMembers > 0)
     .sort((a, b) => b.activeMembers - a.activeMembers || a.clanName.localeCompare(b.clanName));
+  const context = collectActivitySnapshotContext(snapshots, summaries, options);
 
   const embed = new EmbedBuilder()
     .setTitle('Clan Activity')
@@ -277,24 +285,69 @@ export function buildActivityEmbed(
       truncateEmbedDescription(formatActivityDescription(summaries, options.timezone)),
     )
     .addFields({
-      name: 'Snapshot source',
-      value:
-        'First pass uses persisted ClashMate last-seen member snapshots, not ClashPerk ClickHouse chart data or live Clash API calls.',
+      name: 'Source & coverage',
+      value: formatActivitySourceContext(context),
       inline: false,
     })
     .setFooter({
       text: `Window: ${options.days} day(s) · Display timezone: ${formatActivityTimezoneLabel(options)}`,
     });
 
-  if (options.timezone) {
-    embed.addFields({
-      name: 'Display timezone',
-      value: `${options.timezone}${options.timezoneSource === 'preference' ? ' (saved preference)' : ''}`,
-      inline: false,
-    });
-  }
-
   return embed;
+}
+
+interface ActivitySnapshotContext {
+  readonly snapshotsConsidered: number;
+  readonly memberRowsConsidered: number;
+  readonly visibleRows: number;
+  readonly latestFetchedAt?: Date;
+  readonly filters: readonly string[];
+  readonly timezoneLabel: string;
+}
+
+function collectActivitySnapshotContext(
+  snapshots: readonly ActivityClanSnapshots[],
+  summaries: readonly ActivityClanSummary[],
+  options: BuildActivityOptions,
+): ActivitySnapshotContext {
+  const latestFetchedAt = snapshots
+    .flatMap((snapshot) => snapshot.members.map((member) => member.lastFetchedAt))
+    .sort((a, b) => b.getTime() - a.getTime())[0];
+
+  return {
+    snapshotsConsidered: snapshots.length,
+    memberRowsConsidered: snapshots.reduce((total, snapshot) => total + snapshot.members.length, 0),
+    visibleRows: summaries.reduce((total, summary) => total + summary.recentMembers.length, 0),
+    ...(latestFetchedAt ? { latestFetchedAt } : {}),
+    filters: formatActivityFilters(options),
+    timezoneLabel: formatActivityTimezoneLabel(options),
+  };
+}
+
+function formatActivitySourceContext(context: ActivitySnapshotContext): string {
+  return [
+    'Persisted-only: reads stored ClashMate member snapshots; no live Clash API lookup is performed.',
+    `Snapshots considered: ${context.snapshotsConsidered} · Member rows considered: ${context.memberRowsConsidered} · Visible rows: ${context.visibleRows}`,
+    `Latest snapshot: ${context.latestFetchedAt ? time(context.latestFetchedAt, 'R') : 'none'}`,
+    `Active filters: ${context.filters.join(' · ')}`,
+    `Timezone: ${context.timezoneLabel}`,
+  ].join('\n');
+}
+
+function formatActivityNoDataMessage(options: BuildActivityOptions): string {
+  return [
+    ACTIVITY_NO_SNAPSHOT_MESSAGE,
+    `Accepted options: clans=${options.clanFilter ?? 'all linked clans'}, days=${options.days}, limit=${options.limit}, timezone=${formatActivityTimezoneLabel(options)}.`,
+    'Persisted-only: this command only reads stored member snapshots and does not perform a live Clash API lookup.',
+  ].join('\n');
+}
+
+function formatActivityFilters(options: BuildActivityOptions): string[] {
+  return [
+    `clans=${options.clanFilter ?? 'all linked clans'}`,
+    `days=${options.days}`,
+    `limit=${options.limit}`,
+  ];
 }
 
 export function summarizeClanActivity(
@@ -425,6 +478,11 @@ function clanMatchesQuery(clan: ActivityLinkedClan, normalizedQuery: string): bo
 function formatClanChoiceName(clan: ActivityLinkedClan): string {
   const label = clan.alias?.trim() || clan.name?.trim() || clan.clanTag;
   return `${label} (${clan.clanTag})`.slice(0, 100);
+}
+
+function formatActivityClanLabel(clan: ActivityLinkedClan): string {
+  const label = clan.alias?.trim() || clan.name?.trim();
+  return label ? `${label} (${clan.clanTag})` : clan.clanTag;
 }
 
 function truncateEmbedDescription(text: string): string {
