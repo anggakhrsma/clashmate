@@ -225,25 +225,29 @@ export function buildClansLeaderboardEmbed(
     }))
     .filter((row) => row.points !== null || row.members !== null)
     .sort((a, b) => (b.points ?? -1) - (a.points ?? -1) || (b.members ?? -1) - (a.members ?? -1));
+  const coverage = buildClanCoverage(filteredClans.length, rows.length);
 
   const embed = baseEmbed('Linked Clan Leaderboard', location, season);
   if (rows.length === 0) {
+    const locationHadMatches = filteredClans.length > 0;
     return embed.setDescription(
       location?.trim() && !isAllLocations(location)
-        ? 'No linked-clan snapshot data is available for that stored location. Autocomplete locations come from persisted linked-clan snapshots only.'
-        : 'No linked-clan snapshot data is available yet. Link/configure a clan and wait for clan polling to store snapshots.',
+        ? locationHadMatches
+          ? `Location filter accepted and matched stored linked-clan snapshots, but no usable clan leaderboard rows were stored.\n${coverage}`
+          : `Location filter accepted, but no stored linked-clan snapshot matched it.\n${coverage}`
+        : `No linked-clan snapshot data is available yet. Link/configure a clan and wait for clan polling to store snapshots.\n${coverage}`,
     );
   }
 
   return embed
     .setDescription(
-      rows
+      `${coverage}\n\n${rows
         .slice(0, MAX_ROWS)
         .map(
           (row, index) =>
             `${index + 1}. ${formatClanLink(row.clan)} · ${formatNumber(row.points)} trophies · ${formatNumber(row.members)} members`,
         )
-        .join('\n'),
+        .join('\n')}`,
     )
     .setFooter({ text: `Showing ${Math.min(rows.length, MAX_ROWS)}/${rows.length} linked clans` });
 }
@@ -272,23 +276,32 @@ export function buildPlayersLeaderboardEmbed(
     );
 
   const embed = baseEmbed('Linked Player Leaderboard', location, season);
+  const linkedClansConsidered = shouldFilterByLocation ? linkedClanTags.size : linkedClans.length;
+  const coverage = buildMemberCoverage(
+    linkedClansConsidered,
+    rows.length,
+    latestMemberSnapshotAt(filteredSnapshots),
+  );
   if (rows.length === 0) {
+    const filteredLocationHadSnapshots = !shouldFilterByLocation || filteredSnapshots.length > 0;
     return embed.setDescription(
       shouldFilterByLocation
-        ? 'No current member snapshot trophies are available for linked clans with that stored location. Player rows are grouped by linked-clan snapshots only.'
-        : 'No current member snapshot trophies are available yet. Link/configure a clan and wait for clan polling to observe members.',
+        ? filteredLocationHadSnapshots
+          ? `Location filter accepted and matched stored linked-clan snapshots, but no usable member trophy rows were stored.\n${coverage}`
+          : `Location filter accepted, but no stored linked-clan snapshot matched it.\n${coverage}`
+        : `No current member snapshot trophies are available yet. Link/configure a clan and wait for clan polling to observe members.\n${coverage}`,
     );
   }
 
   return embed
     .setDescription(
-      rows
+      `${coverage}\n\n${rows
         .slice(0, MAX_ROWS)
         .map(
           (row, index) =>
             `${index + 1}. **${escapeMarkdown(row.member.name)}** · ${formatNumber(row.member.trophies)} trophies · ${escapeMarkdown(labelForClan(row.clan))}`,
         )
-        .join('\n'),
+        .join('\n')}`,
     )
     .setFooter({ text: `Showing ${Math.min(rows.length, MAX_ROWS)}/${rows.length} members` });
 }
@@ -308,27 +321,66 @@ export function buildCapitalLeaderboardEmbed(
     }))
     .filter((row) => row.hall !== null || row.league !== null || row.points !== null)
     .sort((a, b) => (b.points ?? -1) - (a.points ?? -1) || (b.hall ?? -1) - (a.hall ?? -1));
+  const coverage = buildClanCoverage(filteredClans.length, rows.length);
 
   const embed = baseEmbed('Linked Capital Leaderboard', location, season);
   if (rows.length === 0) {
+    const locationHadMatches = filteredClans.length > 0;
     return embed.setDescription(
       location?.trim() && !isAllLocations(location)
-        ? 'No clan capital snapshot data is available for that stored location. Autocomplete locations come from persisted linked-clan snapshots only.'
-        : 'No clan capital snapshot data is available for linked clans yet. Wait for clan polling to store capital hall or capital league data.',
+        ? locationHadMatches
+          ? `Location filter accepted and matched stored linked-clan snapshots, but no usable capital leaderboard rows were stored.\n${coverage}`
+          : `Location filter accepted, but no stored linked-clan snapshot matched it.\n${coverage}`
+        : `No clan capital snapshot data is available for linked clans yet. Wait for clan polling to store capital hall or capital league data.\n${coverage}`,
     );
   }
 
   return embed
     .setDescription(
-      rows
+      `${coverage}\n\n${rows
         .slice(0, MAX_ROWS)
         .map(
           (row, index) =>
             `${index + 1}. ${formatClanLink(row.clan)} · ${formatNumber(row.points)} capital trophies · Hall ${formatNumber(row.hall)} · ${escapeMarkdown(row.league ?? 'Unknown league')}`,
         )
-        .join('\n'),
+        .join('\n')}`,
     )
     .setFooter({ text: `Showing ${Math.min(rows.length, MAX_ROWS)}/${rows.length} linked clans` });
+}
+
+function buildClanCoverage(linkedClansConsidered: number, usableRows: number): string {
+  return `Coverage: ${linkedClansConsidered.toLocaleString('en-US')} linked clan${linkedClansConsidered === 1 ? '' : 's'} considered · ${usableRows.toLocaleString('en-US')} row${usableRows === 1 ? '' : 's'} with usable snapshot data.`;
+}
+
+function buildMemberCoverage(
+  linkedClansConsidered: number,
+  usableRows: number,
+  latestSnapshotAt: Date | null,
+): string {
+  return `${buildClanCoverage(linkedClansConsidered, usableRows)} Latest member snapshot: ${formatSnapshotRecency(latestSnapshotAt)}.`;
+}
+
+function latestMemberSnapshotAt(snapshots: readonly LeaderboardClanSnapshots[]): Date | null {
+  let latest: Date | null = null;
+  for (const snapshot of snapshots) {
+    for (const member of snapshot.members) {
+      if (!latest || member.lastFetchedAt > latest) latest = member.lastFetchedAt;
+    }
+  }
+  return latest;
+}
+
+function formatSnapshotRecency(snapshotAt: Date | null): string {
+  if (!snapshotAt) return 'none stored';
+  const elapsedMs = Date.now() - snapshotAt.getTime();
+  if (!Number.isFinite(elapsedMs)) return snapshotAt.toISOString();
+  if (elapsedMs < 60_000) return 'under 1 minute ago';
+  const elapsedMinutes = Math.floor(elapsedMs / 60_000);
+  if (elapsedMinutes < 60) return `${elapsedMinutes} minute${elapsedMinutes === 1 ? '' : 's'} ago`;
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 48) return `${elapsedHours} hour${elapsedHours === 1 ? '' : 's'} ago`;
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  return `${elapsedDays} day${elapsedDays === 1 ? '' : 's'} ago`;
 }
 
 function baseEmbed(title: string, location: string | null, season: string | null): EmbedBuilder {
