@@ -18,6 +18,9 @@ const SUMMARY_ROW_LIMIT = 10;
 const EMBED_DESCRIPTION_LIMIT = 4096;
 const SUMMARY_SEASON_CHOICES = buildRecentSeasonChoices(new Date(), 12);
 const SUMMARY_RAID_WEEK_CHOICES = buildRecentRaidWeekChoices(new Date(), 6);
+const SUMMARY_RAID_WEEK_LABELS = new Map(
+  SUMMARY_RAID_WEEK_CHOICES.map((choice) => [choice.value, choice.name]),
+);
 
 export const summaryCommandData = new SlashCommandBuilder()
   .setName(SUMMARY_COMMAND_NAME)
@@ -437,6 +440,16 @@ export async function executeSummary(
     );
     return;
   }
+  if (subcommand === 'capital-raids') {
+    const rows = await options.store.listClansForGuild(interaction.guildId);
+    await interaction.editReply(
+      buildSummaryCapitalRaidsPayload(
+        clanTag ? rows.filter((row) => row.clanTag === clanTag) : rows,
+        interaction.options.getString('week'),
+      ),
+    );
+    return;
+  }
 
   await interaction.editReply({ content: unavailableSummaryMessage(subcommand) });
 }
@@ -681,6 +694,68 @@ export function buildSummaryLeaguesPayload(clans: readonly SummaryClanListRow[])
   };
 }
 
+export function buildSummaryCapitalRaidsPayload(
+  clans: readonly SummaryClanListRow[],
+  week: string | null,
+): { content?: string; embeds?: EmbedBuilder[] } {
+  const rows = clans
+    .map((clan) => ({
+      clan,
+      hall: readNestedNumber(clan.snapshot, ['clanCapital', 'capitalHallLevel']),
+      league: readNestedString(clan.snapshot, ['capitalLeague', 'name']),
+      points: readNumber(clan.snapshot, 'clanCapitalPoints'),
+      trophies: readNumber(clan.snapshot, 'clanCapitalTrophies'),
+    }))
+    .filter(
+      (row) =>
+        row.hall !== undefined ||
+        row.league !== null ||
+        row.points !== undefined ||
+        row.trophies !== undefined,
+    )
+    .sort(
+      (a, b) =>
+        (b.trophies ?? b.points ?? -1) - (a.trophies ?? a.points ?? -1) ||
+        (b.hall ?? -1) - (a.hall ?? -1),
+    );
+
+  if (rows.length === 0)
+    return {
+      content:
+        'No clan capital snapshot data is available for linked clans yet. Link/configure a clan and wait for clan polling to store capital hall, league, trophy, or point data. Raid-week attack logs are not persisted, so `/summary capital-raids` cannot show historical raid logs yet.',
+    };
+
+  const weekNote = week?.trim()
+    ? `Week label accepted but not filtered: ${formatRaidWeekFilter(week)}. `
+    : '';
+
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setTitle('Capital Raid Snapshot Summary')
+        .setDescription(
+          truncate(
+            rows
+              .slice(0, SUMMARY_ROW_LIMIT)
+              .map(
+                (row, index) =>
+                  `${index + 1}. **${escapeMarkdown(row.clan.alias ?? row.clan.name ?? row.clan.clanTag)}** (\`${row.clan.clanTag}\`) · ${formatNumber(row.trophies ?? row.points)} capital trophies/points · Hall ${formatNumber(row.hall)} · ${escapeMarkdown(row.league ?? 'Unknown league')}`,
+              )
+              .join('\n'),
+          ),
+        )
+        .addFields({
+          name: 'Source',
+          value: `${weekNote}Raid-week attack logs are not persisted in ClashMate yet; showing current linked-clan capital snapshots only.`,
+          inline: false,
+        })
+        .setFooter({
+          text: `Showing ${Math.min(rows.length, SUMMARY_ROW_LIMIT)}/${rows.length} clans · ${clans.length} total linked clans considered`,
+        }),
+    ],
+  };
+}
+
 export function buildSummaryCompoPayload(clans: readonly SummaryClanListRow[]): {
   content?: string;
   embeds?: EmbedBuilder[];
@@ -808,6 +883,15 @@ function readArray(value: unknown, key: string): readonly unknown[] {
   return Array.isArray(candidate) ? candidate : [];
 }
 
+function readNestedNumber(value: unknown, path: readonly string[]): number | undefined {
+  let current = value;
+  for (const key of path) {
+    if (!isRecord(current)) return undefined;
+    current = current[key];
+  }
+  return typeof current === 'number' && Number.isFinite(current) ? current : undefined;
+}
+
 function readNestedString(value: unknown, path: readonly string[]): string | null {
   let current = value;
   for (const key of path) {
@@ -815,6 +899,16 @@ function readNestedString(value: unknown, path: readonly string[]): string | nul
     current = current[key];
   }
   return typeof current === 'string' && current.trim() ? current : null;
+}
+
+function formatRaidWeekFilter(week: string): string {
+  const trimmed = week.trim();
+  const label = SUMMARY_RAID_WEEK_LABELS.get(trimmed);
+  return label ? `${label} (${trimmed})` : trimmed;
+}
+
+function formatNumber(value: number | undefined): string {
+  return value === undefined ? 'Unknown' : value.toLocaleString('en-US');
 }
 
 function clampSummaryLimit(limit: number): number {
