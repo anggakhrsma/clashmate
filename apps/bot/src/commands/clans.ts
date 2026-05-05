@@ -141,24 +141,51 @@ export function buildClansPayload(input: {
   }
 
   const hasCategoryFilter = Boolean(input.categoryId);
-  const clans = hasCategoryFilter
-    ? input.clans.filter((clan) => clan.categoryId === input.categoryId)
+  const filteredCategory = hasCategoryFilter
+    ? input.categories.find((category) => category.id === input.categoryId)
+    : undefined;
+
+  if (hasCategoryFilter && !filteredCategory) {
+    return {
+      content:
+        `Category filter \`${input.categoryId}\` was accepted, but no stored category matched it. ` +
+        'Use category autocomplete to choose a real stored category.',
+    };
+  }
+
+  const clans = filteredCategory
+    ? input.clans.filter((clan) => clan.categoryId === filteredCategory.id)
     : [...input.clans];
 
   if (hasCategoryFilter && clans.length === 0) {
-    return { content: 'No clans found for the specified category.' };
+    return {
+      content: 'No clans found for the specified category.',
+    };
   }
 
   const description = formatClanGroups(groupClansByCategory(clans, input.categories));
   const [firstChunk = '', ...chunks] = splitText(description, EMBED_DESCRIPTION_LIMIT);
+  const clansWithSnapshotStats = input.clans.filter(hasSnapshotStats).length;
+  const coverageContext = [
+    `Total linked clans: ${input.clans.length}`,
+    `With current snapshot stats: ${clansWithSnapshotStats}`,
+    'Category autocomplete only shows real stored categories.',
+  ];
+  if (filteredCategory) {
+    coverageContext.unshift(`Filtered category: ${filteredCategory.displayName}`);
+  }
   const embed = new EmbedBuilder()
     .setAuthor({
       name: `${input.guildName} Clans`,
       ...(input.guildIconUrl ? { iconURL: input.guildIconUrl } : {}),
     })
-    .setFooter({ text: `Total ${clans.length}` });
+    .setFooter({
+      text: filteredCategory
+        ? `Filtered ${clans.length} of ${input.clans.length} linked clans`
+        : `Total ${input.clans.length}`,
+    });
 
-  embed.setDescription(firstChunk || 'No clans found.');
+  embed.setDescription([firstChunk || 'No clans found.', ...coverageContext].join('\n\n'));
   for (const chunk of chunks.flatMap((value) => splitText(value, EMBED_FIELD_VALUE_LIMIT))) {
     embed.addFields({ name: '\u200b', value: chunk });
   }
@@ -234,6 +261,13 @@ function getSnapshotNumber(snapshot: unknown, key: 'members' | 'clanLevel'): num
   if (!snapshot || typeof snapshot !== 'object') return undefined;
   const value = (snapshot as Record<string, unknown>)[key];
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function hasSnapshotStats(clan: ClansLinkedClan): boolean {
+  return (
+    typeof getSnapshotNumber(clan.snapshot, 'members') === 'number' ||
+    typeof getSnapshotNumber(clan.snapshot, 'clanLevel') === 'number'
+  );
 }
 
 export function splitText(text: string, maxLength: number): string[] {
