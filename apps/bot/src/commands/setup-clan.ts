@@ -136,6 +136,7 @@ export interface SetupClanTrackedClan {
   readonly name: string | null;
   readonly alias?: string | null;
   readonly categoryId?: string | null;
+  readonly channelIds?: readonly string[] | null;
   readonly sortOrder?: number | null;
 }
 
@@ -573,7 +574,7 @@ async function executeSetupClan(
       channelId: unlinkChannel.id,
     });
     await interaction.reply({
-      content: formatUnlinkChannelMessage(result, unlinkChannel.id),
+      content: formatUnlinkChannelMessage(result, unlinkChannel.id, true),
       ephemeral: true,
     });
     return;
@@ -585,7 +586,7 @@ async function executeSetupClan(
       actorDiscordUserId: interaction.user.id,
       clanTag,
     });
-    await interaction.reply({ content: formatUnlinkClanMessage(result), ephemeral: true });
+    await interaction.reply({ content: formatUnlinkClanMessage(result, true), ephemeral: true });
     return;
   }
 
@@ -629,18 +630,26 @@ function normalizeClashTag(tag: string): string {
 export function formatUnlinkChannelMessage(
   result: Awaited<ReturnType<SetupClanStore['unlinkChannel']>>,
   channelId: string,
+  includeAcceptedFilterDetails = false,
 ): string {
   if (result.status === 'unlinked') {
     return `Successfully unlinked **${result.clanName}** from <#${channelId}>.`;
+  }
+  if (includeAcceptedFilterDetails) {
+    return `No linked clan/channel matched the accepted channel filter <#${channelId}>.`;
   }
   return `No clans were found that are linked to <#${channelId}>.`;
 }
 
 export function formatUnlinkClanMessage(
   result: Awaited<ReturnType<SetupClanStore['unlinkClan']>>,
+  includeAcceptedFilterDetails = false,
 ): string {
   if (result.status === 'unlinked') {
     return `Successfully unlinked **${result.clan.name} (${result.clan.clanTag})**.`;
+  }
+  if (includeAcceptedFilterDetails) {
+    return 'No linked clan matched the accepted clan tag filter.';
   }
   return 'No clans were found on the server for the specified tag.';
 }
@@ -666,18 +675,34 @@ export function formatSetupListMessage(
 ): string {
   const filteredClans = filter ? filterSetupClans(clans, filter) : clans;
   if (clans.length === 0) {
-    return 'No clans are linked to this server. Use `/setup clan` to link a clan.';
+    return [
+      'No clans are linked to this server. Use `/setup clan` to link a clan.',
+      'Polling note: only linked/configured resources are tracked.',
+    ].join('\n');
   }
   if (filteredClans.length === 0) {
-    return 'No linked clans matched the `clans` filter.';
+    return `No linked clans matched the accepted \`clans\` filter${filter ? ` \`${filter}\`` : ''}.`;
   }
 
   const categoryNames = new Map(categories.map((category) => [category.id, category.displayName]));
+  const usedCategoryIds = new Set(
+    clans
+      .map((clan) => clan.categoryId)
+      .filter((categoryId): categoryId is string => Boolean(categoryId)),
+  );
+  const visibleChannelCount = clans.reduce(
+    (total, clan) => total + (clan.channelIds?.filter(Boolean).length ?? 0),
+    0,
+  );
   const lines = filteredClans.map((clan, index) => {
+    const channelMentions = clan.channelIds?.filter(Boolean).map((channelId) => `<#${channelId}>`);
     const details = [
       clan.alias ? `alias: ${clan.alias}` : undefined,
       clan.categoryId
         ? `category: ${categoryNames.get(clan.categoryId) ?? clan.categoryId}`
+        : undefined,
+      channelMentions && channelMentions.length > 0
+        ? `channels: ${channelMentions.join(' ')}`
         : undefined,
       typeof clan.sortOrder === 'number' ? `sort: ${clan.sortOrder}` : undefined,
     ].filter((detail): detail is string => Boolean(detail));
@@ -686,7 +711,20 @@ export function formatSetupListMessage(
   });
 
   const suffix = filter ? ` matching \`${filter}\`` : '';
-  return [`Linked clans${suffix}:`, ...lines].join('\n');
+  const categorySummary =
+    categories.length > 0
+      ? `${usedCategoryIds.size}/${categories.length} categories used`
+      : 'no categories configured';
+  const channelSummary =
+    visibleChannelCount > 0
+      ? `${visibleChannelCount} visible channel links`
+      : 'no visible channel links';
+  return [
+    `Linked clans${suffix}: ${filteredClans.length}/${clans.length}`,
+    `Summary: ${categorySummary}; ${channelSummary}.`,
+    ...lines,
+    'Polling note: only linked/configured resources are tracked.',
+  ].join('\n');
 }
 
 function filterSetupClans(
