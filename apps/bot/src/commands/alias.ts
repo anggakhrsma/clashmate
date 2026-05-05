@@ -10,6 +10,7 @@ import {
 export const ALIAS_COMMAND_NAME = 'alias';
 export const ALIAS_COMMAND_DESCRIPTION = 'Manage aliases for linked clans.';
 const MAX_ALIAS_LENGTH = 15;
+const MAX_ALIAS_LIST_LENGTH = 1900;
 
 export const aliasCommandData = new SlashCommandBuilder()
   .setName(ALIAS_COMMAND_NAME)
@@ -144,13 +145,12 @@ async function executeAlias(
 
   const clans = await options.store.listLinkedClans(interaction.guildId);
   if (subcommand === 'create') {
-    const alias = parseAliasValue(
-      interaction.options.getString('alias_name') ?? interaction.options.getString('clan_nickname'),
-    );
-    if (!alias) {
+    const aliasInput =
+      interaction.options.getString('alias_name') ?? interaction.options.getString('clan_nickname');
+    const alias = parseAliasValue(aliasInput);
+    if (alias.status !== 'valid') {
       await interaction.reply({
-        content:
-          'Provide `alias_name` or `clan_nickname` with a non-blank value up to 15 characters.',
+        content: formatInvalidAliasMessage(alias),
         ephemeral: true,
       });
       return;
@@ -159,7 +159,8 @@ async function executeAlias(
     const clan = resolveAliasClan(clans, interaction.options.getString('clan', true));
     if (!clan) {
       await interaction.reply({
-        content: 'That clan is not linked to this server.',
+        content:
+          'No linked clan matched that value. Aliases can only be created for clans already linked to this server.',
         ephemeral: true,
       });
       return;
@@ -169,17 +170,27 @@ async function executeAlias(
       guildId: interaction.guildId,
       actorDiscordUserId: interaction.user.id,
       clanTag: clan.clanTag,
-      alias,
+      alias: alias.value,
     });
-    await interaction.reply({ content: formatSetAliasMessage(result, alias), ephemeral: true });
+    await interaction.reply({
+      content: formatSetAliasMessage(result, alias.value),
+      ephemeral: true,
+    });
     return;
   }
 
   if (subcommand === 'delete') {
     const clan = resolveAliasClan(clans, interaction.options.getString('alias', true));
-    if (!clan?.alias) {
+    if (!clan) {
       await interaction.reply({
-        content: 'No linked clan alias matched that value.',
+        content: 'No linked clan matched that alias, clan tag, or clan name.',
+        ephemeral: true,
+      });
+      return;
+    }
+    if (!clan.alias?.trim()) {
+      await interaction.reply({
+        content: `Matched linked clan **${escapeDiscordText(clan.name)}** (${inlineCode(clan.clanTag)}), but it does not have an alias to delete.`,
         ephemeral: true,
       });
       return;
@@ -193,10 +204,18 @@ async function executeAlias(
   }
 }
 
-export function parseAliasValue(value: string | null): string | undefined {
+export type ParsedAliasValue =
+  | { readonly status: 'valid'; readonly value: string }
+  | { readonly status: 'blank' }
+  | { readonly status: 'overlong'; readonly length: number; readonly maxLength: number };
+
+export function parseAliasValue(value: string | null): ParsedAliasValue {
   const trimmed = value?.trim();
-  if (!trimmed || trimmed.length > MAX_ALIAS_LENGTH) return undefined;
-  return trimmed;
+  if (!trimmed) return { status: 'blank' };
+  if (trimmed.length > MAX_ALIAS_LENGTH) {
+    return { status: 'overlong', length: trimmed.length, maxLength: MAX_ALIAS_LENGTH };
+  }
+  return { status: 'valid', value: trimmed };
 }
 
 export function resolveAliasClan(
@@ -250,27 +269,51 @@ function filterAliasChoices(
 }
 
 export function formatAliasList(clans: readonly AliasTrackedClan[]): string {
-  const aliasedClans = clans.filter((clan) => clan.alias?.trim());
-  if (aliasedClans.length === 0) return 'No linked clan aliases are configured.';
-  return [
+  const aliasedClans = clans
+    .filter((clan) => clan.alias?.trim())
+    .toSorted((left, right) => {
+      const leftAlias = left.alias?.trim().toLowerCase() ?? '';
+      const rightAlias = right.alias?.trim().toLowerCase() ?? '';
+      return leftAlias.localeCompare(rightAlias) || left.name.localeCompare(right.name);
+    });
+  const header = [
     '**Clan Aliases**',
-    ...aliasedClans.map((clan) => `- ${clan.name} (${clan.clanTag}) — ${clan.alias}`),
-  ].join('\n');
+    `Linked clans: **${clans.length}** • Aliases: **${aliasedClans.length}**`,
+    'Aliases are stored only for clans linked to this server.',
+  ];
+  if (aliasedClans.length === 0) {
+    return [...header, '', 'No linked clan aliases are configured yet.'].join('\n');
+  }
+
+  const rows = aliasedClans.map(
+    (clan) =>
+      `- ${inlineCode(clan.alias?.trim() ?? '')} → ${escapeDiscordText(clan.name)} (${inlineCode(clan.clanTag)})`,
+  );
+  return truncateLines([...header, '', ...rows], MAX_ALIAS_LIST_LENGTH);
+}
+
+export function formatInvalidAliasMessage(
+  result: Exclude<ParsedAliasValue, { status: 'valid' }>,
+): string {
+  if (result.status === 'blank') {
+    return 'Provide `alias_name` or `clan_nickname` with a non-blank alias.';
+  }
+  return `Alias names can be at most ${result.maxLength} characters; your alias is ${result.length} characters.`;
 }
 
 export function formatSetAliasMessage(
   result: Awaited<ReturnType<AliasStore['setAlias']>>,
   alias: string,
 ): string {
-  if (result.status === 'not_found') return 'That clan is not linked to this server.';
-  return `Set alias **${alias}** for **${result.clan.name} (${result.clan.clanTag})**.`;
+  if (result.status === 'not_found') return 'That clan is no longer linked to this server.';
+  return `Set alias ${inlineCode(alias)} for **${escapeDiscordText(result.clan.name)}** (${inlineCode(result.clan.clanTag)}).`;
 }
 
 export function formatClearAliasMessage(
   result: Awaited<ReturnType<AliasStore['clearAlias']>>,
 ): string {
-  if (result.status === 'not_found') return 'That clan is not linked to this server.';
-  return `Cleared alias for **${result.clan.name} (${result.clan.clanTag})**.`;
+  if (result.status === 'not_found') return 'That clan is no longer linked to this server.';
+  return `Cleared alias for **${escapeDiscordText(result.clan.name)}** (${inlineCode(result.clan.clanTag)}).`;
 }
 
 function formatAliasChoiceName(clan: AliasTrackedClan): string {
@@ -280,4 +323,26 @@ function formatAliasChoiceName(clan: AliasTrackedClan): string {
 
 function normalizePossibleTag(value: string): string {
   return value.trim().toUpperCase().replace(/^#?/, '#').replace(/O/g, '0');
+}
+
+function inlineCode(value: string): string {
+  return `\`${value.replace(/`/g, 'ˋ')}\``;
+}
+
+function escapeDiscordText(value: string): string {
+  return value.replace(/([\\_*~|>])/g, '\\$1').replace(/`/g, 'ˋ');
+}
+
+function truncateLines(lines: readonly string[], maxLength: number): string {
+  const visible: string[] = [];
+  for (const line of lines) {
+    const candidate = [...visible, line].join('\n');
+    if (candidate.length > maxLength) break;
+    visible.push(line);
+  }
+  const hiddenCount = lines.length - visible.length;
+  if (hiddenCount <= 0) return visible.join('\n');
+  return [...visible, `…and ${hiddenCount} more alias row${hiddenCount === 1 ? '' : 's'}.`].join(
+    '\n',
+  );
 }
