@@ -325,12 +325,16 @@ export async function executeAutoroleInteraction(
     return;
   }
   const patch = buildPatch(interaction, subcommand);
-  const view = patch
-    ? await options.store.updateAutoroleSettings({ ...guildInput, ...patch })
-    : await options.store.getAutoroleSettings(interaction.guildId);
+  const hasChanges = patch
+    ? patch.action === 'disabled' || hasAutorolePatchChanges(patch.patch)
+    : false;
+  const view =
+    patch && hasChanges
+      ? await options.store.updateAutoroleSettings({ ...guildInput, ...patch })
+      : await options.store.getAutoroleSettings(interaction.guildId);
 
   await interaction.reply({
-    embeds: [buildAutoroleSettingsEmbed(view, subcommand)],
+    embeds: [buildAutoroleSettingsEmbed(view, subcommand, Boolean(patch && !hasChanges))],
     ephemeral: true,
   });
 }
@@ -496,18 +500,38 @@ function readRoleOptions(
 export function buildAutoroleSettingsEmbed(
   view: AutoroleSettingsView,
   subcommand: string,
+  viewedOnly = false,
 ): EmbedBuilder {
+  const counts = getAutoroleConfigCounts(view);
   return new EmbedBuilder()
     .setColor(0x5865f2)
     .setTitle('Autorole Configuration')
     .setDescription(AUTOROLE_FIRST_PASS_NOTE)
     .addFields(
+      {
+        name: 'Summary',
+        value: [
+          `Clan role groups: ${counts.clanRoleGroups}`,
+          `Clan role mappings: ${counts.clanRoleMappings}`,
+          `Town Hall roles: ${counts.townHallRoles}`,
+          `League/trophy roles: ${counts.leagueRoles}`,
+          `Family roles: ${counts.familyRoles}`,
+          'No Discord role or nickname changes are made by this first-pass preview.',
+        ].join('\n'),
+        inline: false,
+      },
       { name: 'Clan roles', value: formatNestedRoles(view.clanRoles), inline: false },
       { name: 'Town Hall roles', value: formatRoles(view.townHallRoles), inline: false },
       { name: 'League roles', value: formatRoles(view.leagueRoles), inline: false },
       { name: 'Family roles', value: formatRoles(view.familyRoles), inline: false },
       { name: 'Config', value: formatConfig(view), inline: false },
-      { name: 'Last action', value: `/${AUTOROLE_COMMAND_NAME} ${subcommand}`, inline: false },
+      {
+        name: 'Last action',
+        value: viewedOnly
+          ? `/${AUTOROLE_COMMAND_NAME} ${subcommand} viewed stored config; no changes were submitted.`
+          : `/${AUTOROLE_COMMAND_NAME} ${subcommand}`,
+        inline: false,
+      },
     );
 }
 
@@ -518,6 +542,7 @@ export function buildAutoroleRefreshPreviewEmbed(
   const target = interaction.options.getMentionable('user_or_role');
   const isTestRun = interaction.options.getBoolean('is_test_run');
   const forceRefresh = interaction.options.getBoolean('force_refresh');
+  const counts = getAutoroleConfigCounts(view);
 
   return new EmbedBuilder()
     .setColor(0x5865f2)
@@ -529,20 +554,21 @@ export function buildAutoroleRefreshPreviewEmbed(
       {
         name: 'Requested options',
         value: [
-          `Target: ${target ? target.toString() : 'Entire server preview'}`,
+          `Scope: ${target ? target.toString() : 'Entire server'}`,
           `Test run: ${formatBool(isTestRun)}`,
           `Force refresh: ${formatBool(forceRefresh)}`,
+          'Result: Previewed stored config only; no Discord role or nickname changes were made.',
         ].join('\n'),
         inline: false,
       },
       {
         name: 'Stored config counts',
         value: [
-          `Clan role groups: ${Object.keys(view.clanRoles).length}`,
-          `Clan role mappings: ${countNestedRoles(view.clanRoles)}`,
-          `Town Hall roles: ${countRoles(view.townHallRoles)}`,
-          `League roles: ${countRoles(view.leagueRoles)}`,
-          `Family roles: ${countRoles(view.familyRoles)}`,
+          `Clan role groups: ${counts.clanRoleGroups}`,
+          `Clan role mappings: ${counts.clanRoleMappings}`,
+          `Town Hall roles: ${counts.townHallRoles}`,
+          `League/trophy roles: ${counts.leagueRoles}`,
+          `Family roles: ${counts.familyRoles}`,
         ].join('\n'),
         inline: false,
       },
@@ -590,6 +616,35 @@ function countRoles(roles: Record<string, string>): number {
 
 function countNestedRoles(roles: Record<string, Record<string, string>>): number {
   return Object.values(roles).reduce((total, mapping) => total + countRoles(mapping), 0);
+}
+
+function getAutoroleConfigCounts(view: AutoroleSettingsView): {
+  clanRoleGroups: number;
+  clanRoleMappings: number;
+  townHallRoles: number;
+  leagueRoles: number;
+  familyRoles: number;
+} {
+  return {
+    clanRoleGroups: Object.values(view.clanRoles).filter((mapping) => countRoles(mapping) > 0)
+      .length,
+    clanRoleMappings: countNestedRoles(view.clanRoles),
+    townHallRoles: countRoles(view.townHallRoles),
+    leagueRoles: countRoles(view.leagueRoles),
+    familyRoles: countRoles(view.familyRoles),
+  };
+}
+
+function hasAutorolePatchChanges(patch: Partial<AutoroleSettingsView>): boolean {
+  return Object.values(patch).some((value) => {
+    if (value === null || value === undefined) return false;
+    if (typeof value !== 'object') return true;
+    return Object.values(value).some((nestedValue) => {
+      if (nestedValue === null || nestedValue === undefined || nestedValue === '') return false;
+      if (typeof nestedValue !== 'object') return true;
+      return Object.values(nestedValue).some(Boolean);
+    });
+  });
 }
 
 function clanMatchesQuery(clan: AutoroleLinkedClan, normalizedQuery: string): boolean {
