@@ -194,7 +194,7 @@ export async function executeProfile(
 
   if (resolution.status === 'no_player_link') {
     await interaction.reply({
-      content: `No ClashMate player link was found for **${resolution.playerTag}**. Use \`/link create\` to link it first.`,
+      content: `No stored ClashMate player link was found for **${resolution.playerTag}**. \`/profile\` only reads saved links and never searches the Clash API. Use \`/link create\` to link it first.`,
       ephemeral: true,
     });
     return;
@@ -267,8 +267,12 @@ function orderLinksByRequestedTags(
 function formatNoUserLinksMessage(
   result: Extract<ProfileResolution, { status: 'no_user_links' }>,
 ): string {
-  if (result.isSelf) return 'You do not have linked player accounts. Use `/link create` first.';
-  return `**${sanitizeEmbedText(result.targetUser.displayName, 'This user')}** does not have linked player accounts. Use \`/link create\` to add one.`;
+  const storedOnlyNote =
+    '`/profile` only reads stored ClashMate links and never searches the Clash API.';
+  if (result.isSelf) {
+    return `You do not have linked player accounts. ${storedOnlyNote} Use \`/link create\` first.`;
+  }
+  return `**${sanitizeEmbedText(result.targetUser.displayName, 'This user')}** does not have linked player accounts. ${storedOnlyNote} Use \`/link create\` to add one.`;
 }
 
 export function buildProfileEmbed(
@@ -281,10 +285,11 @@ export function buildProfileEmbed(
 
   if (resolution.status === 'player_link') {
     embed.setDescription(PROFILE_EMBED_DESCRIPTION).addFields(
+      buildProfileSummaryField({ links: [resolution.link], timezone: resolution.timezone }),
       {
         name: formatEmbedFieldName('Discord User'),
         value: truncateEmbedText(
-          `<@${resolution.link.discordUserId}>`,
+          `<@${resolution.link.discordUserId}>\nID: \`${sanitizeEmbedText(resolution.link.discordUserId, 'Unknown')}\``,
           EMBED_FIELD_VALUE_LIMIT,
           'Unknown',
         ),
@@ -296,6 +301,15 @@ export function buildProfileEmbed(
           formatLinkedPlayerTag(resolution.link),
           EMBED_FIELD_VALUE_LIMIT,
           '**Unknown Tag**',
+        ),
+        inline: true,
+      },
+      {
+        name: formatEmbedFieldName('Link Status'),
+        value: truncateEmbedText(
+          formatLinkStatus(resolution.link),
+          EMBED_FIELD_VALUE_LIMIT,
+          'Not verified, not default',
         ),
         inline: true,
       },
@@ -329,11 +343,35 @@ export function buildProfileEmbed(
         ),
         inline: false,
       },
+      buildProfileSummaryField({
+        links: resolution.status === 'user_links' ? resolution.links : [],
+        timezone: resolution.timezone,
+      }),
       ...buildOptionalTimezoneFields(resolution.timezone),
       ...accountFields,
     );
 
   return embed;
+}
+
+function buildProfileSummaryField(input: {
+  readonly links: readonly ProfilePlayerLinkRecord[];
+  readonly timezone: ProfileTimezonePreferenceRecord | null;
+}): { name: string; value: string; inline: false } {
+  const verifiedCount = input.links.filter((link) => link.isVerified).length;
+  const hasDefault = input.links.some((link) => link.isDefault);
+  const rows = [
+    `Linked accounts: **${input.links.length}**`,
+    `Verified: **${verifiedCount}**`,
+    `Default account: **${hasDefault ? 'yes' : 'no'}**`,
+    `Timezone: **${input.timezone ? 'saved' : 'not saved'}**`,
+  ];
+
+  return {
+    name: formatEmbedFieldName('Stored Link Summary'),
+    value: truncateEmbedText(rows.join(' • '), EMBED_FIELD_VALUE_LIMIT, 'No stored profile data.'),
+    inline: false,
+  };
 }
 
 function buildOptionalTimezoneFields(
@@ -371,6 +409,13 @@ function formatLinkedPlayerTag(link: ProfilePlayerLinkRecord): string {
     .join(', ');
   const markerText = markers ? ` (${markers})` : '';
   return `**${sanitizeEmbedText(link.playerTag, 'Unknown Tag')}**${markerText}`;
+}
+
+function formatLinkStatus(link: ProfilePlayerLinkRecord): string {
+  return [
+    `Verified: **${link.isVerified ? 'yes' : 'no'}**`,
+    `Default: **${link.isDefault ? 'yes' : 'no'}**`,
+  ].join('\n');
 }
 
 function buildLinkedAccountFields(
