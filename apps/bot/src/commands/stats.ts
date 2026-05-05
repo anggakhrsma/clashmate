@@ -294,7 +294,7 @@ export async function executeStats(
 
   const subcommand = interaction.options.getSubcommand();
   if (subcommand === 'defense') {
-    await interaction.editReply({ content: STATS_DEFENSE_UNAVAILABLE_MESSAGE });
+    await replyWithStatsDefenseUnavailableEmbed(interaction, options);
     return;
   }
   if (subcommand !== 'attacks') {
@@ -355,6 +355,50 @@ export async function executeStats(
         attemptOption,
         days,
         season: seasonSince,
+        parityFilters,
+      }),
+    ],
+  });
+}
+
+async function replyWithStatsDefenseUnavailableEmbed(
+  interaction: ChatInputCommandInteraction<'cached'>,
+  options: StatsCommandOptions,
+): Promise<void> {
+  const clans = await options.store.listLinkedClans(interaction.guildId);
+  const clanOption = interaction.options.getString('clan');
+  const userOption = interaction.options.getUser('user');
+  const starsOption = readStarsOption(interaction.options.getString('stars'));
+  const attemptOption = readAttemptOption(interaction.options.getString('attempt'));
+  const parityFilters = readStatsParityFilters(interaction);
+
+  let clanLabel: string | undefined;
+  if (clanOption) {
+    const clan = resolveStatsClan(clans, clanOption);
+    if (!clan) {
+      await interaction.editReply({ content: 'No linked clan was found for that clan option.' });
+      return;
+    }
+    clanLabel = `${clan.alias ?? clan.name ?? 'Linked Clan'} (${clan.clanTag})`;
+  }
+
+  let playerTags: string[] | undefined;
+  if (userOption) {
+    playerTags = await options.store.listPlayerTagsForUser(interaction.guildId, userOption.id);
+    if (playerTags.length === 0) {
+      await interaction.editReply({ content: formatNoLinkedPlayersMessage(userOption) });
+      return;
+    }
+  }
+
+  await interaction.editReply({
+    embeds: [
+      buildStatsDefenseUnavailableEmbed({
+        clanLabel,
+        user: userOption,
+        playerTags,
+        starsOption,
+        attemptOption,
         parityFilters,
       }),
     ],
@@ -457,6 +501,75 @@ export function buildStatsAttacksEmbed(
   if (input.user)
     embed.setAuthor({ name: input.user.displayName, iconURL: input.user.displayAvatarURL() });
   return embed;
+}
+
+function buildStatsDefenseUnavailableEmbed(input: {
+  readonly clanLabel: string | undefined;
+  readonly user: User | null;
+  readonly playerTags: readonly string[] | undefined;
+  readonly starsOption: StarsOption | null;
+  readonly attemptOption: AttemptOption | null;
+  readonly parityFilters: StatsParityFilters;
+}): EmbedBuilder {
+  const filterLabels = formatStatsDefenseFilterLabels(input);
+  const embed = new EmbedBuilder()
+    .setTitle('War Defense Stats')
+    .setDescription(STATS_DEFENSE_UNAVAILABLE_MESSAGE)
+    .addFields({
+      name: 'Status',
+      value:
+        'Persisted defense aggregates are not stored yet, so no rankings or totals can be shown.',
+      inline: false,
+    });
+
+  if (filterLabels.length > 0) {
+    embed.addFields({
+      name: 'Accepted filters',
+      value: filterLabels.join('\n').slice(0, 1024),
+      inline: false,
+    });
+  }
+
+  if (input.user) {
+    embed.setAuthor({ name: input.user.displayName, iconURL: input.user.displayAvatarURL() });
+  }
+
+  return embed;
+}
+
+function formatStatsDefenseFilterLabels(input: {
+  readonly clanLabel: string | undefined;
+  readonly user: User | null;
+  readonly playerTags: readonly string[] | undefined;
+  readonly starsOption: StarsOption | null;
+  readonly attemptOption: AttemptOption | null;
+  readonly parityFilters: StatsParityFilters;
+}): string[] {
+  const labels: string[] = [];
+  if (input.clanLabel) labels.push(`Clan: ${input.clanLabel}`);
+  if (input.user) {
+    labels.push(
+      `User: ${escapeMarkdown(input.user.displayName)} (${input.playerTags?.length ?? 0} linked players)`,
+    );
+  }
+  if (input.starsOption) labels.push(`Stars: ${formatStarsOption(input.starsOption)}`);
+  if (input.parityFilters.type)
+    labels.push(`Type: ${formatWarTypeOption(input.parityFilters.type)}`);
+  if (input.parityFilters.season) {
+    labels.push(`Season: Since ${formatSeasonLabel(input.parityFilters.season)}`);
+  }
+  if (input.parityFilters.wars) labels.push(`Wars: ${input.parityFilters.wars}`);
+  if (input.attemptOption) labels.push(`Attempt: ${formatAttemptOption(input.attemptOption)}`);
+  if (input.parityFilters.filterLootHits !== null) {
+    labels.push(`Filter loot hits: ${formatBoolean(input.parityFilters.filterLootHits)}`);
+  }
+  if (input.parityFilters.filterFarmHits !== null) {
+    labels.push(`Filter farm hits: ${formatBoolean(input.parityFilters.filterFarmHits)}`);
+  }
+  if (input.parityFilters.clanOnly !== null) {
+    labels.push(`Clan only: ${formatBoolean(input.parityFilters.clanOnly)}`);
+  }
+  return labels;
 }
 
 function formatStatsRows(rows: readonly StatsWarAttackHistoryRow[]): string {
