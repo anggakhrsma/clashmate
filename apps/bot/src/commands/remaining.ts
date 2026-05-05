@@ -123,6 +123,13 @@ export interface RemainingWarSummary {
   readonly attacksPerMember: number;
   readonly endTime: Date | null;
   readonly rows: RemainingMemberRow[];
+  readonly source?: RemainingWarSourceContext;
+}
+
+export interface RemainingWarSourceContext {
+  readonly fetchedAt: Date;
+  readonly snapshotState: string;
+  readonly missedAttackEventsUsed: boolean;
 }
 
 export interface RemainingPlayerRow extends RemainingMemberRow {
@@ -130,6 +137,11 @@ export interface RemainingPlayerRow extends RemainingMemberRow {
   readonly clanTag: string;
   readonly attacksPerMember: number;
   readonly endTime: Date;
+}
+
+export interface RemainingPlayerEmbedContext {
+  readonly scannedSnapshots: number;
+  readonly persistedOnly: boolean;
 }
 
 export function createRemainingSlashCommand(
@@ -239,13 +251,22 @@ async function executeRemaining(
         ? await options.store.getLinkedPlayerTags(interaction.guildId, user.id)
         : [];
     if (playerTags.length === 0) {
-      await interaction.editReply('No linked player tags were found for that user.');
+      await interaction.editReply(
+        formatNoPlayerTagsMessage({ hasPlayerFilter: Boolean(player), userId: user?.id }),
+      );
       return;
     }
 
     const snapshots = await options.store.getLatestWarSnapshotsForGuild(interaction.guildId);
     const rows = buildPlayerRemainingRows(snapshots, playerTags, new Date());
-    await interaction.editReply({ embeds: [buildPlayerRemainingEmbed(rows, user ?? undefined)] });
+    await interaction.editReply({
+      embeds: [
+        buildPlayerRemainingEmbed(rows, user ?? undefined, {
+          scannedSnapshots: snapshots.length,
+          persistedOnly: true,
+        }),
+      ],
+    });
     return;
   }
 
@@ -260,7 +281,7 @@ async function executeRemaining(
   const snapshot = await options.store.getLatestWarSnapshot(clan.clanTag);
   if (!snapshot) {
     await interaction.editReply(
-      `No current war snapshot is available for **${clan.name ?? clan.clanTag} (${clan.clanTag})** yet.`,
+      `No persisted current war snapshot is available for **${clan.name ?? clan.clanTag} (${clan.clanTag})** yet. Link/configure war polling first; this command does not perform live API lookups.`,
     );
     return;
   }
@@ -284,7 +305,11 @@ async function executeRemaining(
     return;
   }
 
-  const summary = buildRemainingWarSummary(war, clan.clanTag);
+  const summary = withWarSourceContext(
+    buildRemainingWarSummary(war, clan.clanTag),
+    snapshot,
+    false,
+  );
   if (!summary) {
     await interaction.editReply('The stored war snapshot does not include clan war members.');
     return;
@@ -298,7 +323,11 @@ async function executeRemaining(
     );
     if (missedEvents.length > 0) {
       await interaction.editReply({
-        embeds: [buildClanRemainingEmbed(applyMissedWarAttackEvents(summary, missedEvents))],
+        embeds: [
+          buildClanRemainingEmbed(
+            withMissedAttackEventSource(applyMissedWarAttackEvents(summary, missedEvents), true),
+          ),
+        ],
       });
       return;
     }
@@ -321,7 +350,9 @@ async function executeHistoricalRemaining(
     ? await resolveRemainingClan(interaction.guildId, input.clanOption, options.store)
     : null;
   if (input.clanOption && !clan) {
-    await interaction.editReply('No linked clan was found for that clan option.');
+    await interaction.editReply(
+      `No linked clan matches \`${input.clanOption}\`. Historical lookups are persisted-only and can only filter stored snapshots for linked clans.`,
+    );
     return;
   }
 
@@ -331,7 +362,7 @@ async function executeHistoricalRemaining(
     ...(clan ? { clanTag: clan.clanTag } : {}),
   });
   if (snapshots.length === 0) {
-    await interaction.editReply('No historical war snapshot was found for that war id.');
+    await interaction.editReply(formatNoHistoricalWarMessage(input.warKey, input.clanOption));
     return;
   }
 
@@ -342,7 +373,12 @@ async function executeHistoricalRemaining(
         ? await options.store.getLinkedPlayerTags(interaction.guildId, input.user.id)
         : [];
     if (playerTags.length === 0) {
-      await interaction.editReply('No linked player tags were found for that user.');
+      await interaction.editReply(
+        formatNoPlayerTagsMessage({
+          hasPlayerFilter: Boolean(input.player),
+          userId: input.user?.id,
+        }),
+      );
       return;
     }
 
@@ -350,7 +386,12 @@ async function executeHistoricalRemaining(
       includeEndedWars: true,
     });
     await interaction.editReply({
-      embeds: [buildPlayerRemainingEmbed(rows, input.user ?? undefined)],
+      embeds: [
+        buildPlayerRemainingEmbed(rows, input.user ?? undefined, {
+          scannedSnapshots: snapshots.length,
+          persistedOnly: true,
+        }),
+      ],
     });
     return;
   }
@@ -369,7 +410,11 @@ async function executeHistoricalRemaining(
     return;
   }
 
-  const summary = buildRemainingWarSummary(war, snapshot.trackedClan?.clanTag ?? snapshot.clanTag);
+  const summary = withWarSourceContext(
+    buildRemainingWarSummary(war, snapshot.trackedClan?.clanTag ?? snapshot.clanTag),
+    snapshot,
+    false,
+  );
   if (!summary) {
     await interaction.editReply('The stored war snapshot does not include clan war members.');
     return;
@@ -455,6 +500,33 @@ export function buildRemainingWarSummary(
     attacksPerMember,
     endTime: parseWarDate(war.endTime),
     rows,
+  };
+}
+
+function withWarSourceContext(
+  summary: RemainingWarSummary | null,
+  snapshot: RemainingLatestWarSnapshot,
+  missedAttackEventsUsed: boolean,
+): RemainingWarSummary | null {
+  if (!summary) return null;
+  return {
+    ...summary,
+    source: {
+      fetchedAt: snapshot.fetchedAt,
+      snapshotState: normalizeWarState(snapshot.state || summary.state),
+      missedAttackEventsUsed,
+    },
+  };
+}
+
+function withMissedAttackEventSource(
+  summary: RemainingWarSummary,
+  missedAttackEventsUsed: boolean,
+): RemainingWarSummary {
+  if (!summary.source) return summary;
+  return {
+    ...summary,
+    source: { ...summary.source, missedAttackEventsUsed },
   };
 }
 
@@ -577,6 +649,25 @@ export function buildClanRemainingEmbed(summary: RemainingWarSummary): EmbedBuil
     }
   }
 
+  if (summary.source) {
+    const missedEventsLabel =
+      summary.state === 'warended'
+        ? summary.source.missedAttackEventsUsed
+          ? 'used'
+          : 'not used'
+        : 'not applicable';
+    embed.addFields({
+      name: 'Source',
+      value: [
+        `Snapshot fetched ${time(summary.source.fetchedAt, 'R')}`,
+        `War state: ${formatWarStateLabel(summary.source.snapshotState || summary.state)}`,
+        `Attacks/member: ${summary.attacksPerMember}`,
+        `Ended-war missed events: ${missedEventsLabel}`,
+      ].join('\n'),
+      inline: false,
+    });
+  }
+
   return embed.setDescription(description.join('\n'));
 }
 
@@ -597,6 +688,7 @@ function groupRowsByRemaining(
 export function buildPlayerRemainingEmbed(
   rows: readonly RemainingPlayerRow[],
   user?: { displayName: string; id: string; displayAvatarURL: () => string },
+  context?: RemainingPlayerEmbedContext,
 ): EmbedBuilder {
   const embed = new EmbedBuilder().setTitle('Remaining Clan War Attacks');
   if (user)
@@ -619,7 +711,24 @@ export function buildPlayerRemainingEmbed(
     .join('\n');
 
   const total = rows.reduce((sum, row) => sum + row.remaining, 0);
-  return embed.setDescription(description || null).setFooter({ text: `${total} Remaining` });
+  if (context) {
+    embed.addFields({
+      name: 'Source',
+      value: [
+        `Scanned ${context.scannedSnapshots} stored war snapshot${context.scannedSnapshots === 1 ? '' : 's'}.`,
+        context.persistedOnly
+          ? 'Persisted snapshots only; no live Clash API lookup was performed.'
+          : 'Live lookup status unknown.',
+      ].join('\n'),
+      inline: false,
+    });
+  }
+  return embed
+    .setDescription(
+      description ||
+        'No remaining attacks were found in stored war snapshots for the accepted player/user filter.',
+    )
+    .setFooter({ text: `${total} Remaining` });
 }
 
 function getAttacksPerMember(war: RemainingWarData): number {
@@ -636,6 +745,31 @@ function parseWarDate(value: string | undefined): Date | null {
 
 function normalizeWarState(state: string | undefined): string {
   return (state ?? '').trim().toLowerCase();
+}
+
+function formatWarStateLabel(state: string): string {
+  return state === 'preparation'
+    ? 'Preparation'
+    : state === 'warended'
+      ? 'War Ended'
+      : state === 'inwar'
+        ? 'Battle Day'
+        : state || 'Unknown';
+}
+
+function formatNoPlayerTagsMessage(input: {
+  hasPlayerFilter: boolean;
+  userId?: string | undefined;
+}): string {
+  if (input.hasPlayerFilter) {
+    return 'No valid player tag was provided. Player-filtered `/remaining` only scans persisted war snapshots and does not perform live player lookups.';
+  }
+  return `No linked player tags were found${input.userId ? ` for <@${input.userId}>` : ''}. User-filtered \`/remaining\` only scans stored links and persisted war snapshots.`;
+}
+
+function formatNoHistoricalWarMessage(warKey: string, clanOption: string | null): string {
+  const clanText = clanOption ? ` for clan filter \`${clanOption}\`` : '';
+  return `No persisted historical war snapshot was found for war_id \`${warKey}\`${clanText}. This command only searches retained stored snapshots; it does not query the live Clash API.`;
 }
 
 function formatMapPosition(position: number): string {
