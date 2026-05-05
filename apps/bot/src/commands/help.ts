@@ -201,10 +201,13 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
   },
   {
     name: 'clan-games',
-    usage: '/clan-games [clan] [season]',
+    usage: '/clan-games [clan] [user] [season]',
     description: 'Show Clan Games progress for a linked clan.',
     category: 'Player & Clan',
-    details: ['Uses tracked Clan Games data collected for configured clans.'],
+    details: [
+      'Reads only persisted Clan Games snapshots collected for configured clans without querying the Clash API.',
+      'No-data responses echo accepted clan, user, and season filters for troubleshooting.',
+    ],
   },
   {
     name: 'cwl',

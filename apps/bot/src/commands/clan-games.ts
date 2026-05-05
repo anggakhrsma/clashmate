@@ -137,7 +137,11 @@ async function executeClanGames(
 
   if (!scoreboard) {
     await interaction.reply({
-      content: CLAN_GAMES_NO_DATA_MESSAGE,
+      content: formatClanGamesNoDataMessage({
+        ...(clan ? { clan } : {}),
+        ...(seasonId ? { seasonId } : {}),
+        user,
+      }),
       ephemeral: true,
     });
     return;
@@ -166,7 +170,10 @@ function filterScoreboardForUser(
   scoreboard: ClanGamesScoreboardSnapshot,
   user: User,
   playerTags: readonly string[],
-): ClanGamesScoreboardSnapshot & { readonly userFilterNote: string } {
+): ClanGamesScoreboardSnapshot & {
+  readonly totalStoredMembers: number;
+  readonly userFilterNote: string;
+} {
   const linkedTags = new Set(playerTags.map((tag) => tag.toUpperCase()));
   const members = scoreboard.members.filter((member) =>
     linkedTags.has(member.playerTag.toUpperCase()),
@@ -175,15 +182,19 @@ function filterScoreboardForUser(
     ...scoreboard,
     members,
     totalPoints: members.reduce((total, member) => total + member.points, 0),
+    totalStoredMembers: scoreboard.members.length,
     userFilterNote:
       members.length === 0
-        ? `Filtered to linked players for **${escapeMarkdown(user.displayName)}**; no linked players are present in this stored scoreboard.`
-        : `Filtered to linked players for **${escapeMarkdown(user.displayName)}**.`,
+        ? `Filtered to linked players for **${escapeMarkdown(user.displayName)}** (${playerTags.length.toLocaleString()} linked tag${playerTags.length === 1 ? '' : 's'}, 0 matched members). No linked players are present in this stored scoreboard.`
+        : `Filtered to linked players for **${escapeMarkdown(user.displayName)}** (${playerTags.length.toLocaleString()} linked tag${playerTags.length === 1 ? '' : 's'}, ${members.length.toLocaleString()} matched member${members.length === 1 ? '' : 's'}).`,
   };
 }
 
 export function buildClanGamesEmbed(
-  scoreboard: ClanGamesScoreboardSnapshot & { readonly userFilterNote?: string },
+  scoreboard: ClanGamesScoreboardSnapshot & {
+    readonly totalStoredMembers?: number;
+    readonly userFilterNote?: string;
+  },
   mentionSelectedClan: boolean,
 ): EmbedBuilder {
   const clanLabel = `${scoreboard.clanName ?? scoreboard.clanTag} (${scoreboard.clanTag})`;
@@ -194,12 +205,14 @@ export function buildClanGamesEmbed(
     ? `${scoreboard.seasonId} (${seasonChoice.name})`
     : scoreboard.seasonId;
   const visibleMembers = scoreboard.members.slice(0, SCOREBOARD_MEMBER_LIMIT);
+  const totalStoredMembers = scoreboard.totalStoredMembers ?? scoreboard.members.length;
   const descriptionLines = [
     mentionSelectedClan
       ? `Using latest stored snapshot for **${escapeMarkdown(clanLabel)}**.`
       : null,
     `Season: **${escapeMarkdown(seasonLabel)}**`,
-    `Source fetched: ${time(scoreboard.sourceFetchedAt, 'R')}`,
+    `Source fetched: ${time(scoreboard.sourceFetchedAt, 'R')} · Updated: ${time(scoreboard.updatedAt, 'R')}`,
+    `Coverage: ${totalStoredMembers.toLocaleString()} stored member${totalStoredMembers === 1 ? '' : 's'} · ${visibleMembers.length.toLocaleString()} visible member${visibleMembers.length === 1 ? '' : 's'}`,
     scoreboard.userFilterNote ?? null,
     '',
     '```txt',
@@ -220,11 +233,25 @@ export function buildClanGamesEmbed(
       { name: 'Average', value: average.toFixed(1), inline: true },
     )
     .setFooter({
-      text: `Showing top ${visibleMembers.length} of ${scoreboard.members.length}${scoreboard.eventMaxPoints > 0 ? ` · Event max ${scoreboard.eventMaxPoints.toLocaleString()}` : ''}`,
+      text: `Showing top ${visibleMembers.length} of ${scoreboard.members.length}${scoreboard.members.length === totalStoredMembers ? '' : ` filtered · ${totalStoredMembers.toLocaleString()} stored`}${scoreboard.eventMaxPoints > 0 ? ` · Event max ${scoreboard.eventMaxPoints.toLocaleString()}` : ''}`,
     })
     .setTimestamp(scoreboard.updatedAt);
 
   return embed;
+}
+
+function formatClanGamesNoDataMessage(input: {
+  readonly clan?: string;
+  readonly seasonId?: string;
+  readonly user: User | null;
+}): string {
+  const filters = [
+    `clan: ${input.clan ? `\`${escapeMarkdown(input.clan)}\`` : '`latest linked clan`'}`,
+    `season: ${input.seasonId ? `\`${escapeMarkdown(input.seasonId)}\`` : '`latest stored season`'}`,
+    `user: ${input.user ? `**${escapeMarkdown(input.user.displayName)}**` : '`not filtered`'}`,
+  ];
+
+  return `${CLAN_GAMES_NO_DATA_MESSAGE}\nAccepted filters: ${filters.join(' · ')}. This command only reads persisted Clan Games snapshots; it does not call the Clash API or start polling.`;
 }
 
 function formatScoreboardRows(
