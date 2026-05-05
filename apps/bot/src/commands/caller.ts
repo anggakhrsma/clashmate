@@ -1,9 +1,10 @@
 import type { CommandContext, SlashCommandDefinition } from '@clashmate/discord';
-import { escapeMarkdown, SlashCommandBuilder } from 'discord.js';
+import { escapeMarkdown, SlashCommandBuilder, TimestampStyles, time } from 'discord.js';
 
 export const CALLER_COMMAND_NAME = 'caller';
 export const CALLER_COMMAND_DESCRIPTION =
   'Assign or clear persisted war base calls from latest snapshots.';
+const MAX_CALLER_EXPIRY_HOURS = 720;
 
 export interface CallerWarSnapshotRecord {
   readonly clanTag: string;
@@ -185,9 +186,18 @@ export function createCallerSlashCommand(options: CallerCommandOptions): SlashCo
         return;
       }
       const hours = interaction.options.getNumber('hours');
+      if (
+        hours !== null &&
+        (!Number.isFinite(hours) || hours <= 0 || hours > MAX_CALLER_EXPIRY_HOURS)
+      ) {
+        await interaction.reply({
+          content: `Invalid expiry. \`hours\` must be a positive number up to ${MAX_CALLER_EXPIRY_HOURS} hours (30 days).`,
+          ephemeral: true,
+        });
+        return;
+      }
       const note = interaction.options.getString('notes')?.trim() || null;
-      const expiresAt =
-        typeof hours === 'number' ? new Date(Date.now() + hours * 60 * 60 * 1000) : null;
+      const expiresAt = hours !== null ? new Date(Date.now() + hours * 60 * 60 * 1000) : null;
       await options.store.assignCallerBase({
         guildId: interaction.guildId,
         guildName: interaction.guild.name,
@@ -204,7 +214,7 @@ export function createCallerSlashCommand(options: CallerCommandOptions): SlashCo
         actorDiscordUserId: interaction.user.id,
       });
       await interaction.reply({
-        content: `Assigned **#${offenseMapPosition} ${formatName(offense)}** to **#${defenseMapPosition} ${formatName(defense)}**. Persisted from the latest stored war snapshot; no live Clash API lookup was made.`,
+        content: `Assigned **#${offenseMapPosition} ${formatName(offense)}** to **#${defenseMapPosition} ${formatName(defense)}**. ${formatExpiryFeedback(expiresAt)} Persisted from the latest stored war snapshot; no live Clash API lookup was made.`,
         ephemeral: true,
       });
     },
@@ -257,4 +267,12 @@ function createWarKey(war: WarData, fallbackClanTag: string): string {
 
 function formatName(member: WarMember): string {
   return escapeMarkdown(member.name ?? member.tag ?? 'Unknown');
+}
+
+function formatExpiryFeedback(expiresAt: Date | null): string {
+  if (!expiresAt) return 'This call has no expiry.';
+  return `Expires ${time(expiresAt, TimestampStyles.RelativeTime)} (${time(
+    expiresAt,
+    TimestampStyles.ShortDateTime,
+  )}).`;
 }
