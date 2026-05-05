@@ -64,6 +64,14 @@ export interface UpgradeGroups {
   readonly builderBase: readonly UpgradeUnit[];
 }
 
+interface UpgradeProgressSummary {
+  readonly label: string;
+  readonly incompleteUnits: number;
+  readonly remainingLevels: number;
+  readonly currentLevels: number;
+  readonly maxLevels: number;
+}
+
 export function createUpgradesSlashCommand(
   options: UpgradesCommandOptions,
 ): SlashCommandDefinition {
@@ -186,6 +194,7 @@ export async function resolveUpgradesPlayerTag(input: {
 }
 
 export function buildUpgradesEmbed(player: ClashPlayer): EmbedBuilder {
+  const progress = collectUpgradeProgress(player);
   const groups = collectRemainingUpgrades(player);
   const remainingLevels = countRemainingLevels(groups);
   const data = readRecord(player.data) ?? {};
@@ -203,6 +212,7 @@ export function buildUpgradesEmbed(player: ClashPlayer): EmbedBuilder {
           `First pass using public API \`maxLevel\` values${townHall ? ` for TH ${townHall}` : ''}${builderHall ? ` / BH ${builderHall}` : ''}.`,
           'Static town-hall maximum tables are not included yet, so this may include upgrades above the current hall level.',
           `Total remaining levels: **${remainingLevels.toLocaleString('en-US')}**`,
+          formatUpgradeProgressSummary(progress),
         ].join('\n'),
         EMBED_DESCRIPTION_LIMIT,
         'Remaining upgrades from public API maxLevel values.',
@@ -221,10 +231,10 @@ export function buildUpgradesEmbed(player: ClashPlayer): EmbedBuilder {
 
 export function collectRemainingUpgrades(player: ClashPlayer): UpgradeGroups {
   const data = readRecord(player.data) ?? {};
-  const troops = readUpgradeUnits(readValue(data, 'troops'));
-  const spells = readUpgradeUnits(readValue(data, 'spells'));
-  const heroes = readUpgradeUnits(readValue(data, 'heroes'));
-  const equipment = readUpgradeUnits(readValue(data, 'heroEquipment'));
+  const troops = readIncompleteUpgradeUnits(readValue(data, 'troops'));
+  const spells = readIncompleteUpgradeUnits(readValue(data, 'spells'));
+  const heroes = readIncompleteUpgradeUnits(readValue(data, 'heroes'));
+  const equipment = readIncompleteUpgradeUnits(readValue(data, 'heroEquipment'));
 
   return {
     troops: troops.filter((unit) => unit.village !== 'builderBase'),
@@ -233,6 +243,27 @@ export function collectRemainingUpgrades(player: ClashPlayer): UpgradeGroups {
     heroEquipment: equipment,
     builderBase: troops.filter((unit) => unit.village === 'builderBase'),
   };
+}
+
+export function collectUpgradeProgress(player: ClashPlayer): UpgradeProgressSummary[] {
+  const data = readRecord(player.data) ?? {};
+  const troops = readUpgradeUnits(readValue(data, 'troops'));
+  const spells = readUpgradeUnits(readValue(data, 'spells'));
+  const heroes = readUpgradeUnits(readValue(data, 'heroes'));
+  const equipment = readUpgradeUnits(readValue(data, 'heroEquipment'));
+
+  return [
+    summarizeUpgradeProgress('Home', [
+      ...troops.filter((unit) => unit.village !== 'builderBase'),
+      ...spells,
+    ]),
+    summarizeUpgradeProgress(
+      'Builder',
+      troops.filter((unit) => unit.village === 'builderBase'),
+    ),
+    summarizeUpgradeProgress('Heroes', heroes),
+    summarizeUpgradeProgress('Equipment', equipment),
+  ];
 }
 
 export function countRemainingLevels(groups: UpgradeGroups): number {
@@ -298,9 +329,44 @@ function readUpgradeUnits(value: unknown): UpgradeUnit[] {
     const level = readNumber(readValue(item, 'level'));
     const maxLevel = readNumber(readValue(item, 'maxLevel'));
     const village = readString(readValue(item, 'village'));
-    if (!name || level === null || maxLevel === null || level >= maxLevel) return [];
+    if (!name || level === null || maxLevel === null || maxLevel <= 0) return [];
     return [{ name, level, maxLevel, village }];
   });
+}
+
+function readIncompleteUpgradeUnits(value: unknown): UpgradeUnit[] {
+  return readUpgradeUnits(value).filter((unit) => unit.level < unit.maxLevel);
+}
+
+function summarizeUpgradeProgress(
+  label: string,
+  units: readonly UpgradeUnit[],
+): UpgradeProgressSummary {
+  return units.reduce<UpgradeProgressSummary>(
+    (summary, unit) => {
+      const currentLevel = Math.max(0, Math.min(unit.level, unit.maxLevel));
+      const remainingLevels = Math.max(0, unit.maxLevel - currentLevel);
+      return {
+        label: summary.label,
+        incompleteUnits: summary.incompleteUnits + (remainingLevels > 0 ? 1 : 0),
+        remainingLevels: summary.remainingLevels + remainingLevels,
+        currentLevels: summary.currentLevels + currentLevel,
+        maxLevels: summary.maxLevels + unit.maxLevel,
+      };
+    },
+    { label, incompleteUnits: 0, remainingLevels: 0, currentLevels: 0, maxLevels: 0 },
+  );
+}
+
+function formatUpgradeProgressSummary(summaries: readonly UpgradeProgressSummary[]): string {
+  const rows = summaries.map((summary) => {
+    const percent =
+      summary.maxLevels > 0 ? (summary.currentLevels / summary.maxLevels) * 100 : null;
+    const ratio = `${summary.currentLevels.toLocaleString('en-US')}/${summary.maxLevels.toLocaleString('en-US')}`;
+    const percentage = percent === null ? 'n/a' : `${percent.toFixed(1)}%`;
+    return `**${summary.label}:** ${summary.incompleteUnits.toLocaleString('en-US')} units, ${summary.remainingLevels.toLocaleString('en-US')} levels left (${ratio}, ${percentage})`;
+  });
+  return `Progress: ${rows.join(' • ')}`;
 }
 
 function truncateEmbedText(value: string, limit: number, fallback: string): string {
