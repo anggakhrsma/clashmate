@@ -169,9 +169,10 @@ export async function executeCapital(
 
   if (subcommand === 'raids') {
     const raidClans = clan ? [clan] : clans;
-    if (user && !clan && playerTags) {
+    if (user && playerTags) {
       const snapshots = await options.store.listClanMemberSnapshotsForGuild({
         guildId: interaction.guildId,
+        ...(clan ? { clanTag: clan.clanTag } : {}),
       });
       const linkedTags = new Set(playerTags.map((tag) => tag.toUpperCase()));
       const matchedClanTags = new Set(
@@ -184,8 +185,15 @@ export async function executeCapital(
 
       if (matchedClanTags.size === 0) {
         await interaction.editReply({
-          content:
-            'That Discord user has linked Clash accounts, but none are present in current linked-clan member snapshots. Link/configure their clan and wait for clan polling to observe members.',
+          embeds: [
+            buildCapitalRaidsEmbed([], {
+              linkedClansConsidered: raidClans.length,
+              latestMemberSnapshotAt: latestMemberSnapshotDate(snapshots),
+              ...(clan ? { clanLabel: labelForClan(clan) } : {}),
+              week,
+              userId: user.id,
+            }),
+          ],
         });
         return;
       }
@@ -195,6 +203,9 @@ export async function executeCapital(
           buildCapitalRaidsEmbed(
             raidClans.filter((linkedClan) => matchedClanTags.has(linkedClan.clanTag)),
             {
+              linkedClansConsidered: raidClans.length,
+              latestMemberSnapshotAt: latestMemberSnapshotDate(snapshots),
+              ...(clan ? { clanLabel: labelForClan(clan) } : {}),
               week,
               userId: user.id,
             },
@@ -207,6 +218,8 @@ export async function executeCapital(
     await interaction.editReply({
       embeds: [
         buildCapitalRaidsEmbed(raidClans, {
+          linkedClansConsidered: raidClans.length,
+          ...(clan ? { clanLabel: labelForClan(clan) } : {}),
           week,
           ...(user ? { userId: user.id } : {}),
         }),
@@ -222,6 +235,8 @@ export async function executeCapital(
   await interaction.editReply({
     embeds: [
       buildCapitalContributionEmbed(snapshots, {
+        linkedClansConsidered: clan ? 1 : clans.length,
+        ...(clan ? { clanLabel: labelForClan(clan) } : {}),
         week,
         ...(playerTags ? { playerTags } : {}),
         ...(user ? { userId: user.id } : {}),
@@ -243,7 +258,13 @@ export function filterCapitalClanChoices(
 
 export function buildCapitalRaidsEmbed(
   clans: readonly CapitalLinkedClan[],
-  filters: { readonly week: string | null; readonly userId?: string },
+  filters: {
+    readonly week: string | null;
+    readonly userId?: string;
+    readonly clanLabel?: string;
+    readonly linkedClansConsidered?: number;
+    readonly latestMemberSnapshotAt?: Date | null;
+  },
 ): EmbedBuilder {
   const rows = clans
     .map((clan) => ({
@@ -263,10 +284,17 @@ export function buildCapitalRaidsEmbed(
         (b.hall ?? -1) - (a.hall ?? -1),
     );
 
-  const embed = baseCapitalEmbed('Capital Raids', filters);
+  const embed = baseCapitalEmbed('Capital Raids', {
+    ...filters,
+    usableRows: rows.length,
+  });
   if (rows.length === 0) {
     return embed.setDescription(
-      'No clan capital snapshot data is available for linked clans yet. Link/configure a clan and wait for clan polling to store capital hall, league, or trophy data.',
+      formatCapitalNoDataMessage(
+        'No stored clan capital snapshot rows match the accepted filters.',
+        filters,
+        'Link/configure a clan and wait for clan polling to store capital hall, league, or trophy data.',
+      ),
     );
   }
 
@@ -296,14 +324,18 @@ export function buildCapitalContributionEmbed(
     readonly week: string | null;
     readonly playerTags?: readonly string[];
     readonly userId?: string;
+    readonly clanLabel?: string;
+    readonly linkedClansConsidered?: number;
   },
 ): EmbedBuilder {
   const tagFilter = filters.playerTags ? new Set(filters.playerTags) : undefined;
   const members = snapshots.flatMap((snapshot) =>
     snapshot.members.map((member) => ({ member, clan: snapshot.clan })),
   );
-  const rows = members
-    .filter((row) => !tagFilter || tagFilter.has(row.member.playerTag))
+  const filteredMembers = members.filter(
+    (row) => !tagFilter || tagFilter.has(row.member.playerTag),
+  );
+  const rows = filteredMembers
     .map((row) => ({
       ...row,
       contribution:
@@ -317,15 +349,36 @@ export function buildCapitalContributionEmbed(
         a.member.name.localeCompare(b.member.name),
     );
 
-  const embed = baseCapitalEmbed('Capital Contribution', filters);
+  const embed = baseCapitalEmbed('Capital Contribution', {
+    ...filters,
+    latestMemberSnapshotAt: latestMemberSnapshotDate(snapshots),
+    usableRows: rows.length,
+  });
   if (members.length === 0) {
     return embed.setDescription(
-      'No current member snapshots are available yet. Link/configure a clan and wait for clan polling to observe members.',
+      formatCapitalNoDataMessage(
+        'No stored member snapshot rows match the accepted clan/week filters.',
+        filters,
+        'Link/configure a clan and wait for clan polling to observe members.',
+      ),
+    );
+  }
+  if (filteredMembers.length === 0) {
+    return embed.setDescription(
+      formatCapitalNoDataMessage(
+        'No stored member snapshot rows match the accepted user filter.',
+        filters,
+        'The selected Discord user has linked Clash accounts, but they were not found in the current linked-clan member snapshots.',
+      ),
     );
   }
   if (rows.length === 0) {
     return embed.setDescription(
-      'No per-member capital contribution data is available in current persisted snapshots yet. Existing member snapshots do not include capital contribution or capital gold fields.',
+      formatCapitalNoDataMessage(
+        'No stored member snapshot rows with usable capital contribution data match the accepted filters.',
+        filters,
+        'Existing member snapshots do not include capital contribution or capital gold fields.',
+      ),
     );
   }
 
@@ -366,14 +419,79 @@ export function resolveCapitalClan(
 
 function baseCapitalEmbed(
   title: string,
-  filters: { readonly week: string | null; readonly userId?: string },
+  filters: {
+    readonly week: string | null;
+    readonly userId?: string;
+    readonly clanLabel?: string;
+    readonly linkedClansConsidered?: number;
+    readonly latestMemberSnapshotAt?: Date | null;
+    readonly usableRows?: number;
+  },
 ): EmbedBuilder {
-  const notes = ['Uses current persisted linked-clan snapshots only.'];
+  const notes = ['Persisted-only: uses current stored linked-clan snapshots; no Clash API lookup.'];
+  if (typeof filters.linkedClansConsidered === 'number')
+    notes.push(
+      `Linked clans considered: ${filters.linkedClansConsidered.toLocaleString('en-US')}.`,
+    );
+  if (typeof filters.usableRows === 'number')
+    notes.push(`Rows with usable capital data: ${filters.usableRows.toLocaleString('en-US')}.`);
+  if (filters.latestMemberSnapshotAt)
+    notes.push(
+      `Latest member snapshot: ${formatRelativeSnapshotAge(filters.latestMemberSnapshotAt)}.`,
+    );
   if (filters.week?.trim())
-    notes.push(`Week label accepted but not filtered: ${formatRaidWeekFilter(filters.week)}.`);
+    notes.push(
+      `Week label only: ${formatRaidWeekFilter(filters.week)}; raid logs are not persisted or filtered.`,
+    );
   if (filters.userId)
     notes.push('User filter uses linked Clash account tags where member data exists.');
   return new EmbedBuilder().setTitle(title).addFields({ name: 'Source', value: notes.join('\n') });
+}
+
+function formatCapitalNoDataMessage(
+  summary: string,
+  filters: { readonly week: string | null; readonly userId?: string; readonly clanLabel?: string },
+  nextStep: string,
+): string {
+  const acceptedFilters = [
+    'clanLabel' in filters && filters.clanLabel
+      ? `clan:${escapeMarkdown(filters.clanLabel)}`
+      : undefined,
+    filters.userId ? `user:<@${filters.userId}>` : undefined,
+    filters.week?.trim() ? `week:${formatRaidWeekFilter(filters.week)}` : undefined,
+  ].filter((value): value is string => Boolean(value));
+  return [
+    summary,
+    acceptedFilters.length > 0 ? `Accepted filters: ${acceptedFilters.join(', ')}.` : undefined,
+    nextStep,
+    'This command is persisted-only; the week option is a display/parity label and does not load raid logs.',
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join('\n');
+}
+
+function latestMemberSnapshotDate(snapshots: readonly CapitalClanMemberSnapshots[]): Date | null {
+  let latest: Date | null = null;
+  for (const snapshot of snapshots) {
+    for (const member of snapshot.members) {
+      if (member.lastFetchedAt && (!latest || member.lastFetchedAt.getTime() > latest.getTime())) {
+        latest = member.lastFetchedAt;
+      }
+    }
+  }
+  return latest;
+}
+
+function formatRelativeSnapshotAge(date: Date): string {
+  const milliseconds = Date.now() - date.getTime();
+  if (!Number.isFinite(milliseconds) || milliseconds < 0) return date.toISOString();
+  const minutes = Math.floor(milliseconds / 60_000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 }
 
 function getRecentRaidWeekChoices(now: Date): ApplicationCommandOptionChoiceData<string>[] {
