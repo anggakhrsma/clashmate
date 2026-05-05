@@ -86,6 +86,14 @@ interface WarlogEntry {
   readonly war: WarData;
 }
 
+export interface WarlogOutputContext {
+  readonly retainedSnapshotsScanned: number;
+  readonly visibleEntries: number;
+  readonly latestFetchedAt: Date | null;
+  readonly clan?: WarlogTrackedClan;
+  readonly user?: { readonly id: string; readonly displayName: string };
+}
+
 export function createWarlogSlashCommand(options: WarlogCommandOptions): SlashCommandDefinition {
   return {
     name: WARLOG_COMMAND_NAME,
@@ -177,20 +185,59 @@ async function executeWarlog(
     ...(clan ? { clanTag: clan.clanTag } : {}),
     limit: user ? 50 : WARLOG_LIMIT,
   });
+  const latestFetchedAt = findLatestFetchedAt(snapshots);
   const entries = snapshots
     .map((snapshot) => ({ snapshot, war: extractWarData(snapshot.snapshot) }))
     .filter((entry): entry is WarlogEntry => Boolean(entry.war))
     .filter((entry) => playerTags.length === 0 || warIncludesPlayer(entry.war, playerTags))
     .slice(0, WARLOG_LIMIT);
 
+  const outputContext: WarlogOutputContext = {
+    retainedSnapshotsScanned: snapshots.length,
+    visibleEntries: entries.length,
+    latestFetchedAt,
+    ...(clan ? { clan } : {}),
+    ...(user ? { user: { id: user.id, displayName: user.displayName } } : {}),
+  };
+
   if (entries.length === 0) {
-    await interaction.editReply(
-      'No retained war log is available yet. Link/configure a clan and wait for completed wars to be polled.',
-    );
+    await interaction.editReply(formatWarlogNoDataMessage(outputContext));
     return;
   }
 
-  await interaction.editReply({ embeds: [buildWarlogEmbed(entries, user ?? undefined)] });
+  await interaction.editReply({
+    embeds: [buildWarlogEmbed(entries, outputContext, user ?? undefined)],
+  });
+}
+
+function findLatestFetchedAt(snapshots: readonly WarlogRetainedWarSnapshot[]): Date | null {
+  let latest: Date | null = null;
+  for (const snapshot of snapshots) {
+    if (!latest || snapshot.fetchedAt > latest) latest = snapshot.fetchedAt;
+  }
+  return latest;
+}
+
+function formatWarlogNoDataMessage(context: WarlogOutputContext): string {
+  const lines = [
+    context.retainedSnapshotsScanned > 0
+      ? 'No retained war log entries matched the accepted filters.'
+      : 'No retained war log is available yet for the accepted filters.',
+    formatWarlogContextLine(context),
+    'Source: persisted retained-war snapshots only; no live Clash API lookup is performed by `/warlog`.',
+  ];
+
+  if (context.clan) {
+    lines.push(`Clan filter accepted: ${formatTrackedClan(context.clan)}.`);
+  }
+  if (context.user) {
+    lines.push(`User filter accepted: ${context.user.displayName} (${context.user.id}).`);
+  }
+  if (context.retainedSnapshotsScanned === 0) {
+    lines.push('Link/configure a clan and wait for completed wars to be polled.');
+  }
+
+  return lines.join('\n');
 }
 
 async function resolveWarlogClan(
@@ -334,9 +381,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export function buildWarlogEmbed(
   entries: readonly WarlogEntry[],
+  context: WarlogOutputContext,
   user?: { id: string; displayName: string; displayAvatarURL: () => string },
 ): EmbedBuilder {
-  const embed = new EmbedBuilder().setTitle('Retained War Log');
+  const embed = new EmbedBuilder()
+    .setTitle('Retained War Log')
+    .setDescription(
+      [
+        formatWarlogContextLine(context),
+        'Source: persisted retained-war snapshots only; no live Clash API lookup.',
+      ].join('\n'),
+    );
   if (user)
     embed.setAuthor({ name: `${user.displayName} (${user.id})`, iconURL: user.displayAvatarURL() });
 
@@ -358,6 +413,21 @@ export function buildWarlogEmbed(
   }
 
   return embed;
+}
+
+function formatWarlogContextLine(context: WarlogOutputContext): string {
+  const filters = [
+    context.clan ? `clan ${formatTrackedClan(context.clan)}` : null,
+    context.user ? `user ${context.user.displayName} (${context.user.id})` : null,
+  ].filter((value): value is string => Boolean(value));
+  const latest = context.latestFetchedAt ? time(context.latestFetchedAt, 'R') : 'none';
+
+  return `Coverage: scanned ${context.retainedSnapshotsScanned} retained snapshot${context.retainedSnapshotsScanned === 1 ? '' : 's'}; showing ${context.visibleEntries}; latest fetched ${latest}; filters accepted: ${filters.length > 0 ? filters.join(', ') : 'none'}.`;
+}
+
+function formatTrackedClan(clan: WarlogTrackedClan): string {
+  const label = clan.name ?? clan.alias ?? clan.clanTag;
+  return `${label} (${clan.clanTag})`;
 }
 
 function choosePerspectiveClan(war: WarData, clanTag: string): WarClan | undefined {
