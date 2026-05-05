@@ -259,6 +259,8 @@ export interface SummaryMemberSnapshotRow {
   readonly trophies?: number | null;
   readonly lastSeenAt?: Date;
   readonly lastFetchedAt?: Date;
+  readonly capitalContribution?: number | null;
+  readonly capitalGold?: number | null;
 }
 
 export interface SummaryClanMemberSnapshots {
@@ -447,6 +449,16 @@ export async function executeSummary(
         clanTag ? rows.filter((row) => row.clanTag === clanTag) : rows,
         interaction.options.getString('week'),
       ),
+    );
+    return;
+  }
+  if (subcommand === 'capital-contribution') {
+    const snapshots = await options.store.listClanMemberSnapshotsForGuild({
+      guildId: interaction.guildId,
+      ...(clanTag ? { clanTag } : {}),
+    });
+    await interaction.editReply(
+      buildSummaryCapitalContributionPayload(snapshots, interaction.options.getString('week')),
     );
     return;
   }
@@ -756,6 +768,78 @@ export function buildSummaryCapitalRaidsPayload(
   };
 }
 
+export function buildSummaryCapitalContributionPayload(
+  snapshots: readonly SummaryClanMemberSnapshots[],
+  week: string | null,
+): { content?: string; embeds?: EmbedBuilder[] } {
+  const members = snapshots.flatMap((snapshot) =>
+    snapshot.members.map((member) => ({ member, clan: snapshot.clan })),
+  );
+  if (members.length === 0)
+    return {
+      content:
+        'No current member snapshots are available yet. Link/configure a clan and wait for clan polling to observe members.',
+    };
+
+  const rows = members
+    .map((row) => ({
+      ...row,
+      contribution:
+        readMemberCapitalNumber(row.member, 'capitalContribution') ??
+        readMemberCapitalNumber(row.member, 'capitalGold'),
+    }))
+    .filter((row) => row.contribution !== undefined)
+    .sort(
+      (a, b) =>
+        (b.contribution ?? -1) - (a.contribution ?? -1) ||
+        a.member.name.localeCompare(b.member.name),
+    );
+
+  if (rows.length === 0)
+    return {
+      content:
+        'No per-member capital contribution data is available in current persisted snapshots. Existing member snapshots do not include capital contribution or capital gold fields.',
+    };
+
+  const weekNote = week?.trim()
+    ? `Week label accepted but not filtered: ${formatRaidWeekFilter(week)}. `
+    : '';
+  const total = rows.reduce((sum, row) => sum + (row.contribution ?? 0), 0);
+
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setTitle('Capital Contribution Summary')
+        .setDescription(
+          truncate(
+            rows
+              .slice(0, SUMMARY_ROW_LIMIT)
+              .map(
+                (row, index) =>
+                  `${index + 1}. **${escapeMarkdown(row.member.name)}** · ${formatNumber(row.contribution)} capital gold · ${escapeMarkdown(row.clan.alias ?? row.clan.name ?? row.clan.clanTag)}`,
+              )
+              .join('\n'),
+          ),
+        )
+        .addFields(
+          {
+            name: 'Totals',
+            value: `${formatNumber(total)} capital gold · ${rows.length} members with contribution data`,
+            inline: false,
+          },
+          {
+            name: 'Source',
+            value: `${weekNote}Raid-week contribution history is not persisted in ClashMate yet; showing current persisted member snapshot fields only.`,
+            inline: false,
+          },
+        )
+        .setFooter({
+          text: `Showing ${Math.min(rows.length, SUMMARY_ROW_LIMIT)}/${rows.length} members · ${members.length} current members considered`,
+        }),
+    ],
+  };
+}
+
 export function buildSummaryCompoPayload(clans: readonly SummaryClanListRow[]): {
   content?: string;
   embeds?: EmbedBuilder[];
@@ -905,6 +989,14 @@ function formatRaidWeekFilter(week: string): string {
   const trimmed = week.trim();
   const label = SUMMARY_RAID_WEEK_LABELS.get(trimmed);
   return label ? `${label} (${trimmed})` : trimmed;
+}
+
+function readMemberCapitalNumber(
+  member: SummaryMemberSnapshotRow,
+  key: 'capitalContribution' | 'capitalGold',
+): number | undefined {
+  const value = member[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 function formatNumber(value: number | undefined): string {
