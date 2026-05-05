@@ -269,9 +269,11 @@ export async function executeHistory(
   }
 
   let playerTags: string[] | undefined;
+  let playerTagLabel: string | undefined;
   if (playerOption) {
     try {
-      playerTags = [normalizeClashTag(playerOption)];
+      playerTagLabel = normalizeClashTag(playerOption);
+      playerTags = [playerTagLabel];
     } catch {
       await interaction.editReply({ content: 'That player tag is not valid.' });
       return;
@@ -304,7 +306,17 @@ export async function executeHistory(
 
   const unavailableMessage = getUnavailableHistoryMessage(option);
   if (unavailableMessage) {
-    await interaction.editReply({ content: unavailableMessage });
+    await interaction.editReply({
+      embeds: [
+        buildUnavailableHistoryEmbed(
+          option,
+          unavailableMessage,
+          clanLabel,
+          playerTagLabel,
+          userOption,
+        ),
+      ],
+    });
     return;
   }
 
@@ -528,6 +540,63 @@ function getUnavailableHistoryMessage(option: HistoryOption): string | undefined
       return HISTORY_NO_EOS_TROPHIES_EVENTS_MESSAGE;
     default:
       return undefined;
+  }
+}
+
+export function buildUnavailableHistoryEmbed(
+  option: HistoryOption,
+  message: string,
+  clanLabel: string | undefined,
+  playerTag: string | undefined,
+  user: User | null,
+): EmbedBuilder {
+  const filters = formatAcceptedHistoryFilters(clanLabel, playerTag, user);
+  return new EmbedBuilder()
+    .setTitle(`${formatHistoryOptionTitle(option)} History Unavailable`)
+    .setDescription(
+      `${message}\n\nNo Clash API calls or polling enrollment will be performed for this request.`,
+    )
+    .addFields({ name: 'Accepted filters', value: filters, inline: false });
+}
+
+function formatAcceptedHistoryFilters(
+  clanLabel: string | undefined,
+  playerTag: string | undefined,
+  user: User | null,
+): string {
+  const filters = [
+    clanLabel ? `Clan: ${clanLabel}` : undefined,
+    playerTag ? `Player: \`${playerTag}\`` : undefined,
+    user ? `User: <@${user.id}>` : undefined,
+  ].filter((value): value is string => Boolean(value));
+
+  return filters.length > 0 ? filters.join('\n') : 'No valid filters were provided.';
+}
+
+function formatHistoryOptionTitle(option: HistoryOption): string {
+  switch (option) {
+    case 'capital-raids':
+      return 'Capital Raids';
+    case 'capital-contribution':
+      return 'Capital Contribution';
+    case 'attacks':
+      return 'Attacks';
+    case 'loot':
+      return 'Loot';
+    case 'legend-attacks':
+      return 'Legend Attacks';
+    case 'eos-trophies':
+      return 'EOS Trophies';
+    case 'clan-games':
+      return 'Clan Games';
+    case 'cwl-attacks':
+      return 'CWL Attacks';
+    case 'war-attacks':
+      return 'War Attacks';
+    case 'donations':
+      return 'Donations';
+    case 'join-leave':
+      return 'Join/Leave';
   }
 }
 
