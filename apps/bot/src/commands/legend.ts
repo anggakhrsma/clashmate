@@ -223,11 +223,50 @@ export async function executeLegend(
 
   const subcommand = interaction.options.getSubcommand() as LegendSubcommand;
   if (subcommand === 'attacks') {
-    await interaction.editReply({ embeds: [buildLegendUnsupportedEmbed('Legend Attacks')] });
+    const clanOption = interaction.options.getString('clans');
+    const clan = await resolveLegendClan(interaction.guildId, clanOption, options.store);
+    if (clanOption && !clan) {
+      await interaction.editReply({
+        content:
+          'I could not resolve that clan from linked clans in this server. Pick a linked clan from autocomplete or use its exact tag, name, or alias.',
+      });
+      return;
+    }
+
+    await interaction.editReply({
+      embeds: [
+        buildLegendUnsupportedEmbed('Legend Attacks', {
+          clan,
+          userMention: interaction.options.getUser('user')?.toString() ?? null,
+          day: interaction.options.getNumber('day'),
+        }),
+      ],
+    });
     return;
   }
   if (subcommand === 'days') {
-    await interaction.editReply({ embeds: [buildLegendUnsupportedEmbed('Legend Days')] });
+    const snapshots = await options.store.listClanMemberSnapshotsForGuild({
+      guildId: interaction.guildId,
+    });
+    const playerOption = interaction.options.getString('player');
+    const player = resolveLegendPlayerSnapshot(snapshots, playerOption);
+    if (playerOption && !player) {
+      await interaction.editReply({
+        content:
+          'I could not resolve that player from current linked-clan member snapshots in this server. Pick a stored player from autocomplete or use its exact tag or name.',
+      });
+      return;
+    }
+
+    await interaction.editReply({
+      embeds: [
+        buildLegendUnsupportedEmbed('Legend Days', {
+          player,
+          userMention: interaction.options.getUser('user')?.toString() ?? null,
+          day: interaction.options.getNumber('day'),
+        }),
+      ],
+    });
     return;
   }
 
@@ -368,12 +407,29 @@ export function buildLegendStatsEmbed(
   return embed;
 }
 
-export function buildLegendUnsupportedEmbed(title: string): EmbedBuilder {
-  return new EmbedBuilder()
+interface LegendUnsupportedFilterContext {
+  readonly clan?: LegendLinkedClan | undefined;
+  readonly player?: LegendMemberSnapshotRow | undefined;
+  readonly userMention?: string | null;
+  readonly day?: number | null;
+}
+
+export function buildLegendUnsupportedEmbed(
+  title: string,
+  filterContext: LegendUnsupportedFilterContext = {},
+): EmbedBuilder {
+  const filterLines = formatLegendUnsupportedFilterLines(filterContext);
+  const embed = new EmbedBuilder()
     .setTitle(title)
     .setDescription(
       'No stored Legend attack/day data exists in ClashMate yet, so this first-pass command does not perform live lookups. It uses no Clash API calls, exports, external feeds, or polling enrollment.',
     );
+
+  if (filterLines.length > 0) {
+    embed.addFields({ name: 'Accepted filters', value: filterLines.join('\n'), inline: false });
+  }
+
+  return embed;
 }
 
 export function filterLegendClanChoices(
@@ -423,6 +479,66 @@ async function resolveLegendClanTag(
       clan.alias?.toLowerCase() === normalizedOption ||
       clan.name?.toLowerCase() === normalizedOption,
   )?.clanTag;
+}
+
+async function resolveLegendClan(
+  guildId: string,
+  clanOption: string | null,
+  store: LegendStore,
+): Promise<LegendLinkedClan | undefined> {
+  if (!clanOption) return undefined;
+  const clans = await store.listLinkedClans(guildId);
+  const normalizedOption = clanOption.trim().toLowerCase();
+  const normalizedTag = tryNormalizeLegendTag(clanOption);
+  return clans.find(
+    (clan) =>
+      (normalizedTag !== null && clan.clanTag === normalizedTag) ||
+      clan.alias?.toLowerCase() === normalizedOption ||
+      clan.name?.toLowerCase() === normalizedOption,
+  );
+}
+
+function resolveLegendPlayerSnapshot(
+  snapshots: readonly LegendClanSnapshots[],
+  playerOption: string | null,
+): LegendMemberSnapshotRow | undefined {
+  if (!playerOption) return undefined;
+  const normalizedOption = playerOption.trim().toLowerCase();
+  const normalizedTag = tryNormalizeLegendTag(playerOption);
+  return collectLegendRows(snapshots).find(
+    (row) =>
+      (normalizedTag !== null && row.member.playerTag === normalizedTag) ||
+      row.member.name.toLowerCase() === normalizedOption,
+  )?.member;
+}
+
+function tryNormalizeLegendTag(value: string): string | null {
+  try {
+    return normalizeClashTag(value);
+  } catch {
+    return null;
+  }
+}
+
+function formatLegendUnsupportedFilterLines(
+  filterContext: LegendUnsupportedFilterContext,
+): string[] {
+  const lines: string[] = [];
+  if (filterContext.clan) {
+    lines.push(
+      `Clan: ${escapeMarkdown(labelForLegendClan(filterContext.clan))} (${filterContext.clan.clanTag})`,
+    );
+  }
+  if (filterContext.player) {
+    lines.push(
+      `Player: ${escapeMarkdown(filterContext.player.name)} (${filterContext.player.playerTag})`,
+    );
+  }
+  if (filterContext.userMention) lines.push(`User: ${filterContext.userMention}`);
+  if (filterContext.day !== null && filterContext.day !== undefined) {
+    lines.push(`Day: ${Math.trunc(filterContext.day).toLocaleString()}`);
+  }
+  return lines;
 }
 
 function collectLegendRows(snapshots: readonly LegendClanSnapshots[]) {
