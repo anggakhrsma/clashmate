@@ -3,6 +3,8 @@ import {
   type ApplicationCommandOptionChoiceData,
   type AutocompleteInteraction,
   type ChatInputCommandInteraction,
+  escapeMarkdown,
+  inlineCode,
   PermissionFlagsBits,
   SlashCommandBuilder,
 } from 'discord.js';
@@ -157,32 +159,47 @@ async function executeCategory(
   const subcommand = interaction.options.getSubcommand();
   if (subcommand === 'list') {
     const categories = await options.store.listClanCategories(interaction.guildId);
-    await interaction.reply({ content: formatCategoryList(categories), ephemeral: true });
+    await interaction.reply({
+      content: formatCategoryList(categories),
+      ephemeral: true,
+      allowedMentions: { parse: [] },
+    });
     return;
   }
 
   if (subcommand === 'create') {
-    const displayName = parseCategoryDisplayName(
+    const validation = validateCategoryDisplayName(
       interaction.options.getString('category_name', true),
     );
-    if (!displayName) {
-      await interaction.reply({ content: 'Provide a non-blank category name.', ephemeral: true });
+    if (validation.status !== 'valid') {
+      await interaction.reply({
+        content: formatCategoryNameValidationMessage(validation),
+        ephemeral: true,
+      });
       return;
     }
     const result = await options.store.createClanCategory({
       guildId: interaction.guildId,
       actorDiscordUserId: interaction.user.id,
-      displayName,
+      displayName: validation.displayName,
     });
     await interaction.reply({ content: formatCreateCategoryMessage(result), ephemeral: true });
     return;
   }
 
   if (subcommand === 'edit') {
-    const displayName = parseCategoryDisplayName(interaction.options.getString('category_name'));
-    if (!displayName) {
+    const rawDisplayName = interaction.options.getString('category_name');
+    if (rawDisplayName === null) {
       await interaction.reply({
         content: 'No category name was provided. Reorder UI is not available in ClashMate yet.',
+        ephemeral: true,
+      });
+      return;
+    }
+    const validation = validateCategoryDisplayName(rawDisplayName);
+    if (validation.status !== 'valid') {
+      await interaction.reply({
+        content: formatCategoryNameValidationMessage(validation),
         ephemeral: true,
       });
       return;
@@ -196,11 +213,17 @@ async function executeCategory(
       await interaction.reply({ content: 'No category matched that value.', ephemeral: true });
       return;
     }
+    if (
+      normalizeCategoryName(category.displayName) === normalizeCategoryName(validation.displayName)
+    ) {
+      await interaction.reply({ content: 'That category already has this name.', ephemeral: true });
+      return;
+    }
     const result = await options.store.updateClanCategory({
       guildId: interaction.guildId,
       actorDiscordUserId: interaction.user.id,
       categoryId: category.id,
-      displayName,
+      displayName: validation.displayName,
     });
     await interaction.reply({ content: formatUpdateCategoryMessage(result), ephemeral: true });
     return;
@@ -231,6 +254,29 @@ export function parseCategoryDisplayName(value: string | null): string | undefin
   return trimmed;
 }
 
+export type CategoryNameValidationResult =
+  | { readonly status: 'valid'; readonly displayName: string }
+  | { readonly status: 'blank' }
+  | { readonly status: 'too_long'; readonly maxLength: number };
+
+export function validateCategoryDisplayName(value: string): CategoryNameValidationResult {
+  const trimmed = value.trim();
+  if (!trimmed) return { status: 'blank' };
+  if (trimmed.length > MAX_CATEGORY_NAME_LENGTH) {
+    return { status: 'too_long', maxLength: MAX_CATEGORY_NAME_LENGTH };
+  }
+  return { status: 'valid', displayName: trimmed };
+}
+
+export function formatCategoryNameValidationMessage(
+  result: Exclude<CategoryNameValidationResult, { readonly status: 'valid' }>,
+): string {
+  if (result.status === 'too_long') {
+    return `Category names must be ${result.maxLength} characters or fewer.`;
+  }
+  return 'Provide a non-blank category name.';
+}
+
 export function normalizeCategoryName(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, '_');
 }
@@ -247,10 +293,31 @@ export function filterCategoryChoices(
 }
 
 export function formatCategoryList(categories: readonly CategoryRecord[]): string {
-  if (categories.length === 0) return 'No clan categories are configured for this server yet.';
-  return categories
-    .map((category) => `${(category.sortOrder ?? 0) + 1}. ${category.displayName}`)
-    .join('\n');
+  const note =
+    'Only real stored categories are shown; synthetic General/Uncategorized choices are not listed.';
+  if (categories.length === 0) {
+    return `Stored clan categories: 0\n${note}\nNo clan categories are configured for this server yet.`;
+  }
+
+  const sortedCategories = [...categories].sort(compareCategoriesForList);
+  const rows = sortedCategories.map(
+    (category, index) =>
+      `${index + 1}. ${escapeMarkdown(category.displayName)} — id ${inlineCode(category.id)}`,
+  );
+
+  return [
+    `Stored clan categories: ${categories.length}`,
+    'Sorted by configured order, then name.',
+    note,
+    ...rows,
+  ].join('\n');
+}
+
+function compareCategoriesForList(left: CategoryRecord, right: CategoryRecord): number {
+  const orderDiff =
+    (left.sortOrder ?? Number.MAX_SAFE_INTEGER) - (right.sortOrder ?? Number.MAX_SAFE_INTEGER);
+  if (orderDiff !== 0) return orderDiff;
+  return left.displayName.localeCompare(right.displayName, undefined, { sensitivity: 'base' });
 }
 
 export async function resolveCategory(
@@ -270,7 +337,7 @@ export function formatCreateCategoryMessage(
   result: Awaited<ReturnType<CategoryStore['createClanCategory']>>,
 ): string {
   if (result.status === 'duplicate') return 'A category with this name already exists.';
-  return `Category created: ${result.category.displayName}`;
+  return `Category created: ${escapeMarkdown(result.category.displayName)}`;
 }
 
 export function formatUpdateCategoryMessage(
@@ -278,12 +345,12 @@ export function formatUpdateCategoryMessage(
 ): string {
   if (result.status === 'duplicate') return 'A category with this name already exists.';
   if (result.status === 'not_found') return 'No category matched that value.';
-  return `Category name was updated to ${result.category.displayName}.`;
+  return `Category name was updated to ${escapeMarkdown(result.category.displayName)}.`;
 }
 
 export function formatDeleteCategoryMessage(
   result: Awaited<ReturnType<CategoryStore['deleteClanCategory']>>,
 ): string {
   if (result.status === 'not_found') return 'No category matched that value.';
-  return `Successfully deleted category: ${result.category.displayName}`;
+  return `Successfully deleted category: ${escapeMarkdown(result.category.displayName)}`;
 }
