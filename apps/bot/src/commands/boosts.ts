@@ -76,6 +76,13 @@ export interface ActiveBoostGroup {
   readonly players: readonly ActiveBoostPlayer[];
 }
 
+export interface BoostsScanCoverage {
+  readonly storedMembers: number;
+  readonly fetchedPlayers: number;
+  readonly skippedPlayers: number;
+  readonly failedLookups: number;
+}
+
 export function createBoostsSlashCommand(options: BoostsCommandOptions): SlashCommandDefinition {
   return {
     name: BOOSTS_COMMAND_NAME,
@@ -166,31 +173,59 @@ export async function executeBoosts(
     return;
   }
 
-  const players = await fetchPlayersForBoosts(snapshots.members, options.coc);
+  const scan = await fetchPlayersForBoosts(snapshots.members, options.coc);
+  const coverage = buildBoostsScanCoverage(snapshots.members.length, scan);
+  const coverageText = formatBoostsScanCoverage(coverage);
+  const players = scan.players;
   const boosts = collectActiveBoosts(players);
   if (boosts.length === 0) {
-    await interaction.editReply({ content: BOOSTS_NO_ACTIVE_DATA_MESSAGE });
+    await interaction.editReply({ content: `${BOOSTS_NO_ACTIVE_DATA_MESSAGE}\n${coverageText}` });
     return;
   }
 
   await interaction.editReply({
-    embeds: [buildBoostsEmbed(snapshots.clan, boosts, snapshots.members.length)],
+    embeds: [buildBoostsEmbed(snapshots.clan, boosts, coverage)],
   });
+}
+
+interface BoostsPlayerScan {
+  readonly players: ClashPlayer[];
+  readonly failedLookups: number;
 }
 
 async function fetchPlayersForBoosts(
   members: readonly BoostsSnapshotRow[],
   coc: BoostsCocApi,
-): Promise<ClashPlayer[]> {
+): Promise<BoostsPlayerScan> {
   const players: ClashPlayer[] = [];
+  let failedLookups = 0;
   for (const member of members.slice(0, MAX_PLAYER_FETCHES)) {
     try {
       players.push(await coc.getPlayer(member.playerTag));
     } catch {
+      failedLookups += 1;
       // Ignore individual one-off lookup failures so one private/missing player does not fail the command.
     }
   }
-  return players;
+  return { players, failedLookups };
+}
+
+function buildBoostsScanCoverage(
+  storedMembers: number,
+  scan: BoostsPlayerScan,
+): BoostsScanCoverage {
+  return {
+    storedMembers,
+    fetchedPlayers: scan.players.length,
+    skippedPlayers: Math.max(0, storedMembers - MAX_PLAYER_FETCHES),
+    failedLookups: scan.failedLookups,
+  };
+}
+
+export function formatBoostsScanCoverage(coverage: BoostsScanCoverage): string {
+  const failedText =
+    coverage.failedLookups === 0 ? '' : `, ${coverage.failedLookups} lookup(s) failed`;
+  return `Scan coverage: ${coverage.storedMembers} stored member(s) considered, ${coverage.fetchedPlayers} fetched/analyzed, ${coverage.skippedPlayers} skipped due to the ${MAX_PLAYER_FETCHES} player lookup cap${failedText}.`;
 }
 
 export function collectActiveBoosts(players: readonly ClashPlayer[]): ActiveBoostGroup[] {
@@ -216,7 +251,7 @@ export function collectActiveBoosts(players: readonly ClashPlayer[]): ActiveBoos
 export function buildBoostsEmbed(
   clan: BoostsLinkedClan,
   boosts: readonly ActiveBoostGroup[],
-  totalMembers: number,
+  coverage: BoostsScanCoverage,
 ): EmbedBuilder {
   const clanName = clan.alias ?? clan.name ?? 'Linked Clan';
   const boostedPlayers = new Set(
@@ -225,7 +260,10 @@ export function buildBoostsEmbed(
   const embed = new EmbedBuilder()
     .setTitle('Currently Boosted Super Troops')
     .setAuthor({ name: `${clanName} (${clan.clanTag})` })
-    .setFooter({ text: `Total ${boostedPlayers.size}/${totalMembers} members with active boosts` })
+    .setDescription(formatBoostsScanCoverage(coverage))
+    .setFooter({
+      text: `Total ${boostedPlayers.size}/${coverage.storedMembers} stored members with active boosts`,
+    })
     .setTimestamp();
 
   for (const boost of boosts) {
