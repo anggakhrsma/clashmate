@@ -33,6 +33,12 @@ export type MembersOption = (typeof MEMBERS_OPTIONS)[number];
 const MAX_MEMBER_ROWS = 25;
 const EMBED_DESCRIPTION_LIMIT = 4096;
 
+interface MembersFilterContext {
+  readonly clan?: MembersLinkedClan;
+  readonly user: User | null;
+  readonly option: MembersOption;
+}
+
 export const membersCommandData = new SlashCommandBuilder()
   .setName(MEMBERS_COMMAND_NAME)
   .setDescription(MEMBERS_COMMAND_DESCRIPTION)
@@ -189,7 +195,7 @@ export async function executeMembers(
       guildId: interaction.guildId,
       clanTag: clan.clanTag,
     });
-    await replyWithMembers(interaction, snapshots, option, userOption);
+    await replyWithMembers(interaction, snapshots, { clan, user: userOption, option });
     return;
   }
 
@@ -205,7 +211,7 @@ export async function executeMembers(
     return;
   }
 
-  await replyWithMembers(interaction, selected, option, userOption);
+  await replyWithMembers(interaction, selected, { user: userOption, option });
 }
 
 function parseMembersOption(value: string | null): MembersOption {
@@ -235,14 +241,30 @@ function formatNoLinkedMembersMessage(user: User | null): string {
 async function replyWithMembers(
   interaction: ChatInputCommandInteraction,
   snapshots: MembersClanSnapshots | undefined,
-  option: MembersOption,
-  user: User | null,
+  filters: MembersFilterContext,
 ): Promise<void> {
   if (!snapshots || snapshots.members.length === 0) {
-    await interaction.editReply({ content: MEMBERS_NO_SNAPSHOT_MESSAGE });
+    await interaction.editReply({ content: formatNoMembersSnapshotMessage(filters) });
     return;
   }
-  await interaction.editReply({ embeds: [buildMembersEmbed(snapshots, option, user)] });
+  await interaction.editReply({
+    embeds: [buildMembersEmbed(snapshots, filters.option, filters.user)],
+  });
+}
+
+function formatNoMembersSnapshotMessage(filters: MembersFilterContext): string {
+  const parts = ['No stored member snapshot rows matched the accepted `/members` filters.'];
+  if (filters.clan) {
+    const clanName = filters.clan.alias ?? filters.clan.name ?? filters.clan.clanTag;
+    parts.push(`clan: ${escapeMarkdown(clanName)} (${filters.clan.clanTag})`);
+  }
+  if (filters.user) parts.push(`user: ${escapeMarkdown(filters.user.displayName)}`);
+  parts.push(`view: ${formatMembersOptionLabel(filters.option)}`);
+  parts.push(
+    'ClashMate only reads persisted polling snapshots here and did not query the Clash API.',
+  );
+  parts.push(MEMBERS_NO_SNAPSHOT_MESSAGE);
+  return parts.join('\n');
 }
 
 export function resolveMemberClan(
@@ -286,6 +308,7 @@ export function buildMembersEmbed(
   const members = sortMembers(snapshots.members, option).slice(0, MAX_MEMBER_ROWS);
   const clanName = snapshots.clan.alias ?? snapshots.clan.name ?? 'Linked Clan';
   const limitation = formatMembersOptionLimitation(option);
+  const latestFetchedAt = getLatestMemberSnapshotTime(snapshots.members);
   const embed = new EmbedBuilder()
     .setTitle(`${clanName} Members`)
     .setDescription(truncateEmbedDescription(formatMembersDescription(members, option)))
@@ -299,10 +322,40 @@ export function buildMembersEmbed(
     value: `${escapeMarkdown(clanName)} (${snapshots.clan.clanTag})`,
     inline: false,
   });
+  embed.addFields({
+    name: 'Coverage',
+    value: [
+      `View: ${formatMembersOptionLabel(option)}`,
+      `Rows considered: ${snapshots.members.length}`,
+      `Visible rows: ${members.length}`,
+      `Latest snapshot: ${latestFetchedAt ? time(latestFetchedAt, 'R') : 'not available'}`,
+      'Source: persisted polling snapshots only; no live Clash API lookup.',
+    ].join('\n'),
+    inline: false,
+  });
   if (limitation) {
     embed.addFields({ name: 'Snapshot limitation', value: limitation, inline: false });
   }
   return embed;
+}
+
+function getLatestMemberSnapshotTime(members: readonly MembersSnapshotRow[]): Date | null {
+  const latest = members.reduce<number | null>((value, member) => {
+    const fetchedAt = member.lastFetchedAt.getTime();
+    return value === null || fetchedAt > value ? fetchedAt : value;
+  }, null);
+  return latest === null ? null : new Date(latest);
+}
+
+function formatMembersOptionLabel(option: MembersOption): string {
+  if (option === 'link-list') return 'Discord Links';
+  if (option === 'war-pref') return 'War Preferences';
+  if (option === 'join-date') return 'Last Joining Date';
+  if (option === 'clan') return 'Clan Overview';
+  return option
+    .split('-')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }
 
 function sortMembers(
