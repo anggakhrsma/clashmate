@@ -64,7 +64,7 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     description: 'Share a Clash of Clans army copy link.',
     category: 'Player & Clan',
     details: [
-      'Parses public Clash of Clans Copy Army links and summarizes IDs and counts.',
+      'Parses public Clash of Clans Copy Army links and summarizes troop, spell, and siege counts.',
       'Does not track players, clans, or armies after the command response.',
     ],
   },
@@ -128,6 +128,7 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     category: 'Player & Clan',
     details: [
       'Reads the latest persisted current-war snapshot for a linked clan and never performs a live Clash API lookup.',
+      '`hours` accepts a positive runtime-bounded expiry up to 30 days and responses show expiry feedback.',
       'Stores assignments in guild settings by guild, war key, clan tag, and defensive map position.',
       'Use clear to remove a defensive target assignment.',
     ],
@@ -183,8 +184,8 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     description: 'Show currently boosted Super Troops for a linked clan.',
     category: 'Player & Clan',
     details: [
-      'Uses linked-clan member snapshots and one-off player lookups through the ClashMate Clash API client.',
-      'Does not enroll players or clans into additional polling.',
+      'Uses linked-clan member snapshots and capped one-off player lookups through the ClashMate Clash API client.',
+      'Reports scan coverage, skipped members, and failed lookups without enrolling additional polling.',
     ],
   },
   {
@@ -194,7 +195,7 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     category: 'Player & Clan',
     details: [
       'Uses a one-off Clash API clan lookup for a server-linked clan.',
-      'The `user` option is accepted for parity but first-pass clan resolution uses the explicit clan or first linked clan.',
+      'When `clan` is omitted, `user` can resolve a linked clan containing one of that user’s linked players.',
       'Shows a no-data message if the Clash API response does not include member town hall levels.',
     ],
   },
@@ -277,6 +278,7 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     category: 'Player & Clan',
     details: [
       'Reads current and retained war snapshots for linked clans without querying the Clash API.',
+      '`war_id` autocompletes from persisted retained war snapshots when historical wars are available.',
     ],
   },
   {
@@ -290,10 +292,12 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
   },
   {
     name: 'lastseen',
-    usage: '/lastseen [player] [user]',
+    usage: '/lastseen [clan] [player] [user]',
     description: 'Show when linked players were last seen in tracked clans.',
     category: 'Player & Clan',
-    details: ['Reads existing linked-clan polling snapshots without querying the Clash API.'],
+    details: [
+      'Reads existing linked-clan polling snapshots and can filter to one linked clan without querying the Clash API.',
+    ],
   },
   {
     name: 'leaderboard',
@@ -312,6 +316,7 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     category: 'Player & Clan',
     details: [
       'Leaderboard and stats read linked-clan member snapshots without querying the Clash API.',
+      '`/legend stats reference_date:<YYYY-MM-DD>` accepts and displays the date, but current persisted snapshots are still used.',
       'Attacks and days return honest no-data messages until Legend attack/day data is persisted.',
       'No exports, auto-updating boards, external feeds, or polling enrollment are used.',
     ],
@@ -323,6 +328,8 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     category: 'Player & Clan',
     details: [
       'Reads stored clan member snapshots for linked clans without querying the Clash API.',
+      'Options include overview, tags, trophies, donations, heroes, links, war preferences, join date, progress, attacks, and clan overview.',
+      'Progress-style views are limited to fields present in persisted member snapshots.',
     ],
   },
   {
@@ -376,7 +383,10 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     usage: '/units [player] [user]',
     description: 'Show current unit levels for a Clash of Clans player.',
     category: 'Player & Clan',
-    details: ['Performs a one-off public Clash API lookup and groups API-provided unit levels.'],
+    details: [
+      'Performs a one-off public Clash API lookup and groups API-provided unit levels.',
+      'Includes a compact progress summary with maxed, incomplete, and level totals.',
+    ],
   },
   {
     name: 'upgrades',
@@ -385,18 +395,18 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     category: 'Player & Clan',
     details: [
       'Performs a one-off player lookup without tracking the player.',
-      'First pass uses public API maxLevel values instead of static town-hall max tables.',
+      'Includes compact progress by unit group using public API maxLevel values instead of static town-hall max tables.',
     ],
   },
   {
     name: 'rushed',
-    usage: '/rushed [player] [user]',
+    usage: '/rushed [player] [user] [clan]',
     description:
       'Show likely rushed or incomplete player units from public Clash API maxLevel data.',
     category: 'Player & Clan',
     details: [
-      'Performs a one-off player lookup without tracking the player.',
-      'First pass supports player/user mode only; clan mode is not included yet.',
+      'Performs one-off player lookups without tracking players.',
+      '`clan` mode uses a linked clan member snapshot and caps analyzed current members for a compact summary.',
       'Uses public API maxLevel values instead of ClashPerk static previous-town-hall max tables.',
     ],
   },
