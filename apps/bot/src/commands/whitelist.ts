@@ -128,8 +128,11 @@ export async function executeWhitelistInteraction(
     return;
   }
 
-  if (!options.loadedCommandNames.includes(commandName)) {
-    await interaction.reply({ content: `Unknown command: \`${commandName}\`.`, ephemeral: true });
+  if (!isLoadedCommandName(commandName, options.loadedCommandNames)) {
+    await interaction.reply({
+      content: formatUnknownCommandFeedback(commandName, options.loadedCommandNames),
+      ephemeral: true,
+    });
     return;
   }
 
@@ -141,7 +144,7 @@ export async function executeWhitelistInteraction(
   }
 
   if (interaction.options.getBoolean('clear') ?? false) {
-    await options.store.clearCommandWhitelistEntry({
+    const result = await options.store.clearCommandWhitelistEntry({
       guildId: interaction.guildId,
       guildName: interaction.guild.name,
       actorDiscordUserId: interaction.user.id,
@@ -149,7 +152,9 @@ export async function executeWhitelistInteraction(
       userOrRoleId: mentionable.id,
     });
     await interaction.reply({
-      content: `### Successfully cleared the whitelist for ${formatMention(mentionable.id, isRole)} on /${commandName}`,
+      content: result.removed
+        ? `Removed whitelist entry: ${formatMention(mentionable.id, isRole)} can no longer use \`/${commandName}\` through this restriction.`
+        : `No matching whitelist entry existed for ${formatMention(mentionable.id, isRole)} on \`/${commandName}\`. Nothing changed.`,
       ephemeral: true,
       allowedMentions: { parse: [] },
     });
@@ -165,7 +170,7 @@ export async function executeWhitelistInteraction(
 
   await interaction.reply({
     content: [
-      `### Successfully whitelisted ${formatMention(mentionable.id, isRole)} for /${commandName}`,
+      `Added whitelist entry: ${formatMention(mentionable.id, isRole)} can now use \`/${commandName}\`.`,
       '',
       '- You can whitelist a role or a user. Once you whitelist a command, only that role or user will be able to use it. The command will be restricted for others, blocking them from using it unless they have other managerial roles or permissions.',
       '- The whitelist is limited to commands and does not extend to buttons or select menus.',
@@ -187,15 +192,46 @@ export function filterCommandChoices(
 }
 
 export function formatWhitelistList(entries: readonly CommandWhitelistEntry[]): string {
-  const sorted = [...entries].sort((a, b) => a.commandName.localeCompare(b.commandName));
-  const lines = sorted.map(
-    (entry) => `**/${entry.commandName}** - ${formatMention(entry.userOrRoleId, entry.isRole)}`,
+  if (entries.length === 0) {
+    return [
+      '### Whitelisted Commands, Users and Roles',
+      '',
+      'Total entries: `0` • Commands: `0` • Users: `0` • Roles: `0`',
+      '',
+      'No whitelisted users or roles.',
+    ].join('\n');
+  }
+
+  const commandNames = [...new Set(entries.map((entry) => entry.commandName))].sort((a, b) =>
+    a.localeCompare(b),
   );
-  return [
-    '### Whitelisted Commands, Users and Roles',
-    '',
-    lines.join('\n') || 'No whitelisted users or roles.',
-  ].join('\n');
+  const userCount = entries.filter((entry) => !entry.isRole).length;
+  const roleCount = entries.length - userCount;
+  const lines = commandNames.flatMap((commandName) => {
+    const commandEntries = entries
+      .filter((entry) => entry.commandName === commandName)
+      .sort((a, b) => {
+        if (a.isRole !== b.isRole) return a.isRole ? 1 : -1;
+        return a.userOrRoleId.localeCompare(b.userOrRoleId);
+      });
+    return [
+      `**\`/${escapeInlineCode(commandName)}\`** (${commandEntries.length})`,
+      ...commandEntries.map(
+        (entry) =>
+          `- ${entry.isRole ? 'Role' : 'User'}: ${formatMention(entry.userOrRoleId, entry.isRole)}`,
+      ),
+    ];
+  });
+
+  return truncateDiscordContent(
+    [
+      '### Whitelisted Commands, Users and Roles',
+      '',
+      `Total entries: \`${entries.length}\` • Commands: \`${commandNames.length}\` • Users: \`${userCount}\` • Roles: \`${roleCount}\``,
+      '',
+      lines.join('\n'),
+    ].join('\n'),
+  );
 }
 
 export function normalizeCommandName(value: string | null): string | undefined {
@@ -205,4 +241,71 @@ export function normalizeCommandName(value: string | null): string | undefined {
 
 function formatMention(id: string, isRole: boolean): string {
   return isRole ? `<@&${id}>` : `<@${id}>`;
+}
+
+function isLoadedCommandName(commandName: string, loadedCommandNames: readonly string[]): boolean {
+  return loadedCommandNames.some((name) => normalizeCommandName(name) === commandName);
+}
+
+export function formatUnknownCommandFeedback(
+  commandName: string,
+  loadedCommandNames: readonly string[],
+): string {
+  const suggestions = findClosestCommandNames(commandName, loadedCommandNames);
+  const suggestionText = suggestions.length
+    ? ` Did you mean ${suggestions.map((name) => `\`/${name}\``).join(', ')}?`
+    : ' Use autocomplete to select a loaded command.';
+  return `Unknown command: \`/${escapeInlineCode(commandName)}\`.${suggestionText}`;
+}
+
+export function findClosestCommandNames(
+  commandName: string,
+  loadedCommandNames: readonly string[],
+): string[] {
+  const normalized = commandName.trim().toLowerCase().replace(/^\//, '');
+  return loadedCommandNames
+    .map((name) => normalizeCommandName(name))
+    .filter((name): name is string => Boolean(name))
+    .map((name) => ({ name, score: commandSuggestionScore(normalized, name) }))
+    .filter((candidate) => candidate.score < Number.POSITIVE_INFINITY)
+    .sort((a, b) => a.score - b.score || a.name.localeCompare(b.name))
+    .slice(0, 5)
+    .map((candidate) => candidate.name);
+}
+
+function commandSuggestionScore(query: string, commandName: string): number {
+  if (!query) return Number.POSITIVE_INFINITY;
+  if (commandName === query) return 0;
+  if (commandName.startsWith(query)) return 1;
+  if (commandName.includes(query)) return 2;
+  const distance = levenshteinDistance(query, commandName);
+  const threshold = Math.max(2, Math.floor(Math.max(query.length, commandName.length) / 3));
+  return distance <= threshold ? 10 + distance : Number.POSITIVE_INFINITY;
+}
+
+function levenshteinDistance(left: string, right: string): number {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 0; leftIndex < left.length; leftIndex += 1) {
+    const current = [leftIndex + 1];
+    for (let rightIndex = 0; rightIndex < right.length; rightIndex += 1) {
+      const substitutionCost = left[leftIndex] === right[rightIndex] ? 0 : 1;
+      current[rightIndex + 1] = Math.min(
+        (current[rightIndex] ?? 0) + 1,
+        (previous[rightIndex + 1] ?? 0) + 1,
+        (previous[rightIndex] ?? 0) + substitutionCost,
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+  return previous[right.length] ?? 0;
+}
+
+function escapeInlineCode(value: string): string {
+  return value.replaceAll('`', '\u02cb');
+}
+
+function truncateDiscordContent(content: string): string {
+  const maxLength = 1900;
+  if (content.length <= maxLength) return content;
+  return `${content.slice(0, maxLength - 40)}\n… output truncated. Use filters later.`;
 }
