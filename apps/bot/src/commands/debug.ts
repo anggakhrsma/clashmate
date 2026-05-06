@@ -1,5 +1,6 @@
 import type { CommandContext, SlashCommandDefinition } from '@clashmate/discord';
 import {
+  type APIAllowedMentions,
   type ChatInputCommandInteraction,
   PermissionFlagsBits,
   type PermissionResolvable,
@@ -28,6 +29,13 @@ const PERMISSION_NAMES = new Map<bigint, string>([
   [PermissionFlagsBits.ReadMessageHistory, 'Read Message History'],
   [PermissionFlagsBits.ManageWebhooks, 'Manage Webhooks'],
 ]);
+
+const SAFE_ALLOWED_MENTIONS: APIAllowedMentions = {
+  parse: [],
+  roles: [],
+  users: [],
+  replied_user: false,
+};
 
 export const debugCommandData = new SlashCommandBuilder()
   .setName(DEBUG_COMMAND_NAME)
@@ -132,17 +140,17 @@ export async function executeDebugInteraction(
     logger: options.logger,
   });
 
-  const chunks = splitDiscordMessage(renderDebugText(view));
-  await interaction.editReply({ content: chunks[0] ?? '', allowedMentions: { roles: [] } });
+  const chunks = labelDiscordMessageChunks(splitDiscordMessage(renderDebugText(view)));
+  await interaction.editReply({ content: chunks[0] ?? '', allowedMentions: SAFE_ALLOWED_MENTIONS });
 
   for (const chunk of chunks.slice(1)) {
     if (
       interaction.channel?.isSendable() &&
       interaction.appPermissions?.has(PermissionFlagsBits.SendMessages)
     ) {
-      await interaction.channel.send({ content: chunk, allowedMentions: { roles: [] } });
+      await interaction.channel.send({ content: chunk, allowedMentions: SAFE_ALLOWED_MENTIONS });
     } else {
-      await interaction.followUp({ content: chunk, allowedMentions: { roles: [] } });
+      await interaction.followUp({ content: chunk, allowedMentions: SAFE_ALLOWED_MENTIONS });
     }
   }
 }
@@ -212,6 +220,7 @@ export async function collectClanRows(
 }
 
 export function renderDebugText(view: DebugView): string {
+  const clanSummary = summarizeClans(view.clans);
   const clanRows = view.clans.length
     ? view.clans.map(renderClanRow).join('\n')
     : 'No clans configured.';
@@ -223,6 +232,9 @@ export function renderDebugText(view: DebugView): string {
     view.guildId,
     '**Channel**',
     `<#${view.channelId}> (${view.channelId})`,
+    '',
+    '**Summary**',
+    renderSummary(view, clanSummary),
     '',
     '**Channel Permissions**',
     view.permissions
@@ -239,6 +251,7 @@ export function renderDebugText(view: DebugView): string {
     renderConfigDiagnostics(view.config),
     '',
     '**Configured Clans**',
+    renderClanSummary(clanSummary),
     '*The war log must be made publicly accessible for the bot to function properly.*',
     `⬛ \`‎${'CLAN NAME'.padEnd(15, ' ')} ${'SYNC'} ​ ${'WAR LOG'} ‏\``,
     clanRows,
@@ -261,6 +274,62 @@ export function splitDiscordMessage(content: string, maxLength = 1_900): string[
   }
   if (current) chunks.push(current);
   return chunks;
+}
+
+export function labelDiscordMessageChunks(chunks: readonly string[]): string[] {
+  if (chunks.length <= 1) return [...chunks];
+  return chunks.map(
+    (chunk, index) => `**Debug diagnostics chunk ${index + 1}/${chunks.length}**\n${chunk}`,
+  );
+}
+
+interface ClanSummary {
+  total: number;
+  active: number;
+  inactive: number;
+  publicWarLogs: number;
+  privateWarLogs: number;
+  unknownWarLogs: number;
+}
+
+function summarizeClans(clans: readonly DebugClanRow[]): ClanSummary {
+  return clans.reduce<ClanSummary>(
+    (summary, clan) => {
+      summary.total += 1;
+      if (clan.active) summary.active += 1;
+      else summary.inactive += 1;
+
+      if (clan.warLog === 'Public') summary.publicWarLogs += 1;
+      else if (clan.warLog === 'Private') summary.privateWarLogs += 1;
+      else summary.unknownWarLogs += 1;
+
+      return summary;
+    },
+    {
+      total: 0,
+      active: 0,
+      inactive: 0,
+      publicWarLogs: 0,
+      privateWarLogs: 0,
+      unknownWarLogs: 0,
+    },
+  );
+}
+
+function renderSummary(view: DebugView, clanSummary: ClanSummary): string {
+  return [
+    `Permissions: ${countPassedPermissions(view.permissions)} passed / ${countFailedPermissions(
+      view.permissions,
+    )} failed`,
+    `Clans: ${clanSummary.total} configured (${clanSummary.active} active, ${clanSummary.inactive} inactive)`,
+    `War logs: ${clanSummary.publicWarLogs} public, ${clanSummary.privateWarLogs} private, ${clanSummary.unknownWarLogs} unknown`,
+    `Pollers: ${renderPollerSummary(view.pollers)}`,
+    `Config: ${renderConfigSummary(view.config)}`,
+  ].join('\n');
+}
+
+function renderClanSummary(summary: ClanSummary): string {
+  return `Summary: ${summary.total} configured; ${summary.active} active, ${summary.inactive} inactive; war logs ${summary.publicWarLogs} public, ${summary.privateWarLogs} private, ${summary.unknownWarLogs} unknown.`;
 }
 
 async function readClanStatus(
@@ -312,10 +381,29 @@ function renderPollerDiagnostics(pollers: DebugPollerDiagnostics | undefined): s
   ].join('\n');
 }
 
+function renderPollerSummary(pollers: DebugPollerDiagnostics | undefined): string {
+  if (!pollers) return 'unavailable';
+  const totalLeases = pollers.clanLeases + pollers.playerLeases + pollers.warLeases;
+  return `${pollers.dueLeases} due / ${totalLeases} leased (${pollers.clanLeases} clan, ${pollers.playerLeases} player, ${pollers.warLeases} war)`;
+}
+
 function renderConfigDiagnostics(config: DebugConfigDiagnostics | undefined): string {
   if (!config) return 'Unavailable';
 
   return `Diagnostics enabled: ${formatBooleanDiagnostic(config.diagnosticsEnabled)}`;
+}
+
+function renderConfigSummary(config: DebugConfigDiagnostics | undefined): string {
+  if (!config) return 'unavailable';
+  return `diagnostics ${formatBooleanDiagnostic(config.diagnosticsEnabled).toLowerCase()}`;
+}
+
+function countPassedPermissions(permissions: readonly DebugPermissionResult[]): number {
+  return permissions.filter((permission) => permission.granted).length;
+}
+
+function countFailedPermissions(permissions: readonly DebugPermissionResult[]): number {
+  return permissions.length - countPassedPermissions(permissions);
 }
 
 function formatBooleanDiagnostic(value: boolean | 'Unknown'): string {
