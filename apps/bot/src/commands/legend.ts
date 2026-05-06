@@ -15,6 +15,10 @@ export const LEGEND_COMMAND_DESCRIPTION = 'Show persisted Legend League views fo
 const LEGEND_TROPHY_FLOOR = 5000;
 const NEAR_LEGEND_TROPHY_FLOOR = 4900;
 const LEGEND_SEASON_CHOICE_MONTHS = 18;
+const LEGEND_SNAPSHOT_SOURCE_NOTE =
+  'Backed by persisted current player/member snapshots from linked clans. This is not historical Legend attack/day storage.';
+const LEGEND_HISTORY_UNAVAILABLE_NOTE =
+  'Historical Legend attacks, defenses, day totals, trophies gained/lost by day, and season archives are not persisted yet.';
 const MONTH_NAMES = [
   'January',
   'February',
@@ -309,8 +313,14 @@ export function buildLegendLeaderboardEmbed(
   const embed = new EmbedBuilder()
     .setTitle('Legend Leaderboard')
     .setDescription(
-      'Persisted-data-only view. No Clash API lookups, external feeds, exports, or auto-updating boards are used.',
+      'Current snapshot leaderboard for linked-clan players at or near Legend League.',
     );
+
+  embed.addFields({
+    name: 'Data source',
+    value: `${LEGEND_SNAPSHOT_SOURCE_NOTE} ${LEGEND_HISTORY_UNAVAILABLE_NOTE} No live Clash API lookups, external feeds, exports, or auto-updating boards are used.`,
+    inline: false,
+  });
 
   if (season)
     embed.addFields({
@@ -323,7 +333,7 @@ export function buildLegendLeaderboardEmbed(
     return embed.addFields({
       name: 'No data',
       value:
-        'No current linked-clan member snapshots at or near Legend League are available yet. Link/configure clans and wait for clan polling to store member trophies.',
+        'No current linked-clan member snapshots at or near Legend League are available yet. Link/configure clans and wait for clan polling to store member trophies. Historical Legend leaderboards are unavailable until dedicated history is persisted.',
       inline: false,
     });
   }
@@ -365,9 +375,13 @@ export function buildLegendStatsEmbed(
 
   const embed = new EmbedBuilder()
     .setTitle('Legend Snapshot Stats')
-    .setDescription(
-      'Persisted snapshot summary only. Reference dates are accepted for command parity, but current stored member snapshots are used; no live Clash API lookups are made.',
-    );
+    .setDescription('Summary of currently persisted linked-clan player/member snapshots.');
+
+  embed.addFields({
+    name: 'Data source',
+    value: `${LEGEND_SNAPSHOT_SOURCE_NOTE} Reference dates are accepted for command parity, but current stored member snapshots are used; no live Clash API lookups are made. ${LEGEND_HISTORY_UNAVAILABLE_NOTE}`,
+    inline: false,
+  });
 
   embed.addFields({
     name: 'Reference date',
@@ -379,7 +393,7 @@ export function buildLegendStatsEmbed(
     return embed.addFields({
       name: 'No data',
       value:
-        'No stored member trophy snapshots are available yet. Link/configure clans and wait for clan polling to observe members.',
+        'No stored member trophy snapshots are available yet. Link/configure clans and wait for clan polling to observe members. Historical Legend stats are unavailable until dedicated history is persisted.',
       inline: false,
     });
   }
@@ -422,8 +436,21 @@ export function buildLegendUnsupportedEmbed(
   const embed = new EmbedBuilder()
     .setTitle(title)
     .setDescription(
-      'No stored Legend attack/day data exists in ClashMate yet, so this first-pass command does not perform live lookups. It uses no Clash API calls, exports, external feeds, or polling enrollment.',
+      'Historical Legend attack/day data is not persisted in ClashMate yet, so this view cannot show attack logs, defenses, day totals, or trophy deltas.',
     );
+
+  embed.addFields({
+    name: 'Data source',
+    value:
+      'Only current linked-clan player/member snapshots are available for resolving filters. This command does not perform live Clash API calls, exports, external feed reads, or polling enrollment.',
+    inline: false,
+  });
+
+  embed.addFields({
+    name: 'Unavailable history',
+    value: LEGEND_HISTORY_UNAVAILABLE_NOTE,
+    inline: false,
+  });
 
   if (filterLines.length > 0) {
     embed.addFields({ name: 'Accepted filters', value: filterLines.join('\n'), inline: false });
