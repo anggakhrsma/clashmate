@@ -31,6 +31,17 @@ export const configCommandData = new SlashCommandBuilder()
   .addStringOption((option) =>
     option.setName('color_code').setDescription('Embed color as a hex code, e.g. #5865F2.'),
   )
+  .addBooleanOption((option) =>
+    option.setName('clear_bot_manager_role').setDescription('Clear stored bot manager roles.'),
+  )
+  .addBooleanOption((option) =>
+    option.setName('clear_links_manager_role').setDescription('Clear stored links manager roles.'),
+  )
+  .addBooleanOption((option) =>
+    option
+      .setName('clear_color_code')
+      .setDescription('Request clearing the stored embed color if the current store supports it.'),
+  )
   .addIntegerOption((option) =>
     option
       .setName('webhook_limit')
@@ -103,15 +114,30 @@ export async function executeConfigInteraction(
     webhookLimit: interaction.options.getInteger('webhook_limit'),
     botManagerRoleId: interaction.options.getRole('bot_manager_role')?.id,
     linksManagerRoleId: interaction.options.getRole('links_manager_role')?.id,
+    clearBotManagerRole: interaction.options.getBoolean('clear_bot_manager_role') ?? false,
+    clearLinksManagerRole: interaction.options.getBoolean('clear_links_manager_role') ?? false,
+    clearColorCode: interaction.options.getBoolean('clear_color_code') ?? false,
   });
 
   if (parsed.status === 'invalid_color') {
     await interaction.reply({
-      content: 'Provide `color_code` as a 6-digit hex color, for example `#5865F2`.',
+      content:
+        'Provide `color_code` as a 6-digit hex color such as `#5865F2` or `5865F2`. Clearing uses `clear_color_code:true` when the backing store supports color clearing.',
       ephemeral: true,
     });
     return;
   }
+
+  if (parsed.status === 'unsupported_color_clear') {
+    await interaction.reply({
+      content:
+        'The current configuration store cannot clear `color_code` without a schema/store change. Set a new 6-digit hex color such as `#5865F2` or `5865F2` instead.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const before = await options.store.getGuildConfig(interaction.guildId);
 
   const view = parsed.hasUpdates
     ? await options.store.updateGuildConfig({
@@ -120,10 +146,12 @@ export async function executeConfigInteraction(
         actorDiscordUserId: interaction.user.id,
         ...parsed.updates,
       })
-    : await options.store.getGuildConfig(interaction.guildId);
+    : before;
 
   await interaction.reply({
-    embeds: [buildConfigEmbed(view, interaction.guild.members.me?.displayColor)],
+    embeds: [
+      buildConfigEmbed(view, interaction.guild.members.me?.displayColor, before, parsed.hasUpdates),
+    ],
     ephemeral: true,
     allowedMentions: { roles: [] },
   });
@@ -131,15 +159,21 @@ export async function executeConfigInteraction(
 
 export type ParseConfigOptionsResult =
   | { status: 'ok'; hasUpdates: boolean; updates: Partial<UpdateConfigInput> }
-  | { status: 'invalid_color' };
+  | { status: 'invalid_color' }
+  | { status: 'unsupported_color_clear' };
 
 export function parseConfigOptions(input: {
   colorCode: string | null;
   webhookLimit: number | null;
   botManagerRoleId: string | undefined;
   linksManagerRoleId: string | undefined;
+  clearBotManagerRole: boolean;
+  clearLinksManagerRole: boolean;
+  clearColorCode: boolean;
 }): ParseConfigOptionsResult {
   const updates: Partial<UpdateConfigInput> = {};
+
+  if (input.clearColorCode) return { status: 'unsupported_color_clear' };
 
   if (input.colorCode !== null) {
     const embedColor = normalizeHexColor(input.colorCode);
@@ -151,8 +185,11 @@ export function parseConfigOptions(input: {
     updates.webhookLimit = clampWebhookLimit(input.webhookLimit);
   }
 
-  if (input.botManagerRoleId) updates.botManagerRoleIds = [input.botManagerRoleId];
-  if (input.linksManagerRoleId) updates.linksManagerRoleIds = [input.linksManagerRoleId];
+  if (input.clearBotManagerRole) updates.botManagerRoleIds = [];
+  else if (input.botManagerRoleId) updates.botManagerRoleIds = [input.botManagerRoleId];
+
+  if (input.clearLinksManagerRole) updates.linksManagerRoleIds = [];
+  else if (input.linksManagerRoleId) updates.linksManagerRoleIds = [input.linksManagerRoleId];
 
   return { status: 'ok', hasUpdates: Object.keys(updates).length > 0, updates };
 }
@@ -167,21 +204,44 @@ export function clampWebhookLimit(value: number): number {
   return Math.max(MIN_WEBHOOK_LIMIT, Math.min(MAX_WEBHOOK_LIMIT, value));
 }
 
-export function buildConfigEmbed(view: ConfigView, displayColor?: ColorResolvable): EmbedBuilder {
+export function buildConfigEmbed(
+  view: ConfigView,
+  displayColor?: ColorResolvable,
+  before?: ConfigView,
+  attemptedUpdate = false,
+): EmbedBuilder {
   const color = view.embedColor ? Number.parseInt(view.embedColor.slice(1), 16) : displayColor;
+  const effectiveColor = color ?? DEFAULT_CONFIG_EMBED_COLOR;
   return new EmbedBuilder()
-    .setColor(color ?? DEFAULT_CONFIG_EMBED_COLOR)
+    .setColor(effectiveColor)
     .setTitle('ClashMate Configuration')
     .setDescription(
-      'Current server configuration. Bot manager roles bypass command whitelists, and links manager roles can manage player links for other users.',
+      'Current server configuration. Bot manager roles bypass command whitelists, and links manager roles can manage player links for other users. Slash `/` is fixed because ClashMate is slash-only.',
     )
     .addFields(
-      { name: 'Prefix', value: '/', inline: true },
-      { name: 'Webhook Limit', value: String(view.webhookLimit), inline: true },
-      { name: 'Color Code', value: view.embedColor ?? 'None', inline: true },
-      { name: 'Bot Manager Roles', value: formatRoleList(view.botManagerRoleIds), inline: false },
       {
-        name: 'Links Manager Roles',
+        name: 'Update Status',
+        value: formatUpdateStatus(view, before, attemptedUpdate),
+        inline: false,
+      },
+      { name: 'Slash Prefix', value: '`/` (fixed)', inline: true },
+      {
+        name: 'Webhook Limit',
+        value: `${view.webhookLimit} (allowed ${MIN_WEBHOOK_LIMIT}-${MAX_WEBHOOK_LIMIT})`,
+        inline: true,
+      },
+      {
+        name: 'Color Code',
+        value: `${view.embedColor ?? 'None'}\nEffective preview: ${formatColorPreview(effectiveColor)}`,
+        inline: true,
+      },
+      {
+        name: `Bot Manager Roles (${view.botManagerRoleIds.length})`,
+        value: formatRoleList(view.botManagerRoleIds),
+        inline: false,
+      },
+      {
+        name: `Links Manager Roles (${view.linksManagerRoleIds.length})`,
         value: formatRoleList(view.linksManagerRoleIds),
         inline: false,
       },
@@ -190,4 +250,54 @@ export function buildConfigEmbed(view: ConfigView, displayColor?: ColorResolvabl
 
 function formatRoleList(roleIds: readonly string[]): string {
   return roleIds.length ? roleIds.map((roleId) => `<@&${roleId}>`).join(' ') : 'None';
+}
+
+function formatColorPreview(color: ColorResolvable): string {
+  return typeof color === 'number'
+    ? `#${color.toString(16).padStart(6, '0').toUpperCase()}`
+    : String(color);
+}
+
+function formatUpdateStatus(
+  view: ConfigView,
+  before: ConfigView | undefined,
+  attemptedUpdate: boolean,
+): string {
+  if (!attemptedUpdate) return 'No updates requested; showing saved settings.';
+  if (!before) return 'Updated saved settings.';
+
+  const changed: string[] = [];
+  const unchanged: string[] = [];
+  collectStatus(changed, unchanged, 'color code', before.embedColor, view.embedColor);
+  collectStatus(changed, unchanged, 'webhook limit', before.webhookLimit, view.webhookLimit);
+  collectStatus(
+    changed,
+    unchanged,
+    'bot manager roles',
+    before.botManagerRoleIds.join(','),
+    view.botManagerRoleIds.join(','),
+  );
+  collectStatus(
+    changed,
+    unchanged,
+    'links manager roles',
+    before.linksManagerRoleIds.join(','),
+    view.linksManagerRoleIds.join(','),
+  );
+
+  return [
+    `Updated: ${changed.length ? changed.join(', ') : 'none'}.`,
+    `Saved unchanged: ${unchanged.join(', ') || 'none'}.`,
+  ].join('\n');
+}
+
+function collectStatus(
+  changed: string[],
+  unchanged: string[],
+  label: string,
+  before: string | number | null,
+  after: string | number | null,
+): void {
+  if (before === after) unchanged.push(label);
+  else changed.push(label);
 }

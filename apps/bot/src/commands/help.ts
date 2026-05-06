@@ -145,7 +145,8 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
   },
   {
     name: 'config',
-    usage: '/config [bot_manager_role] [links_manager_role] [color_code] [webhook_limit]',
+    usage:
+      '/config [bot_manager_role] [links_manager_role] [color_code] [webhook_limit] [clear_bot_manager_role] [clear_links_manager_role] [clear_color_code]',
     description: 'Configure ClashMate server diagnostics and safe settings.',
     category: 'Setup & Logs',
     details: [
