@@ -271,7 +271,7 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
       'Post validates public Clash of Clans OpenLayout links and image screenshots.',
       'Post shows parsed OpenLayout metadata when the link exposes it.',
       'Config requires Manage Server and persists saved voting/tracking preferences plus submission tracking when enabled.',
-      'Posted layouts include an Open Layout button; vote collection is not active yet.',
+      'Posted layouts include an Open Layout button; when voting is enabled, disabled Upvote and Downvote buttons show that vote collection is pending.',
       'Does not add collectors, webhooks, Clash API calls, or polling enrollment.',
     ],
   },

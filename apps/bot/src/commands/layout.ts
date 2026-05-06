@@ -198,7 +198,7 @@ export async function executeLayoutPost(
         ...(submission ? { layoutId: submission.id } : {}),
       }),
     ],
-    components: [buildOpenLayoutButtonRow(layoutLink)],
+    components: [buildLayoutButtonRow(layoutLink, config?.allowVoting ?? false)],
     allowedMentions: { users: [] },
   });
 }
@@ -293,7 +293,8 @@ export function buildLayoutPostEmbed(input: {
   if (input.allowVoting) {
     fields.push({
       name: 'Voting',
-      value: 'Voting is enabled in server settings, but vote collection is not implemented yet.',
+      value:
+        'Voting display is enabled for this server. Upvote and Downvote buttons are shown disabled because vote collection is pending.',
       inline: false,
     });
   }
@@ -313,10 +314,34 @@ export function buildLayoutPostEmbed(input: {
     .addFields(fields);
 }
 
-export function buildOpenLayoutButtonRow(layoutLink: string): ActionRowBuilder<ButtonBuilder> {
-  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+export function buildLayoutButtonRow(
+  layoutLink: string,
+  allowVoting: boolean,
+): ActionRowBuilder<ButtonBuilder> {
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Open Layout').setURL(layoutLink),
   );
+
+  if (allowVoting) {
+    row.addComponents(
+      new ButtonBuilder()
+        .setStyle(ButtonStyle.Success)
+        .setLabel('Upvote')
+        .setCustomId('layout_vote_up_disabled')
+        .setDisabled(true),
+      new ButtonBuilder()
+        .setStyle(ButtonStyle.Danger)
+        .setLabel('Downvote')
+        .setCustomId('layout_vote_down_disabled')
+        .setDisabled(true),
+    );
+  }
+
+  return row;
+}
+
+export function buildOpenLayoutButtonRow(layoutLink: string): ActionRowBuilder<ButtonBuilder> {
+  return buildLayoutButtonRow(layoutLink, false);
 }
 
 export function buildLayoutConfigEmbed(input: {
@@ -338,7 +363,7 @@ export function buildLayoutConfigEmbed(input: {
       [
         input.updated ? 'Layout configuration was saved.' : 'Current saved layout configuration.',
         input.config.allowVoting
-          ? 'Saved submission tracking works when enabled. Voting is enabled, but vote collection is not implemented yet.'
+          ? 'Saved submission tracking works when enabled. Voting display is enabled, but vote collection is pending.'
           : 'Saved submission tracking works when enabled. Voting is disabled.',
         '',
         settings,
