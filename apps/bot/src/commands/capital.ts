@@ -286,6 +286,7 @@ export function buildCapitalRaidsEmbed(
 
   const embed = baseCapitalEmbed('Capital Raids', {
     ...filters,
+    linkedClanSnapshots: clans.filter((clan) => hasSnapshotRecord(clan.snapshot)).length,
     usableRows: rows.length,
   });
   if (rows.length === 0) {
@@ -352,6 +353,8 @@ export function buildCapitalContributionEmbed(
   const embed = baseCapitalEmbed('Capital Contribution', {
     ...filters,
     latestMemberSnapshotAt: latestMemberSnapshotDate(snapshots),
+    memberSnapshotRows: members.length,
+    filteredMemberRows: filteredMembers.length,
     usableRows: rows.length,
   });
   if (members.length === 0) {
@@ -425,14 +428,29 @@ function baseCapitalEmbed(
     readonly clanLabel?: string;
     readonly linkedClansConsidered?: number;
     readonly latestMemberSnapshotAt?: Date | null;
+    readonly linkedClanSnapshots?: number;
+    readonly memberSnapshotRows?: number;
+    readonly filteredMemberRows?: number;
     readonly usableRows?: number;
   },
 ): EmbedBuilder {
-  const notes = ['Persisted-only: uses current stored linked-clan snapshots; no Clash API lookup.'];
+  const notes = [
+    'Persisted-only: uses current stored linked-clan/member snapshots; no Clash API lookup.',
+  ];
   if (typeof filters.linkedClansConsidered === 'number')
     notes.push(
       `Linked clans considered: ${filters.linkedClansConsidered.toLocaleString('en-US')}.`,
     );
+  if (typeof filters.linkedClanSnapshots === 'number')
+    notes.push(
+      `Linked-clan snapshots with stored payloads: ${filters.linkedClanSnapshots.toLocaleString(
+        'en-US',
+      )}.`,
+    );
+  if (typeof filters.memberSnapshotRows === 'number')
+    notes.push(`Member snapshot rows read: ${filters.memberSnapshotRows.toLocaleString('en-US')}.`);
+  if (typeof filters.filteredMemberRows === 'number')
+    notes.push(`Member rows after filters: ${filters.filteredMemberRows.toLocaleString('en-US')}.`);
   if (typeof filters.usableRows === 'number')
     notes.push(`Rows with usable capital data: ${filters.usableRows.toLocaleString('en-US')}.`);
   if (filters.latestMemberSnapshotAt)
@@ -445,6 +463,7 @@ function baseCapitalEmbed(
     );
   if (filters.userId)
     notes.push('User filter uses linked Clash account tags where member data exists.');
+  notes.push('Raid-week logs are not persisted yet; week filters cannot load attack-log history.');
   return new EmbedBuilder().setTitle(title).addFields({ name: 'Source', value: notes.join('\n') });
 }
 
@@ -464,7 +483,7 @@ function formatCapitalNoDataMessage(
     summary,
     acceptedFilters.length > 0 ? `Accepted filters: ${acceptedFilters.join(', ')}.` : undefined,
     nextStep,
-    'This command is persisted-only; the week option is a display/parity label and does not load raid logs.',
+    'This command is persisted-only; raid-week logs are not stored yet, so the week option is a display/parity label and does not load attack-log history.',
   ]
     .filter((value): value is string => Boolean(value))
     .join('\n');
@@ -598,4 +617,8 @@ function readNestedValue(snapshot: unknown, path: readonly string[]): unknown {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function hasSnapshotRecord(snapshot: unknown): boolean {
+  return isRecord(snapshot) && Object.keys(snapshot).length > 0;
 }
