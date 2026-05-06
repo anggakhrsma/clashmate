@@ -14,7 +14,7 @@ import {
 export const CLAN_GAMES_COMMAND_NAME = 'clan-games';
 export const CLAN_GAMES_COMMAND_DESCRIPTION = 'Show a Clan Games scoreboard.';
 export const CLAN_GAMES_NO_DATA_MESSAGE =
-  'Clan Games data is not available yet. Link/configure the clan and wait for Clan Games polling to store a snapshot.';
+  'No persisted Clan Games scoreboard snapshot matches those filters yet.';
 
 const SCOREBOARD_MEMBER_LIMIT = 55;
 const EMBED_DESCRIPTION_LIMIT = 4096;
@@ -207,12 +207,13 @@ export function buildClanGamesEmbed(
   const visibleMembers = scoreboard.members.slice(0, SCOREBOARD_MEMBER_LIMIT);
   const totalStoredMembers = scoreboard.totalStoredMembers ?? scoreboard.members.length;
   const descriptionLines = [
+    'This scoreboard is built from persisted Clan Games snapshots collected by ClashMate polling; it is not a live Clash API lookup.',
     mentionSelectedClan
       ? `Using latest stored snapshot for **${escapeMarkdown(clanLabel)}**.`
       : null,
     `Season: **${escapeMarkdown(seasonLabel)}**`,
-    `Source fetched: ${time(scoreboard.sourceFetchedAt, 'R')} · Updated: ${time(scoreboard.updatedAt, 'R')}`,
-    `Coverage: ${totalStoredMembers.toLocaleString()} stored member${totalStoredMembers === 1 ? '' : 's'} · ${visibleMembers.length.toLocaleString()} visible member${visibleMembers.length === 1 ? '' : 's'}`,
+    `Snapshot source fetched: ${time(scoreboard.sourceFetchedAt, 'R')} · Persisted update: ${time(scoreboard.updatedAt, 'R')}`,
+    `Snapshot coverage: ${totalStoredMembers.toLocaleString()} stored member${totalStoredMembers === 1 ? '' : 's'} · ${visibleMembers.length.toLocaleString()} visible in this response${scoreboard.members.length !== totalStoredMembers ? ` · ${scoreboard.members.length.toLocaleString()} after filters` : ''}`,
     scoreboard.userFilterNote ?? null,
     '',
     '```txt',
@@ -231,6 +232,11 @@ export function buildClanGamesEmbed(
       { name: 'Total Points', value: scoreboard.totalPoints.toLocaleString(), inline: true },
       { name: 'Members', value: scoreboard.members.length.toLocaleString(), inline: true },
       { name: 'Average', value: average.toFixed(1), inline: true },
+      {
+        name: 'Data Source',
+        value:
+          'Persisted Clan Games snapshot from linked/configured clan polling. Run the worker pollers first for fresh or new-season data.',
+      },
     )
     .setFooter({
       text: `Showing top ${visibleMembers.length} of ${scoreboard.members.length}${scoreboard.members.length === totalStoredMembers ? '' : ` filtered · ${totalStoredMembers.toLocaleString()} stored`}${scoreboard.eventMaxPoints > 0 ? ` · Event max ${scoreboard.eventMaxPoints.toLocaleString()}` : ''}`,
@@ -251,7 +257,12 @@ function formatClanGamesNoDataMessage(input: {
     `user: ${input.user ? `**${escapeMarkdown(input.user.displayName)}**` : '`not filtered`'}`,
   ];
 
-  return `${CLAN_GAMES_NO_DATA_MESSAGE}\nAccepted filters: ${filters.join(' · ')}. This command only reads persisted Clan Games snapshots; it does not call the Clash API or start polling.`;
+  return [
+    CLAN_GAMES_NO_DATA_MESSAGE,
+    `Filters checked: ${filters.join(' · ')}.`,
+    'Data source: persisted Clan Games snapshots for linked/configured clans only.',
+    'What to do next: link/configure the clan if needed, then run the ClashMate worker long enough for Clan Games polling to store a snapshot. This command does not call the Clash API or start polling on demand.',
+  ].join('\n');
 }
 
 function formatScoreboardRows(
