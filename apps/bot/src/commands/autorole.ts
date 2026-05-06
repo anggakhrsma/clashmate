@@ -6,7 +6,7 @@ import {
   EmbedBuilder,
   escapeMarkdown,
   PermissionFlagsBits,
-  type Role,
+  Role,
   SlashCommandBuilder,
 } from 'discord.js';
 
@@ -543,6 +543,7 @@ export function buildAutoroleRefreshPreviewEmbed(
   const isTestRun = interaction.options.getBoolean('is_test_run');
   const forceRefresh = interaction.options.getBoolean('force_refresh');
   const counts = getAutoroleConfigCounts(view);
+  const targetSummary = formatAutoroleRefreshTarget(interaction, target);
 
   return new EmbedBuilder()
     .setColor(0x5865f2)
@@ -552,11 +553,20 @@ export function buildAutoroleRefreshPreviewEmbed(
     )
     .addFields(
       {
+        name: 'Target scope',
+        value: [
+          `Kind: ${targetSummary.kind}`,
+          `Target: ${targetSummary.label}`,
+          `Target ID: ${targetSummary.id}`,
+          `Estimated members: ${targetSummary.memberEstimate}`,
+        ].join('\n'),
+        inline: false,
+      },
+      {
         name: 'Requested options',
         value: [
-          `Scope: ${target ? target.toString() : 'Entire server'}`,
-          `Test run: ${formatBool(isTestRun)}`,
-          `Force refresh: ${formatBool(forceRefresh)}`,
+          `Test run flag: ${formatProvidedBoolean(isTestRun)}`,
+          `Force refresh flag: ${formatProvidedBoolean(forceRefresh)}`,
           'Result: Previewed stored config only; no Discord role or nickname changes were made.',
         ].join('\n'),
         inline: false,
@@ -572,8 +582,54 @@ export function buildAutoroleRefreshPreviewEmbed(
         ].join('\n'),
         inline: false,
       },
+      {
+        name: 'Future refresh would consider',
+        value: [
+          'Linked Discord accounts for the selected members.',
+          'Linked clans configured for this server.',
+          'Stored clan and member snapshots already collected by polling.',
+          'Saved clan, Town Hall, league/trophy, and family role mappings above.',
+        ].join('\n'),
+        inline: false,
+      },
       { name: 'Last action', value: `/${AUTOROLE_COMMAND_NAME} refresh`, inline: false },
     );
+}
+
+function formatAutoroleRefreshTarget(
+  interaction: ChatInputCommandInteraction,
+  target: ReturnType<ChatInputCommandInteraction['options']['getMentionable']>,
+): { kind: string; label: string; id: string; memberEstimate: string } {
+  if (!target) {
+    return {
+      kind: 'Whole server',
+      label: interaction.guild?.name ?? 'This server',
+      id: interaction.guildId ?? 'Unknown',
+      memberEstimate: interaction.guild?.memberCount?.toString() ?? 'Unknown',
+    };
+  }
+
+  if (target instanceof Role) {
+    return {
+      kind: 'Role',
+      label: target.toString(),
+      id: target.id,
+      memberEstimate: `${target.members.size} cached member${target.members.size === 1 ? '' : 's'}`,
+    };
+  }
+
+  return {
+    kind: 'User',
+    label: target.toString(),
+    id: getMentionableUserId(target),
+    memberEstimate: '1 member',
+  };
+}
+
+function getMentionableUserId(
+  target: Exclude<ReturnType<ChatInputCommandInteraction['options']['getMentionable']>, null>,
+): string {
+  return 'id' in target ? target.id : 'Unknown';
 }
 
 function formatRoles(roles: Record<string, string>): string {
@@ -608,6 +664,10 @@ function formatConfig(view: AutoroleSettingsView): string {
 
 function formatBool(value: boolean | null): string {
   return value === null ? 'Not set' : value ? 'Yes' : 'No';
+}
+
+function formatProvidedBoolean(value: boolean | null): string {
+  return value === null ? 'Not provided' : value ? 'Provided: yes' : 'Provided: no';
 }
 
 function countRoles(roles: Record<string, string>): number {
