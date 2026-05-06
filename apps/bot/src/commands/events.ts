@@ -1,11 +1,13 @@
 import type { DatabaseUserTimezonePreferenceStore } from '@clashmate/database';
 import type { CommandContext, SlashCommandDefinition } from '@clashmate/discord';
 import {
+  type AutocompleteInteraction,
   type ChatInputCommandInteraction,
   type ColorResolvable,
   EmbedBuilder,
   SlashCommandBuilder,
 } from 'discord.js';
+import { canonicalizeTimeZone, filterTimezoneChoices } from './timezone.js';
 
 export const EVENTS_COMMAND_NAME = 'events';
 export const EVENTS_COMMAND_DESCRIPTION = 'Show upcoming Clash of Clans game events.';
@@ -16,7 +18,14 @@ export const EVENTS_FIRST_PASS_NOTE =
 export const eventsCommandData = new SlashCommandBuilder()
   .setName(EVENTS_COMMAND_NAME)
   .setDescription(EVENTS_COMMAND_DESCRIPTION)
-  .setDMPermission(true);
+  .setDMPermission(true)
+  .addStringOption((option) =>
+    option
+      .setName('timezone')
+      .setDescription('Override times with an IANA timezone, such as UTC or Asia/Jakarta.')
+      .setAutocomplete(true)
+      .setRequired(false),
+  );
 
 export interface EventCalendarItem {
   name: string;
@@ -34,7 +43,7 @@ export interface EventsView {
   events: readonly EventCalendarItem[];
   note: string;
   timezone?: string;
-  timezoneSource?: 'preference';
+  timezoneSource: 'option' | 'preference' | 'utc';
 }
 
 export interface EventsCommandOptions {
@@ -51,7 +60,21 @@ export function createEventsSlashCommand(
       if (!interaction.isChatInputCommand()) return;
       await executeEventsInteraction(interaction, context, options);
     },
+    autocomplete: async (interaction) => {
+      if (interaction.commandName !== EVENTS_COMMAND_NAME) return;
+      await autocompleteEventsTimezone(interaction);
+    },
   };
+}
+
+async function autocompleteEventsTimezone(interaction: AutocompleteInteraction): Promise<void> {
+  const focused = interaction.options.getFocused(true);
+  if (focused.name !== 'timezone') {
+    await interaction.respond([]);
+    return;
+  }
+
+  await interaction.respond(filterTimezoneChoices(String(focused.value ?? '')));
 }
 
 export async function executeEventsInteraction(
@@ -59,9 +82,22 @@ export async function executeEventsInteraction(
   context: CommandContext,
   options: EventsCommandOptions = {},
 ): Promise<void> {
+  const timezoneInput = interaction.options.getString('timezone')?.trim();
+  const canonicalTimezoneInput = timezoneInput ? canonicalizeTimeZone(timezoneInput) : null;
+  const timezoneOption = canonicalTimezoneInput ?? undefined;
+  if (timezoneInput && !timezoneOption) {
+    await interaction.reply({
+      content:
+        'Please provide a valid IANA timezone identifier, such as `UTC`, `America/New_York`, or `Asia/Jakarta`.',
+      ephemeral: true,
+    });
+    return;
+  }
+
   const timezone = await resolveEventsTimezone({
     guildId: interaction.guildId,
     userId: interaction.user.id,
+    ...(timezoneOption ? { timezoneOption } : {}),
     ...(options.timezones ? { preferences: options.timezones } : {}),
   });
   const view = collectEventsView(interaction, context, new Date(), timezone);
@@ -76,7 +112,7 @@ export function collectEventsView(
   source: Pick<ChatInputCommandInteraction, 'guild'>,
   context: CommandContext,
   now = new Date(),
-  timezone: EventsResolvedTimezone = {},
+  timezone: EventsResolvedTimezone = { source: 'utc' },
 ): EventsView {
   const botAvatarUrl = context.client.user?.displayAvatarURL({ extension: 'png' });
 
@@ -88,7 +124,7 @@ export function collectEventsView(
     events: buildApproximateEventCalendar(now),
     note: formatEventsNote(timezone),
     ...(timezone.timezone ? { timezone: timezone.timezone } : {}),
-    ...(timezone.source ? { timezoneSource: timezone.source } : {}),
+    timezoneSource: timezone.source,
   };
 }
 
@@ -115,15 +151,17 @@ export function buildEventsEmbed(view: EventsView): EmbedBuilder {
 
 interface EventsResolvedTimezone {
   readonly timezone?: string;
-  readonly source?: 'preference';
+  readonly source: 'option' | 'preference' | 'utc';
 }
 
 async function resolveEventsTimezone(input: {
   readonly guildId: string | null;
   readonly userId: string;
+  readonly timezoneOption?: string;
   readonly preferences?: Pick<DatabaseUserTimezonePreferenceStore, 'getUserTimezonePreference'>;
 }): Promise<EventsResolvedTimezone> {
-  if (!input.guildId || !input.preferences) return {};
+  if (input.timezoneOption) return { timezone: input.timezoneOption, source: 'option' };
+  if (!input.guildId || !input.preferences) return { source: 'utc' };
 
   try {
     const preference = await input.preferences.getUserTimezonePreference(
@@ -131,10 +169,11 @@ async function resolveEventsTimezone(input: {
       input.userId,
     );
     const timezone = preference?.timezone.trim();
-    if (!timezone || !isValidTimeZone(timezone)) return {};
-    return { timezone, source: 'preference' };
+    const canonicalTimezone = timezone ? canonicalizeTimeZone(timezone) : null;
+    if (!canonicalTimezone) return { source: 'utc' };
+    return { timezone: canonicalTimezone, source: 'preference' };
   } catch {
-    return {};
+    return { source: 'utc' };
   }
 }
 
@@ -222,15 +261,20 @@ function formatEventTimestamp(date: Date, timezone: string | undefined): string 
 }
 
 function formatEventsNote(timezone: EventsResolvedTimezone): string {
-  if (!timezone.timezone) return EVENTS_FIRST_PASS_NOTE;
-  return `${EVENTS_FIRST_PASS_NOTE} Local times use your saved /timezone preference (${timezone.timezone}).`;
+  if (!timezone.timezone)
+    return `${EVENTS_FIRST_PASS_NOTE} Times are shown with Discord timestamps and default to UTC.`;
+  const source =
+    timezone.source === 'option'
+      ? 'the timezone option for this response'
+      : 'your saved /timezone preference';
+  return `${EVENTS_FIRST_PASS_NOTE} Local times use ${source} (${timezone.timezone}).`;
 }
 
 function formatFooterDateTime(
   view: Pick<EventsView, 'generatedAt' | 'timezone' | 'timezoneSource'>,
 ): string {
   if (!view.timezone) return formatUtcDateTime(view.generatedAt);
-  const source = view.timezoneSource === 'preference' ? 'saved preference' : 'configured timezone';
+  const source = view.timezoneSource === 'option' ? 'timezone option' : 'saved preference';
   return `${formatZonedDateTime(view.generatedAt, view.timezone)} ${view.timezone} (${source})`;
 }
 
@@ -240,15 +284,6 @@ function formatZonedDateTime(date: Date, timezone: string): string {
     timeStyle: 'short',
     timeZone: timezone,
   }).format(date);
-}
-
-function isValidTimeZone(timezone: string): boolean {
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: timezone }).format(new Date());
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function getWindowStatus(now: Date, startsAt: Date, endsAt: Date): EventCalendarItem['status'] {

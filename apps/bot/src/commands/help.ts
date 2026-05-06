@@ -457,11 +457,12 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
   },
   {
     name: 'events',
-    usage: '/events',
+    usage: '/events [timezone]',
     description: 'Show upcoming Clash of Clans game events.',
     category: 'Utility',
     details: [
       'Shows approximate active and upcoming recurring UTC windows for Clan Games, CWL, Raid Weekend, and season reset.',
+      'Optional IANA timezone input overrides your saved /timezone preference for that response.',
       'This is a recurring calendar, not a live event feed.',
     ],
   },
