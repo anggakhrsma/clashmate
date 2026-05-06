@@ -16,9 +16,11 @@ export const LASTSEEN_COMMAND_NAME = 'lastseen';
 export const LASTSEEN_COMMAND_DESCRIPTION =
   'Show when linked players were last seen in tracked clans.';
 export const LASTSEEN_NO_DATA_MESSAGE =
-  'No last-seen data is available yet. Link/configure a clan and wait for polling to observe the player.';
+  'No last-seen data is available yet. Link/configure a clan and wait for the clan poller to capture member snapshots and join/leave history.';
 const LASTSEEN_PERSISTED_SNAPSHOT_NOTE =
-  'Results are based on persisted linked-clan snapshots only; no live Clash API lookup is performed.';
+  'Results use persisted linked-clan member snapshots and join/leave-derived last-seen data only; no live Clash API lookup is performed.';
+const LASTSEEN_POLLING_PREREQUISITE_NOTE =
+  'Prerequisites: the clan must be linked to this server, polling must have run after the link was created, and the player must either be in a stored member snapshot or have a stored join/leave event for a linked clan.';
 
 export const lastSeenCommandData = new SlashCommandBuilder()
   .setName(LASTSEEN_COMMAND_NAME)
@@ -79,11 +81,14 @@ type LastSeenResolution =
       readonly playerTags: readonly string[];
       readonly targetUser: User | null;
       readonly clan: LastSeenLinkedClan | null;
+      readonly source: LastSeenResolutionSource;
     }
   | { readonly status: 'invalid_tag' }
   | { readonly status: 'unknown_clan' }
   | { readonly status: 'no_clan_snapshot'; readonly clan: LastSeenLinkedClan }
   | { readonly status: 'no_link'; readonly targetUser: User; readonly isSelf: boolean };
+
+type LastSeenResolutionSource = 'player_filter' | 'user_links' | 'linked_clan_snapshot';
 
 export function createLastSeenSlashCommand(
   options: LastSeenCommandOptions,
@@ -204,7 +209,7 @@ export async function executeLastSeen(
 
   if (resolution.status === 'no_clan_snapshot') {
     await interaction.reply({
-      content: `Clan filter accepted for ${formatClanChoiceName(resolution.clan)}, but no stored member snapshot matched that linked clan yet. ${LASTSEEN_PERSISTED_SNAPSHOT_NOTE}`,
+      content: `Clan filter accepted for ${formatClanChoiceName(resolution.clan)}, but no stored member snapshot matched that linked clan yet. ${LASTSEEN_PERSISTED_SNAPSHOT_NOTE} ${LASTSEEN_POLLING_PREREQUISITE_NOTE}`,
       ephemeral: true,
     });
     return;
@@ -230,8 +235,8 @@ export async function executeLastSeen(
   if (latestRows.length === 0) {
     await interaction.reply({
       content: resolution.clan
-        ? `No last-seen data is available yet for ${formatClanChoiceName(resolution.clan)} with those filters. ${formatLastSeenSnapshotContext(snapshotContext)} ${LASTSEEN_PERSISTED_SNAPSHOT_NOTE}`
-        : `${LASTSEEN_NO_DATA_MESSAGE} ${formatLastSeenSnapshotContext(snapshotContext)} ${LASTSEEN_PERSISTED_SNAPSHOT_NOTE}`,
+        ? `No last-seen data is available yet for ${formatClanChoiceName(resolution.clan)} with those filters. ${formatLastSeenCoverageContext(resolution.source, snapshotContext)} ${LASTSEEN_PERSISTED_SNAPSHOT_NOTE} ${LASTSEEN_POLLING_PREREQUISITE_NOTE}`
+        : `${LASTSEEN_NO_DATA_MESSAGE} ${formatLastSeenCoverageContext(resolution.source, snapshotContext)} ${LASTSEEN_PERSISTED_SNAPSHOT_NOTE} ${LASTSEEN_POLLING_PREREQUISITE_NOTE}`,
       ephemeral: true,
     });
     return;
@@ -244,7 +249,12 @@ export async function executeLastSeen(
   });
 
   await interaction.reply({
-    embeds: [buildLastSeenEmbed(latestRows, resolution.targetUser, timezone, snapshotContext)],
+    embeds: [
+      buildLastSeenEmbed(latestRows, resolution.targetUser, timezone, {
+        snapshotContext,
+        source: resolution.source,
+      }),
+    ],
   });
 }
 
@@ -320,6 +330,7 @@ async function resolveLastSeenPlayers(input: {
         playerTags: [normalizeClashTag(input.playerOption)],
         targetUser: input.userOption,
         clan,
+        source: 'player_filter',
       };
     } catch {
       return { status: 'invalid_tag' };
@@ -342,14 +353,20 @@ async function resolveLastSeenPlayers(input: {
     const scopedTags = input.userOption
       ? playerTags.filter((tag) => clanMemberTags.some((memberTag) => tagsEqual(memberTag, tag)))
       : clanMemberTags;
-    return { status: 'resolved', playerTags: scopedTags, targetUser: input.userOption, clan };
+    return {
+      status: 'resolved',
+      playerTags: scopedTags,
+      targetUser: input.userOption,
+      clan,
+      source: 'linked_clan_snapshot',
+    };
   }
 
   if (playerTags.length === 0) {
     return { status: 'no_link', targetUser, isSelf: targetUser.id === input.invokingUser.id };
   }
 
-  return { status: 'resolved', playerTags, targetUser, clan };
+  return { status: 'resolved', playerTags, targetUser, clan, source: 'user_links' };
 }
 
 export function resolveLastSeenClan(
@@ -405,11 +422,14 @@ export function buildLastSeenEmbed(
   rows: readonly LastSeenSnapshotRecord[],
   targetUser: User | null,
   timezone: LastSeenResolvedTimezone = {},
-  snapshotContext: LastSeenSnapshotContext = collectLastSeenSnapshotContext(rows.length, rows),
+  coverage: {
+    readonly snapshotContext: LastSeenSnapshotContext;
+    readonly source: LastSeenResolutionSource;
+  } = { snapshotContext: collectLastSeenSnapshotContext(rows.length, rows), source: 'user_links' },
 ): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setTitle('Last Seen')
-    .setDescription(formatLastSeenDescription(timezone, snapshotContext));
+    .setDescription(formatLastSeenDescription(timezone, coverage));
 
   if (targetUser) {
     embed.setAuthor({ name: targetUser.displayName, iconURL: targetUser.displayAvatarURL() });
@@ -437,11 +457,35 @@ export function buildLastSeenEmbed(
 
 function formatLastSeenDescription(
   timezone: LastSeenResolvedTimezone,
-  snapshotContext: LastSeenSnapshotContext,
+  coverage: {
+    readonly snapshotContext: LastSeenSnapshotContext;
+    readonly source: LastSeenResolutionSource;
+  },
 ): string {
-  const base = `${LASTSEEN_PERSISTED_SNAPSHOT_NOTE}\n${formatLastSeenSnapshotContext(snapshotContext)}`;
+  const base = [
+    LASTSEEN_PERSISTED_SNAPSHOT_NOTE,
+    formatLastSeenCoverageContext(coverage.source, coverage.snapshotContext),
+    LASTSEEN_POLLING_PREREQUISITE_NOTE,
+  ].join('\n');
   if (!timezone.timezone) return base;
   return `${base}\nLocal absolute times use your saved /timezone preference.`;
+}
+
+function formatLastSeenCoverageContext(
+  source: LastSeenResolutionSource,
+  context: LastSeenSnapshotContext,
+): string {
+  return `${formatLastSeenSource(source)} ${formatLastSeenSnapshotContext(context)}`;
+}
+
+function formatLastSeenSource(source: LastSeenResolutionSource): string {
+  if (source === 'player_filter') {
+    return 'Coverage source: explicit player filter; data is available only if that player has been observed in a linked clan.';
+  }
+  if (source === 'linked_clan_snapshot') {
+    return 'Coverage source: linked clan member snapshot; current coverage is limited to players present in the latest stored clan snapshot, with last-seen times from snapshots and join/leave events.';
+  }
+  return 'Coverage source: linked player accounts for the selected Discord user; only those linked players are checked.';
 }
 
 function formatLastSeenSnapshotContext(context: LastSeenSnapshotContext): string {
