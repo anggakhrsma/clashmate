@@ -15,6 +15,7 @@
     "@clashmate/config": "workspace:*",
     "@clashmate/database": "workspace:*",
     "@clashmate/logger": "workspace:*",
+    "@clashmate/shared": "workspace:*",
     "discord.js": "latest"
   },
   "devDependencies": {
