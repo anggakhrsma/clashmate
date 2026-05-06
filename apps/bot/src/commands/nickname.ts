@@ -11,6 +11,14 @@ export const NICKNAME_COMMAND_DESCRIPTION = 'Configure ClashMate nickname prefer
 export const NICKNAME_FIRST_PASS_NOTE =
   'First pass: ClashMate stores these nickname preferences only. Discord nickname mutation and autorole refresh are not implemented yet.';
 export const DISCORD_NICKNAME_MAX_LENGTH = 32;
+export const SUPPORTED_NICKNAME_PLACEHOLDERS = [
+  '{NAME}',
+  '{CLAN}',
+  '{ALIAS}',
+  '{TH}',
+  '{ROLE}',
+] as const;
+export const NICKNAME_PLACEHOLDER_GUIDANCE = `Supported placeholders: ${SUPPORTED_NICKNAME_PLACEHOLDERS.map((placeholder) => `\`${placeholder}\``).join(', ')}.`;
 
 export type NicknameChangePreference = 'true' | 'false';
 export type NicknameAccountPreference =
@@ -137,7 +145,10 @@ export async function executeNicknameInteraction(
       })
     : await options.store.getNicknameConfig(interaction.guildId);
 
-  await interaction.reply({ embeds: [buildNicknameConfigEmbed(view)], ephemeral: true });
+  await interaction.reply({
+    embeds: [buildNicknameConfigEmbed(view, input.warnings)],
+    ephemeral: true,
+  });
 }
 
 export function parseNicknameConfigOptions(input: {
@@ -145,7 +156,9 @@ export function parseNicknameConfigOptions(input: {
   nonFamilyNicknameFormat: string | null;
   changeNicknames: string | null;
   accountPreferenceForNaming: string | null;
-}): { ok: true; hasUpdates: boolean; view: NicknameConfigView } | { ok: false; error: string } {
+}):
+  | { ok: true; hasUpdates: boolean; view: NicknameConfigView; warnings: string[] }
+  | { ok: false; error: string } {
   const familyNicknameFormat = validateNicknameFormat(
     input.familyNicknameFormat,
     'family_nickname_format',
@@ -167,14 +180,21 @@ export function parseNicknameConfigOptions(input: {
       changeNicknames: parseChangePreference(input.changeNicknames),
       accountPreferenceForNaming: parseAccountPreference(input.accountPreferenceForNaming),
     },
+    warnings: [
+      formatMissingPlaceholderWarning('family_nickname_format', familyNicknameFormat.value),
+      formatMissingPlaceholderWarning('non_family_nickname_format', nonFamilyNicknameFormat.value),
+    ].filter((warning): warning is string => warning !== null),
   };
 }
 
-export function buildNicknameConfigEmbed(view: NicknameConfigView): EmbedBuilder {
-  return new EmbedBuilder()
+export function buildNicknameConfigEmbed(
+  view: NicknameConfigView,
+  warnings: readonly string[] = [],
+): EmbedBuilder {
+  const embed = new EmbedBuilder()
     .setColor(0x5865f2)
     .setTitle('Nickname Preferences')
-    .setDescription(NICKNAME_FIRST_PASS_NOTE)
+    .setDescription(`${NICKNAME_FIRST_PASS_NOTE}\n\n${NICKNAME_PLACEHOLDER_GUIDANCE}`)
     .addFields(
       {
         name: 'Family nickname format',
@@ -202,11 +222,32 @@ export function buildNicknameConfigEmbed(view: NicknameConfigView): EmbedBuilder
         inline: true,
       },
       {
+        name: 'Supported placeholders',
+        value: [
+          '`{NAME}` — player name',
+          '`{CLAN}` — clan name for family members',
+          '`{ALIAS}` — linked clan alias/nickname when available',
+          '`{TH}` — town hall level, such as `TH16`',
+          '`{ROLE}` — clan role, such as `Leader` or `Member`',
+        ].join('\n'),
+        inline: false,
+      },
+      {
         name: 'Preview only',
         value: formatNicknamePreview(view),
         inline: false,
       },
     );
+
+  if (warnings.length > 0) {
+    embed.addFields({
+      name: 'Format warnings',
+      value: warnings.join('\n'),
+      inline: false,
+    });
+  }
+
+  return embed;
 }
 
 export function validateNicknameFormat(
@@ -219,14 +260,14 @@ export function validateNicknameFormat(
   if (!trimmed) {
     return {
       ok: false,
-      error: `\`${optionName}\` cannot be empty. Provide a nickname format up to ${DISCORD_NICKNAME_MAX_LENGTH} characters.`,
+      error: `\`${optionName}\` cannot be empty. Provide a nickname format up to ${DISCORD_NICKNAME_MAX_LENGTH} characters. ${NICKNAME_PLACEHOLDER_GUIDANCE}`,
     };
   }
 
   if (trimmed.length > DISCORD_NICKNAME_MAX_LENGTH) {
     return {
       ok: false,
-      error: `\`${optionName}\` is too long (${trimmed.length}/${DISCORD_NICKNAME_MAX_LENGTH} characters). Discord nicknames can be at most ${DISCORD_NICKNAME_MAX_LENGTH} characters.`,
+      error: `\`${optionName}\` is too long (${trimmed.length}/${DISCORD_NICKNAME_MAX_LENGTH} characters). Discord nicknames can be at most ${DISCORD_NICKNAME_MAX_LENGTH} characters. ${NICKNAME_PLACEHOLDER_GUIDANCE}`,
     };
   }
 
@@ -265,18 +306,61 @@ function formatNicknamePreview(view: NicknameConfigView): string {
 
 function formatPreviewLine(label: string, format: string | null): string | null {
   if (!format) return null;
-  return `${label}: \`${buildNicknamePreview(format)}\``;
+  const preview = buildNicknamePreview(format, label === 'Family' ? 'family' : 'non-family');
+  return `${label}: \`${preview}\` (${preview.length}/${DISCORD_NICKNAME_MAX_LENGTH} characters)`;
 }
 
-export function buildNicknamePreview(format: string): string {
+export function buildNicknamePreview(
+  format: string,
+  example: 'family' | 'non-family' = 'family',
+): string {
+  const values =
+    example === 'family'
+      ? {
+          name: 'PlayerOne',
+          tag: '#2PP',
+          clan: 'ClanMate',
+          alias: 'CM',
+          townHall: 'TH16',
+          role: 'Leader',
+        }
+      : {
+          name: 'PlayerTwo',
+          tag: '#8QQ',
+          clan: 'No Clan',
+          alias: 'Solo',
+          townHall: 'TH13',
+          role: 'Member',
+        };
+
   return format
-    .replaceAll('{player}', 'PlayerOne')
-    .replaceAll('{player_name}', 'PlayerOne')
-    .replaceAll('{playerName}', 'PlayerOne')
-    .replaceAll('{name}', 'PlayerOne')
-    .replaceAll('{tag}', '#2PP')
-    .replaceAll('{clan}', 'ClanMate')
-    .replaceAll('{townHall}', 'TH16')
-    .replaceAll('{town_hall}', 'TH16')
-    .replaceAll('{th}', 'TH16');
+    .replaceAll('{NAME}', values.name)
+    .replaceAll('{PLAYER}', values.name)
+    .replaceAll('{player}', values.name)
+    .replaceAll('{player_name}', values.name)
+    .replaceAll('{playerName}', values.name)
+    .replaceAll('{name}', values.name)
+    .replaceAll('{TAG}', values.tag)
+    .replaceAll('{tag}', values.tag)
+    .replaceAll('{CLAN}', values.clan)
+    .replaceAll('{clan}', values.clan)
+    .replaceAll('{ALIAS}', values.alias)
+    .replaceAll('{alias}', values.alias)
+    .replaceAll('{TH}', values.townHall)
+    .replaceAll('{townHall}', values.townHall)
+    .replaceAll('{town_hall}', values.townHall)
+    .replaceAll('{th}', values.townHall)
+    .replaceAll('{ROLE}', values.role)
+    .replaceAll('{role}', values.role);
+}
+
+function formatMissingPlaceholderWarning(optionName: string, value: string | null): string | null {
+  if (!value || hasRecognizedNicknamePlaceholder(value)) return null;
+  return `\`${optionName}\` has no recognized placeholders, so every previewed nickname will be the same static text. ${NICKNAME_PLACEHOLDER_GUIDANCE}`;
+}
+
+function hasRecognizedNicknamePlaceholder(value: string): boolean {
+  return /\{(?:NAME|PLAYER|player|player_name|playerName|name|TAG|tag|CLAN|clan|ALIAS|alias|TH|townHall|town_hall|th|ROLE|role)\}/.test(
+    value,
+  );
 }

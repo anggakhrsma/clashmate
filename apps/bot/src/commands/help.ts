@@ -424,6 +424,7 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     category: 'Setup & Logs',
     details: [
       'Requires Manage Server permission.',
+      'Supported placeholders: `{NAME}`, `{CLAN}`, `{ALIAS}`, `{TH}`, and `{ROLE}`.',
       'Stores preferences only; Discord nickname mutation and autorole refresh are not implemented yet.',
     ],
   },
