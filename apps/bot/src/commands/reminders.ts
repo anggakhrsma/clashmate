@@ -426,6 +426,8 @@ async function handleCreateReminder(
   }
   const clans = await options.store.listLinkedClans(interaction.guildId);
   const clanInputs = splitClanInputs(interaction.options.getString('clans', true));
+  const scheduleClans = clanInputs.map((input) => toScheduleClan(input, clans));
+  const unmatchedClanInputs = clanInputs.filter((input) => !resolveReminderClan(clans, input));
   const schedule = await options.store.createReminderSchedule({
     guildId: interaction.guildId,
     guildName: interaction.guild.name,
@@ -434,7 +436,7 @@ async function handleCreateReminder(
       id: createReminderId(),
       type: parseReminderType(interaction.options.getString('type', true)),
       duration: duration.normalized,
-      clans: clanInputs.map((input) => toScheduleClan(input, clans)),
+      clans: scheduleClans,
       message: interaction.options.getString('message', true),
       excludeParticipantList: interaction.options.getBoolean('exclude_participant_list') ?? false,
       channelId: interaction.options.getChannel('channel')?.id ?? interaction.channelId,
@@ -457,6 +459,7 @@ async function handleCreateReminder(
       '. Next due: ' +
       formatReminderNextDue(schedule) +
       '. ' +
+      formatUnmatchedClanWarning(unmatchedClanInputs) +
       STORAGE_ONLY_NOTE,
     ephemeral: true,
   });
@@ -479,11 +482,12 @@ async function handleListReminders(
       (!channelId || schedule.channelId === channelId) &&
       (!clanFilter || schedule.clans.some((clan) => scheduleClanMatches(clan, clanFilter))),
   );
+  const totalForType = settings.schedules.filter((schedule) => schedule.type === type).length;
 
   await interaction.reply({
     content:
       schedules.length === 0
-        ? `No stored ${formatReminderType(type)} reminders matched. ${STORAGE_ONLY_NOTE}`
+        ? `${formatReminderNoDataContext({ type, clanFilter, channelId, reminderId, totalForType })} ${STORAGE_ONLY_NOTE}`
         : `${formatReminderList(schedules, compact)}\n\n${STORAGE_ONLY_NOTE}`,
     ephemeral: true,
   });
@@ -587,9 +591,14 @@ export function buildImmediateReminderMessage(input: {
     .filter((userId, index, all) => all.indexOf(userId) === index)
     .slice(0, MAX_MENTIONS)
     .map((userId) => `<@${userId}>`);
-  const unlinkedCount = input.members.length - mentions.length;
+  const linkedMentionCount = new Set(
+    input.members
+      .map((member) => linkedByTag.get(normalizeClashTag(member.playerTag)))
+      .filter((userId): userId is string => Boolean(userId)),
+  ).size;
+  const unlinkedCount = input.members.length - linkedMentionCount;
   const truncatedNote =
-    input.links.length > MAX_MENTIONS ? `\n_Mentions capped at ${MAX_MENTIONS} users._` : '';
+    linkedMentionCount > MAX_MENTIONS ? `\n_Mentions capped at ${MAX_MENTIONS} users._` : '';
   const mentionText =
     mentions.length > 0
       ? mentions.join(' ')
@@ -601,7 +610,9 @@ export function buildImmediateReminderMessage(input: {
     '',
     mentionText,
     '',
-    `Snapshot members: ${input.members.length}. Linked mentions: ${mentions.length}. Unlinked snapshot members: ${Math.max(unlinkedCount, 0)}.${truncatedNote}`,
+    `Source: persisted member snapshot for ${formatClanLabel(input.clan)}; storage-only, no live Clash API lookup.`,
+    `Members considered: ${input.members.length}. Linked mention count: ${linkedMentionCount}. Mention cap: ${MAX_MENTIONS}. Mentioned now: ${mentions.length}. Unlinked snapshot members: ${Math.max(unlinkedCount, 0)}.${truncatedNote}`,
+    STORAGE_ONLY_NOTE,
   ].join('\n');
 }
 
@@ -649,7 +660,13 @@ function scheduleMatchesIdQuery(schedule: ReminderSchedule, query: string): bool
 
 function formatReminderIdChoiceName(schedule: ReminderSchedule): string {
   const clanLabel = formatScheduleClans(schedule.clans) || 'No clans';
-  return [schedule.id, formatReminderType(schedule.type), clanLabel, schedule.duration]
+  return [
+    schedule.id,
+    formatReminderType(schedule.type),
+    clanLabel,
+    `next ${formatReminderNextDue(schedule)}`,
+    `<#${schedule.channelId}>`,
+  ]
     .join(' · ')
     .slice(0, 100);
 }
@@ -753,6 +770,35 @@ function toScheduleClan(
     name: clan?.name ?? null,
     alias: clan?.alias ?? null,
   };
+}
+
+function formatUnmatchedClanWarning(unmatchedClanInputs: readonly string[]): string {
+  if (unmatchedClanInputs.length === 0) return '';
+  return (
+    'Warning: the following clan inputs did not match linked clans: ' +
+    unmatchedClanInputs.map(inlineCode).join(', ') +
+    '. They were stored without Clash API lookup; link the clan or use an existing alias/tag for snapshot-backed delivery. '
+  );
+}
+
+function formatReminderNoDataContext(input: {
+  type: ReminderScheduleType;
+  clanFilter: string | undefined;
+  channelId: string | undefined;
+  reminderId: string | undefined;
+  totalForType: number;
+}): string {
+  const filters = [
+    `type=${formatReminderType(input.type)}`,
+    `clan=${input.clanFilter ? inlineCode(input.clanFilter) : 'all'}`,
+    `channel=${input.channelId ? `<#${input.channelId}>` : 'all'}`,
+    `reminder_id=${input.reminderId ? inlineCode(input.reminderId) : 'all'}`,
+  ];
+  return (
+    `No stored ${formatReminderType(input.type)} reminders matched. ` +
+    `Active filters: ${filters.join(', ')}. ` +
+    `Stored schedules for this type: ${input.totalForType}.`
+  );
 }
 
 function formatScheduleClans(clans: readonly ReminderScheduleClan[]): string {
