@@ -71,6 +71,7 @@ export function createClanPollerHandler(options: ClanPollerHandlerOptions) {
 interface ClanWithMembers {
   readonly memberList?: unknown;
   readonly members?: unknown;
+  readonly items?: unknown;
   readonly data?: unknown;
 }
 
@@ -79,6 +80,7 @@ interface RawClanMember {
   readonly name?: unknown;
   readonly role?: unknown;
   readonly expLevel?: unknown;
+  readonly playerLevel?: unknown;
   readonly league?: unknown;
   readonly trophies?: unknown;
   readonly builderBaseTrophies?: unknown;
@@ -86,6 +88,7 @@ interface RawClanMember {
   readonly previousClanRank?: unknown;
   readonly donations?: unknown;
   readonly donationsReceived?: unknown;
+  readonly donationsRecieved?: unknown;
 }
 
 export function extractClanMemberSnapshots(clan: unknown): ClanMemberSnapshotInput[] {
@@ -99,7 +102,10 @@ export function extractClanMemberSnapshots(clan: unknown): ClanMemberSnapshotInp
         playerTag,
         name: normalizeNonBlankString(member.name) ?? playerTag,
         role: normalizeNonBlankString(member.role),
-        expLevel: asPositiveIntegerInRange(member.expLevel, MAX_MEMBER_EXP_LEVEL),
+        expLevel: asPositiveIntegerInRange(
+          firstDefined(member.expLevel, member.playerLevel),
+          MAX_MEMBER_EXP_LEVEL,
+        ),
         leagueId: extractLeagueId(member.league),
         trophies: asNonNegativeIntegerInRange(member.trophies, MAX_MEMBER_TROPHIES),
         builderBaseTrophies: asNonNegativeIntegerInRange(
@@ -110,7 +116,7 @@ export function extractClanMemberSnapshots(clan: unknown): ClanMemberSnapshotInp
         previousClanRank: asPositiveIntegerInRange(member.previousClanRank, MAX_CLAN_RANK),
         donations: asNonNegativeIntegerInRange(member.donations, MAX_MEMBER_DONATIONS),
         donationsReceived: asNonNegativeIntegerInRange(
-          member.donationsReceived,
+          firstDefined(member.donationsReceived, member.donationsRecieved),
           MAX_MEMBER_DONATIONS,
         ),
         rawMember: member,
@@ -122,16 +128,23 @@ export function extractClanMemberSnapshots(clan: unknown): ClanMemberSnapshotInp
 function getClanMemberList(clan: unknown): readonly RawClanMember[] {
   if (!isRecord(clan)) return [];
 
-  const clanWithMembers = clan as ClanWithMembers;
-  const data = isRecord(clanWithMembers.data) ? (clanWithMembers.data as ClanWithMembers) : null;
+  const memberList = findMemberList(clan);
+
+  return memberList?.filter(isRecord) ?? [];
+}
+
+function findMemberList(value: Record<string, unknown>, depth = 0): readonly unknown[] | null {
+  const clanWithMembers = value as ClanWithMembers;
   const memberList = [
     clanWithMembers.memberList,
     clanWithMembers.members,
-    data?.memberList,
-    data?.members,
+    clanWithMembers.items,
   ].find(Array.isArray);
+  if (memberList) return memberList;
 
-  return memberList?.filter(isRecord) ?? [];
+  return depth < 3 && isRecord(clanWithMembers.data)
+    ? findMemberList(clanWithMembers.data, depth + 1)
+    : null;
 }
 
 function extractLeagueId(value: unknown): number | null {
@@ -149,13 +162,12 @@ function asPositiveIntegerInRange(value: unknown, max: number): number | null {
 }
 
 function asIntegerInRange(value: unknown, min: number, max: number): number | null {
-  return typeof value === 'number' &&
-    Number.isFinite(value) &&
-    Number.isInteger(value) &&
-    value >= min &&
-    value <= max
-    ? value
-    : null;
+  if (typeof value !== 'number' || !Number.isFinite(value) || !Number.isInteger(value)) return null;
+  return Math.min(Math.max(value, min), max);
+}
+
+function firstDefined(...values: readonly unknown[]): unknown {
+  return values.find((value) => value !== undefined);
 }
 
 function normalizeNonBlankString(value: unknown): string | null {
