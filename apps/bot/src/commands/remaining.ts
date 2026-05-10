@@ -273,7 +273,7 @@ async function executeRemaining(
   const clan = await resolveRemainingClan(interaction.guildId, clanOption, options.store);
   if (!clan) {
     await interaction.editReply(
-      'No clan was found. Link one with `/setup clan` first or provide a linked clan tag.',
+      'No linked/configured clan was found for this server. Link one with `/setup clan` or provide a clan tag/alias already tracked by this server; `/remaining` only reads stored war snapshots for linked clans.',
     );
     return;
   }
@@ -281,7 +281,7 @@ async function executeRemaining(
   const snapshot = await options.store.getLatestWarSnapshot(clan.clanTag);
   if (!snapshot) {
     await interaction.editReply(
-      `No persisted current war snapshot is available for **${clan.name ?? clan.clanTag} (${clan.clanTag})** yet. Link/configure war polling first; this command does not perform live API lookups.`,
+      `No persisted current war/CWL snapshot is available for **${clan.name ?? clan.clanTag} (${clan.clanTag})** yet. Link/configure this clan and let the war poller run first; \`/remaining\` has no live Clash API fallback and only reports data already stored for linked clans.`,
     );
     return;
   }
@@ -289,7 +289,7 @@ async function executeRemaining(
   const war = extractWarData(snapshot.snapshot);
   if (!war) {
     await interaction.editReply(
-      'The stored war snapshot is not readable yet. Please try again after the next war poll.',
+      'The stored war/CWL snapshot is not readable yet. Please try again after the next war poll refreshes the persisted snapshot; no live Clash API fallback is used.',
     );
     return;
   }
@@ -299,7 +299,9 @@ async function executeRemaining(
       embeds: [
         new EmbedBuilder()
           .setAuthor({ name: `${clan.name ?? clan.clanTag} (${clan.clanTag})` })
-          .setDescription('The clan is not in a war.'),
+          .setDescription(
+            'No active war was found in the latest persisted snapshot for this linked clan. If the clan just entered war/CWL, wait for the war poller to refresh; `/remaining` does not perform a live Clash API lookup.',
+          ),
       ],
     });
     return;
@@ -311,7 +313,9 @@ async function executeRemaining(
     false,
   );
   if (!summary) {
-    await interaction.editReply('The stored war snapshot does not include clan war members.');
+    await interaction.editReply(
+      'The stored war/CWL snapshot does not include clan war members, so remaining attacks cannot be calculated yet. Wait for the next poller refresh or verify the clan is linked/configured for war polling.',
+    );
     return;
   }
 
@@ -351,7 +355,7 @@ async function executeHistoricalRemaining(
     : null;
   if (input.clanOption && !clan) {
     await interaction.editReply(
-      `No linked clan matches \`${input.clanOption}\`. Historical lookups are persisted-only and can only filter stored snapshots for linked clans.`,
+      `No linked/configured clan matches \`${input.clanOption}\`. Historical lookups are persisted-only and can only filter retained war/CWL snapshots for clans tracked by this server.`,
     );
     return;
   }
@@ -405,7 +409,7 @@ async function executeHistoricalRemaining(
   const war = extractWarData(snapshot.snapshot);
   if (!war) {
     await interaction.editReply(
-      'The stored war snapshot is not readable yet. Please try again after the next war poll.',
+      'The stored historical war/CWL snapshot is not readable yet. Please try again after a poller refresh or choose another retained war_id; no live Clash API fallback is used.',
     );
     return;
   }
@@ -416,7 +420,9 @@ async function executeHistoricalRemaining(
     false,
   );
   if (!summary) {
-    await interaction.editReply('The stored war snapshot does not include clan war members.');
+    await interaction.editReply(
+      'The stored historical war/CWL snapshot does not include clan war members, so remaining or missed attacks cannot be calculated from it.',
+    );
     return;
   }
 
@@ -659,9 +665,10 @@ export function buildClanRemainingEmbed(summary: RemainingWarSummary): EmbedBuil
     embed.addFields({
       name: 'Source',
       value: [
-        `Snapshot fetched ${time(summary.source.fetchedAt, 'R')}`,
+        `Latest persisted war/CWL snapshot fetched ${time(summary.source.fetchedAt, 'R')}.`,
         `War state: ${formatWarStateLabel(summary.source.snapshotState || summary.state)}`,
-        `Attacks/member: ${summary.attacksPerMember}`,
+        `Remaining is calculated as attacks/member (${summary.attacksPerMember}) minus attacks found on each stored member snapshot.`,
+        "Filtered to this server's linked/configured clan; no live Clash API lookup was performed.",
         `Ended-war missed events: ${missedEventsLabel}`,
       ].join('\n'),
       inline: false,
@@ -715,7 +722,8 @@ export function buildPlayerRemainingEmbed(
     embed.addFields({
       name: 'Source',
       value: [
-        `Scanned ${context.scannedSnapshots} stored war snapshot${context.scannedSnapshots === 1 ? '' : 's'}.`,
+        `Scanned ${context.scannedSnapshots} stored war/CWL snapshot${context.scannedSnapshots === 1 ? '' : 's'} from this server's linked/configured clans.`,
+        'Rows are calculated from persisted member attacks and attacks/member values only.',
         context.persistedOnly
           ? 'Persisted snapshots only; no live Clash API lookup was performed.'
           : 'Live lookup status unknown.',
@@ -726,7 +734,7 @@ export function buildPlayerRemainingEmbed(
   return embed
     .setDescription(
       description ||
-        'No remaining attacks were found in stored war snapshots for the accepted player/user filter.',
+        'No remaining attacks were found in stored war/CWL snapshots for the accepted player/user filter. If this looks stale, confirm the player is linked or the tag is valid, ensure the clan is linked/configured here, and wait for the war poller to refresh.',
     )
     .setFooter({ text: `${total} Remaining` });
 }
@@ -762,14 +770,14 @@ function formatNoPlayerTagsMessage(input: {
   userId?: string | undefined;
 }): string {
   if (input.hasPlayerFilter) {
-    return 'No valid player tag was provided. Player-filtered `/remaining` only scans persisted war snapshots and does not perform live player lookups.';
+    return 'No valid player tag was provided. Player-filtered `/remaining` only scans persisted war/CWL snapshots and does not perform live player lookups; provide a Clash player tag already present in stored war data.';
   }
-  return `No linked player tags were found${input.userId ? ` for <@${input.userId}>` : ''}. User-filtered \`/remaining\` only scans stored links and persisted war snapshots.`;
+  return `No linked player tags were found${input.userId ? ` for <@${input.userId}>` : ''}. User-filtered \`/remaining\` only scans stored links and persisted war/CWL snapshots; link a player account first and wait for tracked clan war polling to collect data.`;
 }
 
 function formatNoHistoricalWarMessage(warKey: string, clanOption: string | null): string {
   const clanText = clanOption ? ` for clan filter \`${clanOption}\`` : '';
-  return `No persisted historical war snapshot was found for war_id \`${warKey}\`${clanText}. This command only searches retained stored snapshots; it does not query the live Clash API.`;
+  return `No persisted historical war/CWL snapshot was found for war_id \`${warKey}\`${clanText}. This command only searches retained stored snapshots for linked/configured clans; it does not query the live Clash API. Verify the war_id, clan filter, and that polling had captured/retained that war.`;
 }
 
 function formatMapPosition(position: number): string {
