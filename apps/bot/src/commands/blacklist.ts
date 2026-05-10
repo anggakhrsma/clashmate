@@ -4,9 +4,9 @@ import { SlashCommandBuilder, type User } from 'discord.js';
 
 export const BLACKLIST_COMMAND_NAME = 'blacklist';
 export const BLACKLIST_COMMAND_DESCRIPTION =
-  'Owner-only toggle for globally blocking a user from ClashMate commands.';
+  'Toggle whether a Discord user can use ClashMate commands.';
 export const BLACKLIST_USER_OPTION_DESCRIPTION =
-  'Discord user to add to or remove from the global command blacklist.';
+  'User to add to or remove from the command blacklist.';
 
 export const blacklistCommandData = new SlashCommandBuilder()
   .setName(BLACKLIST_COMMAND_NAME)
@@ -31,8 +31,7 @@ export function createBlacklistSlashCommand(
 
       if (!isOwner(interaction.user.id, context.ownerIds)) {
         await interaction.reply({
-          content:
-            'Only configured bot owners can use `/blacklist`; server admins cannot manage the global command blacklist.',
+          content: 'Only bot owners can use `/blacklist`.',
           ephemeral: true,
         });
         return;
@@ -69,11 +68,11 @@ export function validateBlacklistTarget(
   context: Pick<CommandContext, 'client' | 'ownerIds'>,
 ): string | undefined {
   if (isOwner(targetUserId, context.ownerIds)) {
-    return 'That user is configured as a bot owner and cannot be blacklisted.';
+    return 'Bot owners cannot be blacklisted.';
   }
 
   if (targetUserId === context.client.user?.id) {
-    return 'ClashMate cannot blacklist itself; choose a Discord user instead.';
+    return 'ClashMate cannot blacklist itself.';
   }
 
   return undefined;
@@ -85,10 +84,10 @@ export function formatBlacklistToggleMessage(options: {
   botDisplayName: string;
 }): string {
   if (options.action === 'deleted') {
-    return `No longer blacklisted: **${options.targetDisplayName}** can use ${options.botDisplayName} commands again. This global access change has been saved.`;
+    return `**${options.targetDisplayName}** has been removed from the ${options.botDisplayName}'s blacklist.`;
   }
 
-  return `Blacklisted **${options.targetDisplayName}** from using ${options.botDisplayName} commands. This global access change has been saved and will be enforced on future command attempts.`;
+  return `**${options.targetDisplayName}** has been blacklisted from using ${options.botDisplayName}'s command.`;
 }
 
 function getUserDisplayName(user: User): string {
