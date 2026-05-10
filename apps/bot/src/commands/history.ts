@@ -14,25 +14,30 @@ import {
 export const HISTORY_COMMAND_NAME = 'history';
 export const HISTORY_COMMAND_DESCRIPTION = 'Show tracked historical activity.';
 export const HISTORY_NO_DONATION_EVENTS_MESSAGE =
-  'No donation history is available yet for the selected filters.';
+  'No persisted donation delta events match the selected filters yet. Link/configure the clan for this server and wait for the clan poller to detect donation changes before retrying.';
 export const HISTORY_NO_WAR_ATTACK_EVENTS_MESSAGE =
-  'No war attack history is available yet for the selected filters.';
+  'No persisted war attack events match the selected filters yet. Link/configure the clan for this server and wait for the war poller to record attacks before retrying.';
 export const HISTORY_NO_JOIN_LEAVE_EVENTS_MESSAGE =
-  'No join/leave history is available yet for the selected filters.';
+  'No persisted clan member join/leave events match the selected filters yet. Link/configure the clan for this server and wait for the clan poller to detect membership changes before retrying.';
 export const HISTORY_NO_CLAN_GAMES_EVENTS_MESSAGE =
-  'No Clan Games history is available yet for the selected filters.';
+  'No persisted Clan Games snapshots match the selected filters yet. Link/configure the clan for this server and wait for Clan Games polling snapshots before retrying.';
 export const HISTORY_NO_CAPITAL_RAIDS_EVENTS_MESSAGE =
-  'Capital raid history is not available yet because raid-week attack logs are not stored. This command only reads stored data and does not query the Clash API.';
+  'Capital raid history is not available yet because raid-week attack logs are not persisted. This command only reads stored history and does not query the Clash API live.';
 export const HISTORY_NO_CAPITAL_CONTRIBUTION_EVENTS_MESSAGE =
-  'Capital contribution history is not available yet because contribution snapshots are not stored. This command only reads stored data and does not query the Clash API.';
+  'Capital contribution history is not available yet because contribution snapshots are not persisted. This command only reads stored history and does not query the Clash API live.';
 export const HISTORY_NO_ATTACKS_EVENTS_MESSAGE =
-  'Multiplayer attack/defense history is not available yet because seasonal attack-win snapshots are not stored. Use `war-attacks` for stored war attack history.';
+  'Multiplayer attack/defense history is not available yet because seasonal attack-win snapshots are not persisted. Use `war-attacks` for stored war attack history.';
 export const HISTORY_NO_LOOT_EVENTS_MESSAGE =
-  'Loot history is not available yet because loot snapshots are not stored. This command only reads stored data and does not query the Clash API.';
+  'Loot history is not available yet because loot snapshots are not persisted. This command only reads stored history and does not query the Clash API live.';
 export const HISTORY_NO_LEGEND_ATTACKS_EVENTS_MESSAGE =
-  'Legend attack history is not available yet because Legend attack/day data is not stored. This command only reads stored data and does not query the Clash API.';
+  'Legend attack history is not available yet because Legend attack/day data is not persisted. This command only reads stored history and does not query the Clash API live.';
 export const HISTORY_NO_EOS_TROPHIES_EVENTS_MESSAGE =
-  'End-of-season trophy history is not available yet because EOS trophy snapshots are not stored. This command only reads stored data and does not query the Clash API.';
+  'End-of-season trophy history is not available yet because EOS trophy snapshots are not persisted. This command only reads stored history and does not query the Clash API live.';
+
+const HISTORY_FILTER_HELP =
+  'Accepted filters: `clans` (linked clan tag/name/alias), `player` (player tag), and `user` (linked Discord user). Date and season filters are not exposed on `/history` yet; use command-specific history views where available for date/season filtering.';
+const HISTORY_STORED_ONLY_HELP =
+  'This command reads persisted ClashMate history only. It does not perform live Clash API lookups, backfill missing rows, or enroll search-only clan/player filters into polling.';
 
 const HISTORY_OPTIONS = [
   'donations',
@@ -251,8 +256,7 @@ export async function executeHistory(
   const option = interaction.options.getString('option', true);
   if (!isHistoryOption(option)) {
     await interaction.editReply({
-      content:
-        'Only stored history options are available. Accepted filters: `clans`, `player`, and `user` (date/season filters are not exposed on `/history` yet). Unsupported options do not query the Clash API or start polling.',
+      content: `Only stored history options are available. ${HISTORY_FILTER_HELP} ${HISTORY_STORED_ONLY_HELP}`,
     });
     return;
   }
@@ -268,8 +272,7 @@ export async function executeHistory(
     const clan = resolveHistoryClan(clans, clanOption);
     if (!clan) {
       await interaction.editReply({
-        content:
-          'No linked clan was found for that clan option. Accepted filters: `clans` must match a linked clan tag, name, or alias; `player` may be a player tag; `user` may be a linked Discord user. This command reads persisted history only and does not perform a live Clash API lookup or enroll polling.',
+        content: `No linked clan was found for that clan option. ${HISTORY_FILTER_HELP} ${HISTORY_STORED_ONLY_HELP}`,
       });
       return;
     }
@@ -286,8 +289,7 @@ export async function executeHistory(
       playerTags = [normalizedPlayerTag];
     } catch {
       await interaction.editReply({
-        content:
-          'That player tag is not valid. Accepted filters: `clans`, `player`, and `user` (date/season filters are not exposed on `/history` yet). This command reads persisted history only and does not perform a live Clash API lookup or enroll polling.',
+        content: `That player tag is not valid. ${HISTORY_FILTER_HELP} ${HISTORY_STORED_ONLY_HELP}`,
       });
       return;
     }
@@ -591,10 +593,16 @@ export function buildUnavailableHistoryEmbed(
   const filterText = formatAcceptedHistoryFilters(filters);
   return new EmbedBuilder()
     .setTitle(`${formatHistoryOptionTitle(option)} History Unavailable`)
-    .setDescription(
-      `${message}\n\nNo Clash API calls or polling enrollment will be performed for this request.`,
-    )
-    .addFields({ name: 'Accepted filters', value: filterText, inline: false });
+    .setDescription(`${message}\n\n${HISTORY_STORED_ONLY_HELP}`)
+    .addFields(
+      { name: 'Accepted filters', value: filterText, inline: false },
+      {
+        name: 'Available stored-history categories',
+        value:
+          '`donations` (donation deltas), `war-attacks`/`cwl-attacks` (stored war attack events), `join-leave` (clan member events), and `clan-games` (Clan Games snapshots).',
+        inline: false,
+      },
+    );
 }
 
 export function buildNoHistoryEmbed(
@@ -614,7 +622,7 @@ export function buildNoHistoryEmbed(
       {
         name: 'Polling prerequisites',
         value:
-          'History appears after a clan is linked/configured for this server and the worker has detected matching events from persisted polling snapshots. This command reads stored data only; it does not query the Clash API live or start polling for search-only filters.',
+          'History appears after a clan is linked/configured for this server and the worker has detected matching events from persisted polling snapshots. Check the selected linked clan, player tag, or Discord user links; then wait for the matching clan/war polling source to capture new activity. This command reads stored data only; it does not query the Clash API live, backfill older activity, or start polling for search-only filters.',
         inline: false,
       },
     );
@@ -628,15 +636,15 @@ function formatHistoryCoverage(
 ): string {
   switch (option) {
     case 'donations':
-      return 'Stored donation delta events for players seen in linked/configured clans.';
+      return 'Stored donation delta events derived from clan polling for players seen in linked/configured clans.';
     case 'war-attacks':
-      return 'Stored regular war attack events for linked/configured clans.';
+      return 'Stored regular war attack events derived from war polling for linked/configured clans.';
     case 'cwl-attacks':
-      return 'Stored war attack events for linked/configured clans; CWL-only classification is approximate until separate CWL metadata is persisted.';
+      return 'Stored war attack events derived from war polling for linked/configured clans; CWL-only classification is approximate until separate CWL metadata is persisted.';
     case 'join-leave':
-      return 'Stored clan member join/leave events detected for linked/configured clans.';
+      return 'Stored clan member join/leave events derived from clan polling for linked/configured clans.';
     case 'clan-games':
-      return 'Stored Clan Games player snapshots for linked/configured clans.';
+      return 'Stored Clan Games player snapshots derived from clan polling for linked/configured clans.';
   }
 }
 
@@ -647,9 +655,9 @@ function formatAcceptedHistoryFilters(filters: HistoryFilterContext): string {
     filters.user ? `User: <@${filters.user.id}>` : undefined,
   ].filter((value): value is string => Boolean(value));
 
-  const accepted =
-    'Accepted: `clans`, `player`, `user`; date/season filters are not exposed on `/history` yet.';
-  return activeFilters.length > 0 ? `${activeFilters.join('\n')}\n${accepted}` : accepted;
+  return activeFilters.length > 0
+    ? `${activeFilters.join('\n')}\n${HISTORY_FILTER_HELP}`
+    : HISTORY_FILTER_HELP;
 }
 
 function formatHistoryOptionTitle(option: HistoryOption): string {
@@ -680,7 +688,7 @@ function formatHistoryOptionTitle(option: HistoryOption): string {
 }
 
 function formatNoLinkedPlayersMessage(user: User): string {
-  return `**${escapeMarkdown(user.displayName)}** does not have linked player accounts. Use \`/link create\` first. Accepted filters: \`clans\`, \`player\`, and \`user\` (date/season filters are not exposed on \`/history\` yet). This command reads persisted history only and does not perform a live Clash API lookup or enroll polling.`;
+  return `**${escapeMarkdown(user.displayName)}** does not have linked player accounts. Use \`/link create\` first. ${HISTORY_FILTER_HELP} ${HISTORY_STORED_ONLY_HELP}`;
 }
 
 export function resolveHistoryClan(
