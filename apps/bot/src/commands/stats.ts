@@ -16,7 +16,7 @@ export const STATS_COMMAND_DESCRIPTION = 'Show war attack stats from stored hist
 export const STATS_NO_ATTACK_EVENTS_MESSAGE =
   'No war attack stats matched the current `/stats attacks` filters.';
 export const STATS_DEFENSE_UNAVAILABLE_MESSAGE =
-  'Persisted defense stats are not available yet. ClashMate currently stores war attack history only.';
+  'Persisted defense history is not available yet. ClashMate currently stores war attack events only, so `/stats defense` cannot build rankings or totals.';
 
 const MAX_STATS_ROWS = 15;
 const EMBED_DESCRIPTION_LIMIT = 4096;
@@ -487,13 +487,18 @@ export function buildStatsAttacksEmbed(
       },
       {
         name: 'Source & limitations',
-        value: buildSourceNote(input.starsOption, input.attemptOption, Boolean(input.user)),
+        value: buildSourceNote({
+          hasClanFilter: Boolean(input.clanLabel),
+          hasUserFilter: Boolean(input.user),
+          stars: input.starsOption,
+          attempt: input.attemptOption,
+        }),
         inline: false,
       },
       {
         name: 'Polling prerequisites',
         value:
-          'War attack stats appear after a clan is linked/configured, the war poller observes wars for that clan, and persisted attack events exist for the selected filters. One-off `/stats` lookups do not enroll clans or players for polling.',
+          'War attack stats appear after a clan is linked/configured in this server, the war poller observes wars for that clan, and persisted war attack events exist for the selected filters. One-off `/stats` lookups do not enroll clans or players for polling.',
         inline: false,
       },
     )
@@ -558,7 +563,7 @@ function buildStatsDefenseUnavailableEmbed(input: {
       {
         name: 'Source & coverage',
         value:
-          'This response does not query the Clash API. Persisted defense history is not stored yet, so 0 rows are available/visible for rankings or totals. Clan and user filters are validated against linked ClashMate configuration only.',
+          'This response does not query the Clash API or live war state. Persisted defense history is not stored yet, so 0 defense rows are available/visible for rankings or totals. Clan and user filters are validated against linked ClashMate configuration only.',
         inline: false,
       },
       {
@@ -570,7 +575,7 @@ function buildStatsDefenseUnavailableEmbed(input: {
       {
         name: 'Polling prerequisites',
         value:
-          'Defense rankings require future persisted defense events from observed wars for linked/configured clans. Current war polling only feeds the stored attack-history source used by `/stats attacks`.',
+          'Defense rankings require future persisted defense events from observed wars for linked/configured clans. Current war polling only feeds the stored war attack event source used by `/stats attacks`.',
         inline: false,
       },
     );
@@ -634,25 +639,31 @@ function formatStatsRows(rows: readonly StatsWarAttackHistoryRow[]): string {
     .join('\n');
 }
 
-function buildSourceNote(
-  stars: StarsOption | null,
-  attempt: AttemptOption | null,
-  hasUserFilter: boolean,
-): string {
+function buildSourceNote(input: {
+  readonly stars: StarsOption | null;
+  readonly attempt: AttemptOption | null;
+  readonly hasClanFilter: boolean;
+  readonly hasUserFilter: boolean;
+}): string {
   const notes = [
-    'Data source: persisted war attack history for linked/configured clans; no live Clash API lookup is performed by this command.',
+    'Data source: persisted war attack events already observed by ClashMate for linked/configured clans in this server; no live Clash API lookup or backfill is performed by this command.',
   ];
-  if (hasUserFilter) {
+  if (input.hasClanFilter) {
+    notes.push(
+      'Clan filters match linked clan tags, names, or aliases before reading stored events.',
+    );
+  }
+  if (input.hasUserFilter) {
     notes.push(
       'User filters expand to linked player tags in this server and match those tags against stored attacker tags.',
     );
   }
-  if (stars) {
+  if (input.stars) {
     notes.push(
       'Star filtering is shown as a label only because stored rows are attacker aggregates, not exact per-hit star buckets.',
     );
   }
-  if (attempt) {
+  if (input.attempt) {
     notes.push(
       'Attempt filtering uses aggregate fresh-hit counts conservatively; displayed averages still come from stored attacker totals.',
     );
@@ -711,9 +722,9 @@ function buildStatsNoAttackEventsMessage(input: {
   const filterText = filters.length > 0 ? ` Active filters: ${filters.join(' · ')}.` : '';
   const nextHint =
     input.rowsConsidered > 0
-      ? 'Try relaxing the accepted filters; some labels are not fully applied while history rows are stored as attacker aggregates.'
-      : 'Link/configure a clan, ensure the war poller can observe wars for it, and wait for attack events to be persisted, or choose a filter with stored history.';
-  return `${STATS_NO_ATTACK_EVENTS_MESSAGE} Source: persisted war attack history only; no live Clash API lookup is performed. Rows considered: ${input.rowsConsidered}.${filterText} ${nextHint}`;
+      ? 'Try removing the user/clan/time/attempt filters or choose a wider season/days window; some accepted parity labels are echoed but cannot narrow aggregate rows yet.'
+      : 'Link/configure a clan in this server, make sure the user has linked players when using the user filter, let the war poller observe wars for the linked clan, and wait for war attack events to be persisted.';
+  return `${STATS_NO_ATTACK_EVENTS_MESSAGE} Source: persisted war attack events for linked/configured clans only; no live Clash API lookup, search, or historical backfill is performed. Rows considered: ${input.rowsConsidered}.${filterText} ${nextHint}`;
 }
 
 function buildStatsFooter(
