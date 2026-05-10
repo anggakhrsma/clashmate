@@ -12,7 +12,11 @@ export const VERIFY_COMMAND_NAME = 'verify';
 export const VERIFY_COMMAND_DESCRIPTION = 'Verify and link a player account using an API token.';
 export const INVALID_PLAYER_MESSAGE = 'This player or clan tag is not valid.';
 export const INVALID_TOKEN_MESSAGE =
-  'You must provide a valid API Token that can be found in the game settings.';
+  'You must provide a valid API Token from Clash of Clans settings for this exact player tag. Check the tag, copy the token again, and try `/verify` in this private reply.';
+export const TOKEN_CHECK_UNAVAILABLE_MESSAGE =
+  'Unable to verify that API token with Clash of Clans right now. Your account link was not changed; please try again later.';
+export const VERIFY_CONTEXT_MESSAGE =
+  'This verification reply is only visible to you. ClashMate checks your in-game API token, saves a verified Discord link when it matches, and does not start new polling just because you verified.';
 
 export const verifyCommandData = new SlashCommandBuilder()
   .setName(VERIFY_COMMAND_NAME)
@@ -138,7 +142,9 @@ export async function executeVerify(
   try {
     player = await options.coc.getPlayer(playerTag);
   } catch {
-    await interaction.editReply(INVALID_PLAYER_MESSAGE);
+    await interaction.editReply(
+      `${INVALID_PLAYER_MESSAGE} Enter the player tag exactly as shown in-game, including the leading # if available.`,
+    );
     return;
   }
 
@@ -146,7 +152,7 @@ export async function executeVerify(
   try {
     isValidToken = await options.coc.verifyPlayerToken(player.tag, token);
   } catch {
-    await interaction.editReply(INVALID_TOKEN_MESSAGE);
+    await interaction.editReply(TOKEN_CHECK_UNAVAILABLE_MESSAGE);
     return;
   }
 
@@ -178,10 +184,20 @@ export function formatVerifySuccess(
     wasDefault: false,
   },
 ): string {
-  const details = [];
+  const details: string[] = [];
   if (result.transferredFromUserId) {
-    details.push(`This verified link was transferred from <@${result.transferredFromUserId}>.`);
+    details.push(
+      `Because the API token proves ownership, the verified link was transferred from <@${result.transferredFromUserId}> to you.`,
+    );
+  } else {
+    details.push('Your verified link is saved for future ClashMate commands.');
   }
+
+  if (result.wasDefault) {
+    details.push('This is now your default account.');
+  }
+
+  details.push(VERIFY_CONTEXT_MESSAGE);
 
   const suffix = details.length ? ` ${details.join(' ')}` : '';
   return `Verification successful! **${player.name} (${player.tag})** ✅${suffix}`;
