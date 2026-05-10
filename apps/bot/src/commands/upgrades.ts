@@ -14,7 +14,10 @@ import { filterPlayerTagAutocompleteChoices, formatNoLinkedPlayerMessage } from 
 
 export const UPGRADES_COMMAND_NAME = 'upgrades';
 export const UPGRADES_COMMAND_DESCRIPTION = 'Show remaining player unit upgrades.';
-export const UPGRADES_NOT_FOUND_MESSAGE = 'This player tag is not valid or was not found.';
+export const UPGRADES_NOT_FOUND_MESSAGE = [
+  'I could not load that player from the Clash of Clans API.',
+  'Check that the tag is correct and public, then try again. If the tag is valid, the API may be temporarily unavailable.',
+].join(' ');
 
 const EMBED_FIELD_VALUE_LIMIT = 1024;
 const EMBED_MAX_FIELDS = 25;
@@ -45,9 +48,19 @@ export interface UpgradesCommandOptions {
 }
 
 type UpgradesResolutionResult =
-  | { readonly status: 'resolved'; readonly playerTag: string; readonly targetUser: User | null }
+  | {
+      readonly status: 'resolved';
+      readonly playerTag: string;
+      readonly targetUser: User | null;
+      readonly source: 'player_option' | 'linked_user';
+    }
   | { readonly status: 'invalid_tag' }
   | { readonly status: 'no_link'; readonly targetUser: User; readonly isSelf: boolean };
+
+interface UpgradesEmbedContext {
+  readonly source: 'player_option' | 'linked_user';
+  readonly targetUser: User | null;
+}
 
 export interface UpgradeUnit {
   readonly name: string;
@@ -145,7 +158,11 @@ export async function executeUpgrades(
   });
 
   if (resolution.status === 'invalid_tag') {
-    await interaction.reply({ content: UPGRADES_NOT_FOUND_MESSAGE, ephemeral: true });
+    await interaction.reply({
+      content:
+        'That player filter is not a valid Clash player tag. Use `player:#TAG` or omit it to use your linked account; `user` accepts a Discord member with linked accounts.',
+      ephemeral: true,
+    });
     return;
   }
 
@@ -164,7 +181,14 @@ export async function executeUpgrades(
     return;
   }
 
-  await interaction.editReply({ embeds: [buildUpgradesEmbed(player)] });
+  await interaction.editReply({
+    embeds: [
+      buildUpgradesEmbed(player, {
+        source: resolution.source,
+        targetUser: resolution.targetUser,
+      }),
+    ],
+  });
 }
 
 export async function resolveUpgradesPlayerTag(input: {
@@ -180,6 +204,7 @@ export async function resolveUpgradesPlayerTag(input: {
         status: 'resolved',
         playerTag: normalizeClashTag(input.playerOption),
         targetUser: input.userOption,
+        source: 'player_option',
       };
     } catch {
       return { status: 'invalid_tag' };
@@ -190,10 +215,13 @@ export async function resolveUpgradesPlayerTag(input: {
   const [playerTag] = await input.links.listPlayerTagsForUser(input.guildId, targetUser.id);
   if (!playerTag)
     return { status: 'no_link', targetUser, isSelf: targetUser.id === input.invokingUser.id };
-  return { status: 'resolved', playerTag, targetUser };
+  return { status: 'resolved', playerTag, targetUser, source: 'linked_user' };
 }
 
-export function buildUpgradesEmbed(player: ClashPlayer): EmbedBuilder {
+export function buildUpgradesEmbed(
+  player: ClashPlayer,
+  context: UpgradesEmbedContext = { source: 'player_option', targetUser: null },
+): EmbedBuilder {
   const progress = collectUpgradeProgress(player);
   const groups = collectRemainingUpgrades(player);
   const remainingLevels = countRemainingLevels(groups);
@@ -210,7 +238,10 @@ export function buildUpgradesEmbed(player: ClashPlayer): EmbedBuilder {
       truncateEmbedText(
         [
           `First pass using public API \`maxLevel\` values${townHall ? ` for TH ${townHall}` : ''}${builderHall ? ` / BH ${builderHall}` : ''}.`,
-          'Static town-hall maximum tables are not included yet, so this may include upgrades above the current hall level.',
+          formatUpgradesLookupSource(context),
+          "Accepted filters: `player` for an exact Clash tag, or `user` for that member's first linked account when no player tag is supplied.",
+          'This is a one-off API lookup only; it does not enroll the player for polling or long-lived tracking.',
+          'Recommendation limits: ClashMate currently uses public API unit `maxLevel` data and simple remaining-level heuristics, not full TH/BH cost/time tables, lab availability, books, hammers, builders, or magic item planning. Some rows can include levels above the current hall until static hall caps are added.',
           `Total remaining levels: **${remainingLevels.toLocaleString('en-US')}**`,
           formatUpgradeProgressSummary(progress),
         ].join('\n'),
@@ -227,6 +258,21 @@ export function buildUpgradesEmbed(player: ClashPlayer): EmbedBuilder {
       inline: false,
     });
   return embed;
+}
+
+function formatUpgradesLookupSource(context: UpgradesEmbedContext): string {
+  if (context.source === 'linked_user') {
+    const user = context.targetUser
+      ? `${escapeMarkdown(context.targetUser.username)}'s`
+      : "the selected user's";
+    return `Lookup source: ${user} first linked player account.`;
+  }
+
+  if (context.targetUser) {
+    return `Lookup source: explicit player tag; the selected user filter (${escapeMarkdown(context.targetUser.username)}) is ignored when \`player\` is provided.`;
+  }
+
+  return 'Lookup source: explicit player tag.';
 }
 
 export function collectRemainingUpgrades(player: ClashPlayer): UpgradeGroups {
