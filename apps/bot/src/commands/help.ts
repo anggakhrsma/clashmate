@@ -87,8 +87,8 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     details: [
       'Requires Manage Server permission or a configured bot manager role for configuration changes.',
       'Stores role IDs and behavior flags in guild settings with audit logs.',
-      '`/autorole refresh` returns an ephemeral dry-run preview only.',
-      'Does not mutate Discord roles, refresh members, call the Clash API, or enroll polling.',
+      '`/autorole refresh` returns an ephemeral snapshot-backed dry-run preview with candidate actions where stored mappings and linked-clan member snapshots allow it.',
+      'Does not mutate Discord roles or nicknames, call the Clash API, or enroll polling; full Discord role reconciliation remains future work.',
     ],
   },
   {
@@ -116,8 +116,8 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     details: [
       'Reads current linked-clan and member snapshots without querying the Clash API.',
       '`/capital raids user:<user>` filters clans using linked player tags and persisted member snapshots.',
-      'Raid-week attack logs are not persisted yet, so raids shows a compact capital overview/ranking.',
-      'Contribution shows a no-data message until member snapshots include capital contribution fields.',
+      'Raid-week attack logs are not persisted yet, so raids shows a compact current capital overview/ranking rather than per-attack raid history.',
+      'Contribution reads stored member `capitalContribution` and `capitalGold` fields when polling snapshots include them; historical raid-week contribution history is not implemented.',
     ],
   },
   {
@@ -228,7 +228,7 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     category: 'Player & Clan',
     details: [
       'Reads existing linked clan, member, donation, war attack, and capital snapshot data without querying the Clash API.',
-      'Capital raids summarizes the latest persisted capital snapshots; `week` is accepted as a display label only.',
+      'Capital raids summarizes the latest persisted capital snapshots and stored member capital contribution fields; `week` is accepted as a display label only because raid-week attack logs and historical capital contribution are not implemented.',
       'First pass returns compact embeds with totals and top rows instead of image charts.',
     ],
   },
@@ -322,8 +322,8 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     details: [
       'Leaderboard and stats read linked-clan member snapshots without querying the Clash API.',
       '`/legend stats reference_date:<YYYY-MM-DD>` accepts and displays the date, but current persisted snapshots are still used.',
-      'Attacks and days return honest no-data messages with accepted filter context until Legend attack/day data is persisted.',
-      'No exports, auto-updating boards, external feeds, or polling enrollment are used.',
+      'Attacks and days use current persisted snapshots to resolve accepted clan/player filters, then return honest no-data messages until Legend attack/day history is persisted.',
+      'Live Legend feeds, exports, auto-updating boards, external feeds, and polling enrollment are not implemented.',
     ],
   },
   {
