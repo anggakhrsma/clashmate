@@ -13,7 +13,13 @@ import {
 export const AUTOROLE_COMMAND_NAME = 'autorole';
 export const AUTOROLE_COMMAND_DESCRIPTION = 'Configure automatic role mappings.';
 export const AUTOROLE_FIRST_PASS_NOTE =
-  'First pass: ClashMate stores autorole configuration only. Automated Discord role assignment and refresh are not implemented yet.';
+  'ClashMate stores autorole configuration only. Automated Discord role assignment and refresh are not implemented yet.';
+const AUTOROLE_INCLUDED_GROUPS_NOTE =
+  'Included groups: clan roles, Town Hall, leagues/trophy ranges, and family/guest/verified roles.';
+const AUTOROLE_EXCLUDED_GROUPS_NOTE =
+  'Excluded groups: builder hall, builder leagues, wars, and EOS push roles are intentionally not supported in ClashMate.';
+const AUTOROLE_DATA_SOURCE_NOTE =
+  'Future refreshes will use linked Discord accounts, linked clans, and persisted clan/member snapshots from polling. This command does not call the live Clash API as a fallback.';
 
 const TOWN_HALL_LEVELS = Array.from({ length: 17 }, (_, index) => index + 1);
 const PLAYER_LEAGUES = [
@@ -520,11 +526,18 @@ export function buildAutoroleSettingsEmbed(
         ].join('\n'),
         inline: false,
       },
+      {
+        name: 'Supported role groups',
+        value: [AUTOROLE_INCLUDED_GROUPS_NOTE, AUTOROLE_EXCLUDED_GROUPS_NOTE].join('\n'),
+        inline: false,
+      },
       { name: 'Clan roles', value: formatNestedRoles(view.clanRoles), inline: false },
       { name: 'Town Hall roles', value: formatRoles(view.townHallRoles), inline: false },
       { name: 'League roles', value: formatRoles(view.leagueRoles), inline: false },
       { name: 'Family roles', value: formatRoles(view.familyRoles), inline: false },
       { name: 'Config', value: formatConfig(view), inline: false },
+      { name: 'Data sources', value: AUTOROLE_DATA_SOURCE_NOTE, inline: false },
+      { name: 'No data?', value: formatNoDataActionability(counts), inline: false },
       {
         name: 'Last action',
         value: viewedOnly
@@ -583,15 +596,22 @@ export function buildAutoroleRefreshPreviewEmbed(
         inline: false,
       },
       {
+        name: 'Supported role groups',
+        value: [AUTOROLE_INCLUDED_GROUPS_NOTE, AUTOROLE_EXCLUDED_GROUPS_NOTE].join('\n'),
+        inline: false,
+      },
+      {
         name: 'Future refresh would consider',
         value: [
           'Linked Discord accounts for the selected members.',
           'Linked clans configured for this server.',
           'Stored clan and member snapshots already collected by polling.',
           'Saved clan, Town Hall, league/trophy, and family role mappings above.',
+          'No live Clash API fallback is used by this preview.',
         ].join('\n'),
         inline: false,
       },
+      { name: 'No data?', value: formatNoDataActionability(counts), inline: false },
       { name: 'Last action', value: `/${AUTOROLE_COMMAND_NAME} refresh`, inline: false },
     );
 }
@@ -659,7 +679,21 @@ function formatConfig(view: AutoroleSettingsView): string {
     `Always force refresh roles: ${formatBool(view.config.alwaysForceRefreshRoles)}`,
     `Allow not linked: ${formatBool(view.config.allowNotLinked)}`,
     `Verified only clan roles: ${formatBool(view.config.verifiedOnlyClanRoles ?? view.clanRolesOnlyVerified)}`,
+    'Persistence: saved for this Discord server; manager permissions control who can update it.',
   ].join('\n');
+}
+
+function formatNoDataActionability(counts: ReturnType<typeof getAutoroleConfigCounts>): string {
+  if (
+    counts.clanRoleMappings > 0 ||
+    counts.townHallRoles > 0 ||
+    counts.leagueRoles > 0 ||
+    counts.familyRoles > 0
+  ) {
+    return 'Stored mappings are present. If refresh previews still show no eligible members later, link accounts and clans, then wait for polling snapshots to update.';
+  }
+
+  return 'No stored mappings yet. Configure an included autorole group, link the relevant clans/accounts, and wait for polling snapshots before expecting eligible members.';
 }
 
 function formatBool(value: boolean | null): string {
