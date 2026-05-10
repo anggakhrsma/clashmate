@@ -222,8 +222,8 @@ function findLatestFetchedAt(snapshots: readonly WarlogRetainedWarSnapshot[]): D
 function formatWarlogNoDataMessage(context: WarlogOutputContext): string {
   const lines = [
     context.retainedSnapshotsScanned > 0
-      ? 'No retained war log entries matched the accepted filters.'
-      : 'No retained war log is available yet for the accepted filters.',
+      ? 'No retained ended-war snapshots matched the accepted linked clan/user filters.'
+      : 'No retained ended-war snapshots are available yet for the accepted filters.',
     formatWarlogContextLine(context),
     formatWarlogSourceLine(),
     formatWarlogPollingPrerequisiteLine(context),
@@ -260,25 +260,25 @@ function resolveWarlogClan(
 
 function formatWarlogSourceLine(): string {
   return [
-    'Source coverage: persisted retained-war snapshots for linked clans only.',
-    '`/warlog` does not perform a live Clash API war-log lookup, does not backfill untracked clans, and does not include CWL/export-only data.',
+    'Source coverage: retained ended-war snapshots already captured for linked clans in this server.',
+    '`/warlog` scans retained snapshots only; it does not perform a live Clash API fallback, backfill untracked clans, or include CWL/export-only data.',
   ].join(' ');
 }
 
 function formatWarlogPollingPrerequisiteLine(context: WarlogOutputContext): string {
   if (context.linkedClanCount === 0) {
-    return 'Polling prerequisite: link or configure at least one clan in this server before war snapshots can be retained.';
+    return 'Action needed: link or configure at least one clan in this server so the war poller can retain ended-war snapshots.';
   }
 
   if (context.retainedSnapshotsScanned === 0) {
-    return 'Polling prerequisite: the war poller must observe completed wars for the linked clan coverage before entries appear here.';
+    return 'Action needed: confirm the linked clan coverage has war polling enabled and wait for the war poller to observe completed regular wars.';
   }
 
   if (context.visibleEntries === 0) {
-    return 'Polling note: retained snapshots exist, but the accepted clan/user filters did not match a visible retained war entry.';
+    return 'Action needed: broaden the linked clan/user filters or wait for a retained ended-war snapshot containing the linked player tags.';
   }
 
-  return 'Polling prerequisite: entries appear after linked clans have completed wars retained by the war poller.';
+  return 'Polling prerequisite: entries appear after linked clans have completed regular wars retained by the war poller.';
 }
 
 export function extractWarData(snapshot: unknown): WarData | null {
@@ -426,7 +426,7 @@ export function buildWarlogEmbed(
         `Clan: ${clan?.name ?? entry.snapshot.trackedClan.name ?? trackedTag} (${clan?.tag ?? trackedTag})`,
         `Stars: ${formatNumber(clan?.stars)} / ${formatNumber(opponent?.stars)} · Destruction: ${formatPercent(clan?.destructionPercentage)} / ${formatPercent(opponent?.destructionPercentage)}`,
         `Team: ${formatNumber(entry.war.teamSize)} · Attacks: ${formatNumber(clan?.attacks)} / ${formatTotalAttacks(entry.war)}`,
-        `Ended: ${time(endedAt, 'R')} · war_id: \`${entry.snapshot.warKey}\``,
+        `Ended: ${time(endedAt, 'R')} · retained snapshot war_id: \`${entry.snapshot.warKey}\``,
       ].join('\n'),
       inline: false,
     });
@@ -442,7 +442,7 @@ function formatWarlogContextLine(context: WarlogOutputContext): string {
   ].filter((value): value is string => Boolean(value));
   const latest = context.latestFetchedAt ? time(context.latestFetchedAt, 'R') : 'none';
 
-  return `Coverage: ${context.linkedClanCount} linked clan${context.linkedClanCount === 1 ? '' : 's'}; scanned ${context.retainedSnapshotsScanned} retained snapshot${context.retainedSnapshotsScanned === 1 ? '' : 's'}; showing ${context.visibleEntries}; latest fetched ${latest}; filters accepted: ${filters.length > 0 ? filters.join(', ') : 'none'}.`;
+  return `Coverage: ${context.linkedClanCount} linked clan${context.linkedClanCount === 1 ? '' : 's'} in this server; scanned ${context.retainedSnapshotsScanned} retained ended-war snapshot${context.retainedSnapshotsScanned === 1 ? '' : 's'} before display filters; showing ${context.visibleEntries}; latest fetched ${latest}; accepted filters: ${filters.length > 0 ? filters.join(', ') : 'none'}.`;
 }
 
 function formatTrackedClan(clan: WarlogTrackedClan): string {
