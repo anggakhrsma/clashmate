@@ -540,6 +540,18 @@ const CATEGORY_ORDER: readonly HelpCategory[] = [
   'Owner',
 ];
 
+const HELP_SCOPE_NOTES = [
+  'ClashMate is the open-source successor-style implementation for self-hosted Clash of Clans Discord help; old ClashPerk names and cprk.us links are replaced with ClashMate and cmte.io.',
+  'Premium, Patreon, redemption, export, roster, flag, eval, suggestions, and bot-personalizer features are intentionally excluded.',
+  'Some commands read persisted ClashMate snapshots from linked clans; others perform one-off live Clash API lookups and do not enroll new polling.',
+] as const;
+
+const HELP_LIMITATION_NOTES = [
+  'First-pass outputs favor compact embeds over legacy image charts, exports, and interactive dashboards.',
+  '`/setup enable` and `/setup disable` are legacy stubs; use `/setup clan`, `/setup clan-logs`, and `/setup list` for current setup flows.',
+  'Use each command detail view to see whether it uses persisted data or a live lookup.',
+] as const;
+
 export function createHelpSlashCommand(): SlashCommandDefinition {
   return {
     name: HELP_COMMAND_NAME,
@@ -587,12 +599,28 @@ export function buildHelpOverviewEmbed(view: HelpView): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(view.color ?? DEFAULT_HELP_EMBED_COLOR)
     .setTitle('ClashMate Help')
-    .setDescription('Use `/help command:<name>` for command details.')
+    .setDescription(
+      [
+        'Use `/help command:<name>` for command details.',
+        'This help menu documents implemented ClashMate behavior, including migration limitations from ClashPerk.',
+      ].join('\n'),
+    )
     .setAuthor(
       view.botAvatarUrl
         ? { name: view.botName, iconURL: view.botAvatarUrl }
         : { name: view.botName },
     );
+
+  embed.addFields(
+    { name: 'Scope', value: HELP_SCOPE_NOTES.join('\n'), inline: false },
+    { name: 'Current limitations', value: HELP_LIMITATION_NOTES.join('\n'), inline: false },
+    {
+      name: 'Data source guide',
+      value:
+        'Persisted-data commands use linked-clan/player snapshots collected by ClashMate. Live lookup commands call the public Clash API once for the response and do not start continuous tracking.',
+      inline: false,
+    },
+  );
 
   for (const category of CATEGORY_ORDER) {
     const commands = HELP_CATALOG.filter((entry) => entry.category === category);
@@ -607,6 +635,11 @@ export function buildHelpOverviewEmbed(view: HelpView): EmbedBuilder {
 }
 
 export function buildHelpCommandEmbed(view: HelpView, entry: HelpCatalogEntry): EmbedBuilder {
+  const parityNotes = [
+    ...HELP_SCOPE_NOTES.slice(1),
+    'If this command mentions persisted snapshots, it uses existing ClashMate data. If it mentions one-off lookup, it performs a live public Clash API request only for that response.',
+  ];
+
   return new EmbedBuilder()
     .setColor(view.color ?? DEFAULT_HELP_EMBED_COLOR)
     .setTitle(`/${entry.name}`)
@@ -620,6 +653,7 @@ export function buildHelpCommandEmbed(view: HelpView, entry: HelpCatalogEntry): 
       { name: 'Usage', value: entry.usage, inline: false },
       { name: 'Category', value: entry.category, inline: false },
       { name: 'Details', value: entry.details.join('\n'), inline: false },
+      { name: 'ClashMate parity notes', value: parityNotes.join('\n'), inline: false },
     );
 }
 
