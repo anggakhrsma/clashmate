@@ -149,7 +149,7 @@ export function buildClansPayload(input: {
     return {
       content:
         `Category filter \`${input.categoryId}\` was accepted, but no stored category matched it. ` +
-        'Use category autocomplete to choose a real stored category.',
+        'Use category autocomplete to choose a real stored category linked to this server.',
     };
   }
 
@@ -167,9 +167,10 @@ export function buildClansPayload(input: {
   const [firstChunk = '', ...chunks] = splitText(description, EMBED_DESCRIPTION_LIMIT);
   const clansWithSnapshotStats = input.clans.filter(hasSnapshotStats).length;
   const coverageContext = [
-    `Total linked clans: ${input.clans.length}`,
-    `With current snapshot stats: ${clansWithSnapshotStats}`,
-    'Category autocomplete only shows real stored categories.',
+    `Source: ${input.clans.length} linked clan${input.clans.length === 1 ? '' : 's'} configured for this server.`,
+    `Current snapshot stats available: ${clansWithSnapshotStats}/${input.clans.length}. Missing stats show as Unknown; /clans does not make live Clash API fallback requests.`,
+    'Category autocomplete only shows stored categories, and the category option filters this server-linked list only.',
+    'Listing clans here does not enroll search-only clans or otherwise change polling; use `/setup clan` to link clans for polling.',
   ];
   if (filteredCategory) {
     coverageContext.unshift(`Filtered category: ${filteredCategory.displayName}`);
