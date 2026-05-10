@@ -6,9 +6,13 @@ export const CALLER_COMMAND_DESCRIPTION =
   'Assign or clear persisted war base calls from latest snapshots.';
 const MAX_CALLER_EXPIRY_HOURS = 720;
 const CALLER_PARITY_CONTEXT =
-  'Supported subcommands: `assign` and `clear`; accepted targets come from the latest persisted current-war roster snapshot for linked clans. Calls are saved by war/base until cleared or expired; `/caller` never performs live Clash API lookups.';
+  "Supported subcommands: `assign` and `clear`; accepted targets come from the latest persisted current-war roster snapshot for this server's linked clans. Calls are saved by war/base until cleared or expired, so they survive bot restarts but are not pushed to Clash of Clans; `/caller` never performs live Clash API lookups.";
 const CALLER_POLLING_PREREQUISITE =
-  'Link a clan and let the war poller store a current-war snapshot before using `/caller`.';
+  'Link a clan and keep the war poller running until it stores a fresh current-war snapshot before using `/caller`.';
+const CALLER_FILTER_CONTEXT =
+  '`/caller` is scoped to this Discord server, uses only configured linked clans, and has no player, Discord-user, or ad-hoc clan filter options.';
+const CALLER_NO_LIVE_FALLBACK =
+  'If this looks stale, wait for the next war poll or relink/fix the clan configuration; the command will not fetch live Clash API data on demand.';
 
 export interface CallerWarSnapshotRecord {
   readonly clanTag: string;
@@ -172,8 +176,8 @@ export function createCallerSlashCommand(options: CallerCommandOptions): SlashCo
         });
         await interaction.reply({
           content: cleared
-            ? `Cleared persisted caller base for **#${defenseMapPosition} ${formatName(defense)}**. ${formatWarContext(entry)}`
-            : `No persisted caller base existed for **#${defenseMapPosition} ${formatName(defense)}**. ${formatWarContext(entry)}`,
+            ? `Cleared persisted caller base for **#${defenseMapPosition} ${formatName(defense)}**. The saved call is removed from ClashMate storage for this war/base only. ${formatWarContext(entry)}`
+            : `No persisted caller base existed for **#${defenseMapPosition} ${formatName(defense)}** in ClashMate storage for this war/base. Assign one with \`/caller assign\` if this base should be reserved. ${formatWarContext(entry)}`,
           ephemeral: true,
         });
         return;
@@ -217,7 +221,7 @@ export function createCallerSlashCommand(options: CallerCommandOptions): SlashCo
         actorDiscordUserId: interaction.user.id,
       });
       await interaction.reply({
-        content: `Persisted caller base: **#${offenseMapPosition} ${formatName(offense)}** to **#${defenseMapPosition} ${formatName(defense)}**. ${formatExpiryFeedback(expiresAt)} ${formatWarContext(entry)}`,
+        content: `Persisted caller base in ClashMate storage: **#${offenseMapPosition} ${formatName(offense)}** to **#${defenseMapPosition} ${formatName(defense)}**. ${formatExpiryFeedback(expiresAt)} This reserves the target for this persisted war/base until cleared or expired. ${formatWarContext(entry)}`,
         ephemeral: true,
       });
     },
@@ -303,7 +307,10 @@ function formatNoWarSnapshotFeedback(snapshots: readonly CallerWarSnapshotRecord
   if (!snapshots.length) {
     return [
       'No linked clan current-war snapshots were found for this server.',
+      'Action: configure at least one linked clan, then wait for the worker war poller to persist its current-war snapshot.',
       CALLER_POLLING_PREREQUISITE,
+      CALLER_FILTER_CONTEXT,
+      CALLER_NO_LIVE_FALLBACK,
       CALLER_PARITY_CONTEXT,
     ].join(' ');
   }
@@ -313,8 +320,11 @@ function formatNoWarSnapshotFeedback(snapshots: readonly CallerWarSnapshotRecord
   return [
     'Linked clan snapshots exist, but none contain an active current-war roster that `/caller` can use.',
     `Snapshot coverage: ${coverage}${suffix}.`,
-    'Ended wars, not-in-war states, and snapshots without both friendly and opponent map positions are ignored.',
+    'Action: confirm a linked clan is currently in war and wait for the worker war poller to refresh it.',
+    'Ended wars, not-in-war states, stale pre-war-only data, and snapshots without both friendly and opponent map positions are ignored.',
     CALLER_POLLING_PREREQUISITE,
+    CALLER_FILTER_CONTEXT,
+    CALLER_NO_LIVE_FALLBACK,
     CALLER_PARITY_CONTEXT,
   ].join(' ');
 }
@@ -336,5 +346,5 @@ function formatWarContext(entry: WarEntry): string {
   const fetched = entry.fetchedAt
     ? ` Snapshot fetched ${time(entry.fetchedAt, TimestampStyles.RelativeTime)}.`
     : '';
-  return `Context: ${escapeMarkdown(entry.clanLabel)}; source latest persisted current-war snapshot; war ${escapeMarkdown(entry.warKey)} (${escapeMarkdown(entry.state)}); roster ${entry.offenseMembers.length} offense / ${entry.defenseMembers.length} defense; accepted defense ${formatAcceptedTargets(entry.defenseMembers)}, offense ${formatAcceptedTargets(entry.offenseMembers)}.${fetched} ${CALLER_PARITY_CONTEXT}`;
+  return `Context: ${escapeMarkdown(entry.clanLabel)}; source latest persisted current-war snapshot from linked-clan war polling, not a live API lookup; war ${escapeMarkdown(entry.warKey)} (${escapeMarkdown(entry.state)}); roster ${entry.offenseMembers.length} offense / ${entry.defenseMembers.length} defense; accepted defense ${formatAcceptedTargets(entry.defenseMembers)}, offense ${formatAcceptedTargets(entry.offenseMembers)}.${fetched} ${CALLER_FILTER_CONTEXT} ${CALLER_NO_LIVE_FALLBACK} ${CALLER_PARITY_CONTEXT}`;
 }
