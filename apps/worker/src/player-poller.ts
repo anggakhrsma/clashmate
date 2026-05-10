@@ -27,6 +27,8 @@ interface PlayerDataPayload {
 interface PlayerPayload {
   readonly tag: string;
   readonly name: string;
+  readonly achievements?: unknown;
+  readonly clan?: unknown;
   readonly data?: unknown;
 }
 
@@ -162,12 +164,13 @@ export function normalizeClanGamesSeasonConfig(value: unknown): ClanGamesSeasonC
 }
 
 export function extractGamesChampionAchievementValue(player: {
+  readonly achievements?: unknown;
   readonly data?: unknown;
 }): number | null {
-  const data = asPlayerDataPayload(player.data);
-  if (!Array.isArray(data?.achievements)) return null;
+  const achievements = resolvePlayerAchievements(player);
+  if (!achievements) return null;
 
-  const achievement = data.achievements.find((item): item is PlayerAchievementPayload => {
+  const achievement = achievements.find((item): item is PlayerAchievementPayload => {
     if (!isRecord(item)) return false;
     return (item as PlayerAchievementPayload).name === GAMES_CHAMPION_ACHIEVEMENT_NAME;
   });
@@ -185,14 +188,56 @@ export function extractGamesChampionAchievementValue(player: {
   return value;
 }
 
-function extractPlayerClanTag(player: { readonly data?: unknown }): string | null {
+function extractPlayerClanTag(player: {
+  readonly clan?: unknown;
+  readonly data?: unknown;
+}): string | null {
+  const clan = resolvePlayerClan(player);
+  if (!clan) return null;
+
+  return normalizeNonBlankClanTag(clan.tag);
+}
+
+function resolvePlayerAchievements(player: {
+  readonly achievements?: unknown;
+  readonly data?: unknown;
+}): readonly unknown[] | null {
+  if (Array.isArray(player.achievements)) return player.achievements;
+
   const data = asPlayerDataPayload(player.data);
-  const clan = isRecord(data?.clan) ? (data.clan as PlayerClanPayload) : null;
+  return Array.isArray(data?.achievements) ? data.achievements : null;
+}
 
-  if (typeof clan?.tag !== 'string') return null;
+function resolvePlayerClan(player: {
+  readonly clan?: unknown;
+  readonly data?: unknown;
+}): PlayerClanPayload | null {
+  if (isRecord(player.clan)) return player.clan as PlayerClanPayload;
 
-  const clanTag = clan.tag.trim();
-  return clanTag.length > 0 ? clanTag : null;
+  const data = asPlayerDataPayload(player.data);
+  return isRecord(data?.clan) ? (data.clan as PlayerClanPayload) : null;
+}
+
+function normalizeNonBlankClanTag(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+
+  const clanTag = value.trim();
+  if (clanTag.length === 0) return null;
+
+  try {
+    return normalizeClashTagLikeApi(clanTag);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeClashTagLikeApi(tag: string): string {
+  const normalized = tag.trim().toUpperCase().replace(/^#?/, '#').replace(/O/g, '0');
+  if (!/^#[0289PYLQGRJCUV]+$/.test(normalized)) {
+    throw new Error('Invalid Clash of Clans tag.');
+  }
+
+  return normalized;
 }
 
 function asPlayerDataPayload(value: unknown): PlayerDataPayload | null {
