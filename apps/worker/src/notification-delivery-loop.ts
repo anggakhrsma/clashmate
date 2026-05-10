@@ -69,6 +69,8 @@ const MAX_NOTIFICATION_DELIVERY_BATCH_SIZE = 1000;
 const DEFAULT_NOTIFICATION_DELIVERY_MAX_ATTEMPTS = 5;
 const DEFAULT_NOTIFICATION_DELIVERY_LOCK_SECONDS = 60;
 const DEFAULT_NOTIFICATION_DELIVERY_RETRY_BASE_SECONDS = 30;
+const MAX_NOTIFICATION_BATCH_FAILURE_SUMMARY = 5;
+const MAX_NOTIFICATION_BATCH_FAILURE_MESSAGE_LENGTH = 160;
 const MAX_NOTIFICATION_DONATION_DELTA = 1_000_000;
 const MAX_CLAN_GAMES_EVENT_POINTS = 100_000;
 const MAX_WAR_ATTACK_STARS = 3;
@@ -81,6 +83,11 @@ interface ResolvedNotificationDeliveryIterationOptions {
   readonly maxAttempts: number;
   readonly lockForSeconds: number;
   readonly retryBaseSeconds: number;
+}
+
+interface NotificationBatchFailureSummary {
+  readonly outboxId: string;
+  readonly message: string;
 }
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
@@ -217,6 +224,11 @@ export async function runNotificationDeliveryIteration(
 
   let sent = 0;
   let failed = 0;
+  let unsupported = 0;
+  let retryableFailures = 0;
+  let exhaustedFailures = 0;
+  const failedOutboxEntries: NotificationBatchFailureSummary[] = [];
+  const targetTypeCounts = summarizeNotificationTargetTypes(claimed);
   const skipped = 0;
 
   options.logger?.debug?.(
@@ -232,6 +244,7 @@ export async function runNotificationDeliveryIteration(
   for (const entry of claimed) {
     try {
       if (entry.targetType !== 'discord_channel') {
+        unsupported += 1;
         throw new Error(`Unsupported notification target type: ${entry.targetType}`);
       }
 
@@ -262,6 +275,7 @@ export async function runNotificationDeliveryIteration(
       options.logger?.info?.({ outboxId: entry.id, targetId: entry.targetId }, 'Sent notification');
     } catch (error) {
       const retryAt = computeNotificationRetryAt(new Date(), entry.attempts + 1, retryBaseSeconds);
+      const exhausted = entry.attempts + 1 >= maxAttempts;
       await options.deliveryStore.markNotificationOutboxFailed({
         id: entry.id,
         ownerId: options.ownerId,
@@ -270,6 +284,17 @@ export async function runNotificationDeliveryIteration(
         maxAttempts,
       });
       failed += 1;
+      if (exhausted) {
+        exhaustedFailures += 1;
+      } else {
+        retryableFailures += 1;
+      }
+      if (failedOutboxEntries.length < MAX_NOTIFICATION_BATCH_FAILURE_SUMMARY) {
+        failedOutboxEntries.push({
+          outboxId: entry.id,
+          message: formatNotificationBatchFailureMessage(error),
+        });
+      }
       options.logger?.error?.({ error, outboxId: entry.id }, 'Failed to send notification');
     }
   }
@@ -293,9 +318,41 @@ export async function runNotificationDeliveryIteration(
       'Failed notification outbox batch',
     );
   }
-  options.logger?.debug?.({ ...result, ownerId: options.ownerId }, 'Completed notification batch');
+  options.logger?.debug?.(
+    {
+      ...result,
+      unsupported,
+      retryableFailures,
+      exhaustedFailures,
+      targetTypeCounts,
+      failedOutboxEntries,
+      ownerId: options.ownerId,
+    },
+    'Completed notification batch',
+  );
 
   return result;
+}
+
+function summarizeNotificationTargetTypes(
+  entries: readonly { readonly targetType: string }[],
+): Record<string, number> {
+  const counts = new Map<string, number>();
+  for (const entry of entries) {
+    counts.set(entry.targetType, (counts.get(entry.targetType) ?? 0) + 1);
+  }
+
+  return Object.fromEntries(
+    [...counts.entries()].sort(([left], [right]) => left.localeCompare(right)),
+  );
+}
+
+function formatNotificationBatchFailureMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return truncateDiscordText(
+    message || 'Unknown notification delivery error',
+    MAX_NOTIFICATION_BATCH_FAILURE_MESSAGE_LENGTH,
+  );
 }
 
 export function formatDiscordNotificationMessage(entry: {
