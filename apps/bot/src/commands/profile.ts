@@ -23,10 +23,16 @@ const EMBED_MAX_FIELDS = 25;
 
 const PROFILE_EMBED_TITLE = truncateEmbedText('ClashMate Profile', EMBED_TITLE_LIMIT, 'Profile');
 const PROFILE_EMBED_DESCRIPTION = truncateEmbedText(
-  'Based on ClashMate player links already stored for this bot.',
+  'Based on ClashMate player links and profile preferences already stored for this server.',
   EMBED_DESCRIPTION_LIMIT,
   'Stored player links.',
 );
+
+const PROFILE_SOURCE_DETAILS = [
+  'Source: saved ClashMate player links and profile preferences for this server.',
+  'No Clash API request is made, so player names, Town Hall, clan, heroes, and live stats are not fetched here.',
+  'Use `/link create` to add an account before it can appear in `/profile`.',
+].join('\n');
 
 export const profileCommandData = new SlashCommandBuilder()
   .setName(PROFILE_COMMAND_NAME)
@@ -194,7 +200,7 @@ export async function executeProfile(
 
   if (resolution.status === 'no_player_link') {
     await interaction.reply({
-      content: `No stored ClashMate player link was found for **${resolution.playerTag}**. \`/profile\` only reads saved links and never searches the Clash API. Use \`/link create\` to link it first.`,
+      content: `No stored ClashMate player link was found for **${resolution.playerTag}**. \`/profile\` resolves the \`player\` option from saved links only and never searches the Clash API, so live player data is not fetched. Use \`/link create\` to link it first.`,
       ephemeral: true,
     });
     return;
@@ -268,11 +274,11 @@ function formatNoUserLinksMessage(
   result: Extract<ProfileResolution, { status: 'no_user_links' }>,
 ): string {
   const storedOnlyNote =
-    '`/profile` only reads stored ClashMate links and never searches the Clash API.';
+    '`/profile` only reads stored ClashMate links/profile preferences for this server and never searches the Clash API.';
   if (result.isSelf) {
-    return `You do not have linked player accounts. ${storedOnlyNote} Use \`/link create\` first.`;
+    return `You do not have linked player accounts. ${storedOnlyNote} Use \`/link create\` first so your accounts can appear here.`;
   }
-  return `**${sanitizeEmbedText(result.targetUser.displayName, 'This user')}** does not have linked player accounts. ${storedOnlyNote} Use \`/link create\` to add one.`;
+  return `**${sanitizeEmbedText(result.targetUser.displayName, 'This user')}** does not have linked player accounts. ${storedOnlyNote} Ask them to use \`/link create\` to add one.`;
 }
 
 export function buildProfileEmbed(
@@ -285,6 +291,7 @@ export function buildProfileEmbed(
 
   if (resolution.status === 'player_link') {
     embed.setDescription(PROFILE_EMBED_DESCRIPTION).addFields(
+      buildProfileSourceField('player'),
       buildProfileSummaryField({ links: [resolution.link], timezone: resolution.timezone }),
       {
         name: formatEmbedFieldName('Discord User'),
@@ -334,6 +341,7 @@ export function buildProfileEmbed(
     })
     .setDescription(PROFILE_EMBED_DESCRIPTION)
     .addFields(
+      buildProfileSourceField('user'),
       {
         name: formatEmbedFieldName('Discord User'),
         value: truncateEmbedText(
@@ -352,6 +360,27 @@ export function buildProfileEmbed(
     );
 
   return embed;
+}
+
+function buildProfileSourceField(target: 'user' | 'player'): {
+  name: string;
+  value: string;
+  inline: false;
+} {
+  const targetDetails =
+    target === 'player'
+      ? 'Target: the `player` option is normalized as a Clash tag, then matched to an existing stored link. The `user` option is not used when `player` is provided.'
+      : 'Target: the `user` option selects a Discord member; without it, `/profile` shows your own saved profile data.';
+
+  return {
+    name: formatEmbedFieldName('Source and Coverage'),
+    value: truncateEmbedText(
+      `${targetDetails}\n${PROFILE_SOURCE_DETAILS}`,
+      EMBED_FIELD_VALUE_LIMIT,
+      'Stored ClashMate profile data only.',
+    ),
+    inline: false,
+  };
 }
 
 function buildProfileSummaryField(input: {
