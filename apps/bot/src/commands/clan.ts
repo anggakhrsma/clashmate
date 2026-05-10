@@ -10,7 +10,8 @@ import {
 
 export const CLAN_COMMAND_NAME = 'clan';
 export const CLAN_COMMAND_DESCRIPTION = 'View a Clash of Clans clan profile.';
-export const CLAN_NOT_FOUND_MESSAGE = 'This clan tag is not valid or was not found.';
+export const CLAN_NOT_FOUND_MESSAGE =
+  'I could not find that clan from the live Clash API. Use a clan tag such as `#2PP`, or select an accepted clan tag/name suggestion when Discord shows one. If the tag is correct, the API may be temporarily unavailable or the clan profile may not be public yet.';
 
 export const clanCommandData = new SlashCommandBuilder()
   .setName(CLAN_COMMAND_NAME)
@@ -114,7 +115,14 @@ export function buildClanEmbed(clan: ClashClan): EmbedBuilder {
       value: formatText(data.locationName),
       inline: true,
     },
+    {
+      name: '**Lookup Source**',
+      value:
+        'Live Clash API profile lookup. This one-off search does not link the clan or enroll it in ClashMate polling.',
+    },
   );
+
+  embed.setFooter({ text: `Open the public in-game profile: ${getClanUrl(clan.tag)}` });
 
   return embed;
 }
