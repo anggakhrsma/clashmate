@@ -164,6 +164,7 @@ const commandRegistry = createBotCommandRegistry({
       getAutoroleSettings: databaseAutoroleSettingsStore.getAutoroleSettings,
       updateAutoroleSettings: databaseAutoroleSettingsStore.updateAutoroleSettings,
       listLinkedClans: databaseTrackedClans.listLinkedClans,
+      listClanMemberSnapshotsForGuild: databaseClanMemberSnapshots.listClanMemberSnapshotsForGuild,
     },
     getGuildConfig: databaseConfigStore.getGuildConfig,
   },

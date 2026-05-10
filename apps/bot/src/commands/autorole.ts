@@ -106,6 +106,24 @@ export interface AutoroleRefreshPlanOptions {
   readonly forceRefresh: boolean | null;
 }
 
+export interface AutoroleClanMemberSnapshot {
+  readonly clan: {
+    readonly clanTag: string;
+  };
+  readonly members: readonly {
+    readonly playerTag: string;
+    readonly lastFetchedAt: Date;
+  }[];
+}
+
+export interface AutoroleSnapshotCoverage {
+  readonly linkedClanSnapshotCount: number;
+  readonly snapshotMemberCount: number;
+  readonly distinctPlayerCount: number;
+  readonly latestSnapshotAt: Date | null;
+  readonly latestSnapshotAge: string;
+}
+
 export interface AutoroleRefreshPlanCounts {
   readonly clanRoleGroups: number;
   readonly clanRoleMappings: number;
@@ -125,6 +143,7 @@ export interface AutoroleRefreshPlanMappings {
 export interface AutoroleRefreshPlan {
   readonly counts: AutoroleRefreshPlanCounts;
   readonly mappingsExist: AutoroleRefreshPlanMappings;
+  readonly snapshotCoverage: AutoroleSnapshotCoverage;
   readonly target: AutoroleRefreshPlanTarget;
   readonly requested: AutoroleRefreshPlanOptions;
   readonly prerequisites: readonly string[];
@@ -145,6 +164,9 @@ export interface AutoroleConfigView {
 export interface AutoroleCommandOptions {
   store: AutoroleSettingsStore & {
     readonly listLinkedClans: (guildId: string) => Promise<AutoroleLinkedClan[]>;
+    readonly listClanMemberSnapshotsForGuild?: (input: {
+      guildId: string;
+    }) => Promise<AutoroleClanMemberSnapshot[]>;
   };
   readonly getGuildConfig?: (guildId: string) => Promise<AutoroleConfigView>;
 }
@@ -362,9 +384,13 @@ export async function executeAutoroleInteraction(
     actorDiscordUserId: interaction.user.id,
   };
   if (subcommand === 'refresh') {
-    const view = await options.store.getAutoroleSettings(interaction.guildId);
+    const [view, snapshots] = await Promise.all([
+      options.store.getAutoroleSettings(interaction.guildId),
+      options.store.listClanMemberSnapshotsForGuild?.({ guildId: interaction.guildId }) ??
+        Promise.resolve([]),
+    ]);
     await interaction.reply({
-      embeds: [buildAutoroleRefreshPreviewEmbed(view, interaction)],
+      embeds: [buildAutoroleRefreshPreviewEmbed(view, interaction, snapshots)],
       ephemeral: true,
     });
     return;
@@ -590,6 +616,7 @@ export function buildAutoroleSettingsEmbed(
 export function buildAutoroleRefreshPreviewEmbed(
   view: AutoroleSettingsView,
   interaction: ChatInputCommandInteraction,
+  snapshots: readonly AutoroleClanMemberSnapshot[] = [],
 ): EmbedBuilder {
   const target = interaction.options.getMentionable('user_or_role');
   const plan = buildAutoroleRefreshPlan(view, {
@@ -598,6 +625,7 @@ export function buildAutoroleRefreshPreviewEmbed(
       isTestRun: interaction.options.getBoolean('is_test_run'),
       forceRefresh: interaction.options.getBoolean('force_refresh'),
     },
+    snapshots,
   });
 
   return new EmbedBuilder()
@@ -638,6 +666,16 @@ export function buildAutoroleRefreshPreviewEmbed(
         inline: false,
       },
       {
+        name: 'Snapshot coverage',
+        value: [
+          `Linked clan snapshots: ${plan.snapshotCoverage.linkedClanSnapshotCount}`,
+          `Snapshot members: ${plan.snapshotCoverage.snapshotMemberCount}`,
+          `Distinct players: ${plan.snapshotCoverage.distinctPlayerCount}`,
+          `Latest snapshot age: ${plan.snapshotCoverage.latestSnapshotAge}`,
+        ].join('\n'),
+        inline: false,
+      },
+      {
         name: 'Supported role groups',
         value: [AUTOROLE_INCLUDED_GROUPS_NOTE, AUTOROLE_EXCLUDED_GROUPS_NOTE].join('\n'),
         inline: false,
@@ -657,9 +695,15 @@ export function buildAutoroleRefreshPlan(
   input: {
     readonly target: AutoroleRefreshPlanTarget;
     readonly options: AutoroleRefreshPlanOptions;
+    readonly snapshots?: readonly AutoroleClanMemberSnapshot[];
+    readonly now?: Date;
   },
 ): AutoroleRefreshPlan {
   const counts = getAutoroleConfigCounts(view);
+  const snapshotCoverage = getAutoroleSnapshotCoverage(
+    input.snapshots ?? [],
+    input.now ?? new Date(),
+  );
   const mappingsExist = {
     clanRoles: counts.clanRoleMappings > 0,
     townHallRoles: counts.townHallRoles > 0,
@@ -675,6 +719,7 @@ export function buildAutoroleRefreshPlan(
   return {
     counts,
     mappingsExist,
+    snapshotCoverage,
     target: input.target,
     requested: input.options,
     prerequisites: [
@@ -684,7 +729,7 @@ export function buildAutoroleRefreshPlan(
       'Saved clan, Town Hall, league/trophy, and family role mappings above.',
       'No live Clash API fallback is used by this preview.',
     ],
-    actionabilityNotes: [formatNoDataActionability(counts)],
+    actionabilityNotes: formatRefreshActionability(counts, snapshotCoverage),
   };
 }
 
@@ -772,6 +817,62 @@ function formatNoDataActionability(counts: ReturnType<typeof getAutoroleConfigCo
   }
 
   return 'No stored mappings yet. Configure an included autorole group, link the relevant clans/accounts, and wait for polling snapshots before expecting eligible members.';
+}
+
+function formatRefreshActionability(
+  counts: ReturnType<typeof getAutoroleConfigCounts>,
+  coverage: AutoroleSnapshotCoverage,
+): string[] {
+  const notes = [formatNoDataActionability(counts)];
+  if (coverage.linkedClanSnapshotCount === 0) {
+    notes.push('No linked clan member snapshots are available for this server yet.');
+  } else if (coverage.snapshotMemberCount === 0) {
+    notes.push('Linked clan snapshots exist, but they do not contain members yet.');
+  } else {
+    notes.push(
+      `Refresh planning can evaluate ${coverage.distinctPlayerCount} distinct player snapshot${coverage.distinctPlayerCount === 1 ? '' : 's'} once role mutation is implemented.`,
+    );
+  }
+  return notes;
+}
+
+function getAutoroleSnapshotCoverage(
+  snapshots: readonly AutoroleClanMemberSnapshot[],
+  now: Date,
+): AutoroleSnapshotCoverage {
+  const playerTags = new Set<string>();
+  let snapshotMemberCount = 0;
+  let latestSnapshotAt: Date | null = null;
+
+  for (const snapshot of snapshots) {
+    snapshotMemberCount += snapshot.members.length;
+    for (const member of snapshot.members) {
+      playerTags.add(member.playerTag);
+      if (!latestSnapshotAt || member.lastFetchedAt > latestSnapshotAt) {
+        latestSnapshotAt = member.lastFetchedAt;
+      }
+    }
+  }
+
+  return {
+    linkedClanSnapshotCount: snapshots.length,
+    snapshotMemberCount,
+    distinctPlayerCount: playerTags.size,
+    latestSnapshotAt,
+    latestSnapshotAge: formatSnapshotAge(latestSnapshotAt, now),
+  };
+}
+
+function formatSnapshotAge(snapshotAt: Date | null, now: Date): string {
+  if (!snapshotAt) return 'No snapshots';
+  const ageMs = Math.max(0, now.getTime() - snapshotAt.getTime());
+  const minutes = Math.floor(ageMs / 60_000);
+  if (minutes < 1) return 'Less than 1 minute';
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours} hour${hours === 1 ? '' : 's'}`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'}`;
 }
 
 function formatBool(value: boolean | null): string {
