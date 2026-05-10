@@ -298,7 +298,7 @@ export async function executeLinkCreate(
   ) {
     await interaction.reply({
       content:
-        'You need the Manage Server permission or a configured links manager role to link accounts for another user.',
+        'You can link your own accounts here. Linking accounts or default clans for another user requires Manage Server or a configured links manager role.',
       ephemeral: true,
     });
     return;
@@ -490,7 +490,10 @@ export function buildLinkListEmbed(
         ? { name: `${clan.name} (${clan.tag})`, iconURL: badgeUrl }
         : { name: `${clan.name} (${clan.tag})` },
     )
-    .setDescription(description.slice(0, 4096));
+    .setDescription(description.slice(0, 4096))
+    .setFooter({
+      text: 'Read-only lookup: this does not configure clan tracking or enroll players for polling.',
+    });
 
   return embed;
 }
@@ -559,9 +562,9 @@ export function formatLinkCreateResult(
 
   switch (result.status) {
     case 'linked':
-      return `Successfully linked ${playerLabel} to **${targetUser.displayName}**.`;
+      return `Successfully linked ${playerLabel} to **${targetUser.displayName}**.${result.wasDefault ? ' This is now the default account for ClashMate commands.' : ' Existing default-account preference was preserved.'} Use /verify with the in-game API token when you want to prove ownership or transfer a conflicting link.`;
     case 'already_linked_to_user':
-      return `${playerLabel} is already linked.`;
+      return `${playerLabel} is already linked. Use \`is_default:Yes\` to make it the default account.`;
     case 'already_linked_to_other_user':
       return `${playerLabel} is already linked to another user. If you own this account, please use the /verify command.`;
     case 'max_accounts_reached':
@@ -571,10 +574,13 @@ export function formatLinkCreateResult(
 
 export function formatLinkDeleteResult(result: LinkDeleteStoreResult, playerTag: string): string {
   if (result.status === 'deleted') {
-    return `Successfully deleted the link with the tag **${playerTag}**.`;
+    const defaultNote = result.promotedDefaultTag
+      ? ` **${result.promotedDefaultTag}** is now the default account for that user.`
+      : '';
+    return `Successfully deleted the link with the tag **${playerTag}**.${defaultNote}`;
   }
   if (result.status === 'not_found') return `No matches were found with the tag **${playerTag}**`;
-  return 'You need the Manage Server permission to delete links for another user.';
+  return "You can delete your own links here. Deleting another user's link requires Manage Server or a configured links manager role.";
 }
 
 export function formatLinkCreateDefaultClanResult(
@@ -582,7 +588,7 @@ export function formatLinkCreateDefaultClanResult(
   clan: Pick<ClashClan, 'name' | 'tag'>,
   targetUser: Pick<User, 'displayName'>,
 ): string {
-  return `Stored **${clan.name} (${clan.tag})** as **${targetUser.displayName}**'s default clan for ClashMate features. This does not enroll the clan for polling unless it is separately linked or configured.`;
+  return `Stored **${clan.name} (${clan.tag})** as **${targetUser.displayName}**'s default clan for ClashMate features. The preference is persisted for this server and audited, but it does not enroll the clan for polling unless the clan is separately linked or configured.`;
 }
 
 export function formatLinkDeleteDefaultClanResult(
@@ -590,10 +596,10 @@ export function formatLinkDeleteDefaultClanResult(
   clanTag: string,
 ): string {
   if (result.status === 'deleted') {
-    return `Deleted the default clan link for **${clanTag}**. This does not unlink or unenroll any configured clan polling.`;
+    return `Deleted the default clan link for **${clanTag}**. The preference change is audited and does not unlink or unenroll any configured clan polling.`;
   }
   if (result.status === 'not_found') return `No default clan link was found for **${clanTag}**.`;
-  return 'You need the Manage Server permission to delete default clan links for another user.';
+  return "You can delete your own default clan links here. Deleting another user's default clan link requires Manage Server or a configured links manager role.";
 }
 
 export async function canManageLinks(
