@@ -45,8 +45,9 @@ export function createWarPollerHandler(options: WarPollerHandlerOptions) {
     const previousSnapshot = await options.snapshots.getLatestWarSnapshot(clanTag);
     const war = await options.coc.getCurrentWar(clanTag);
     const fetchedAt = options.now?.() ?? new Date();
+    const resolvedClanTag = resolveWarClanTag(war, clanTag) ?? clanTag;
     const result = await options.snapshots.upsertLatestWarSnapshot({
-      clanTag: war.clanTag,
+      clanTag: resolvedClanTag,
       state: war.state,
       snapshot: war,
       fetchedAt,
@@ -54,7 +55,7 @@ export function createWarPollerHandler(options: WarPollerHandlerOptions) {
     const warKey = buildCurrentWarKey(war);
     if (result.status === 'upserted' && options.snapshots.retainWarSnapshot) {
       await options.snapshots.retainWarSnapshot({
-        clanTag: war.clanTag,
+        clanTag: resolvedClanTag,
         warKey,
         state: war.state,
         snapshot: war,
@@ -80,7 +81,7 @@ export function createWarPollerHandler(options: WarPollerHandlerOptions) {
 
     return {
       status: result.status === 'upserted' ? 'snapshot_updated' : 'not_linked',
-      clanTag: war.clanTag,
+      clanTag: resolvedClanTag,
       state: war.state,
       attackEventsInserted: attackResult.inserted,
       stateEventsInserted: stateResult.inserted,
@@ -91,19 +92,19 @@ export function createWarPollerHandler(options: WarPollerHandlerOptions) {
 
 export function detectWarStateTransitionEvent(
   previous: NormalizedLatestWarSnapshot | null,
-  current: { clanTag: string; state: string; data?: unknown },
+  current: { clanTag?: unknown; state: string; data?: unknown },
   fetchedAt: Date,
 ): WarStateEventInput | null {
   if (!previous) return null;
 
-  const clanTag = normalizeTag(current.clanTag);
+  const currentData = extractWarData(current.data ?? current);
+  const clanTag = resolveWarClanTag(current);
   if (!clanTag) return null;
 
   const previousState = normalizeState(previous.state);
   const currentState = normalizeState(current.state);
   if (!previousState || !currentState || previousState === currentState) return null;
 
-  const currentData = isWarData(current.data) ? current.data : undefined;
   return {
     clanTag,
     warKey: buildCurrentWarKey({ clanTag, data: currentData }),
@@ -112,19 +113,23 @@ export function detectWarStateTransitionEvent(
     previousSnapshot: previous.snapshot,
     currentSnapshot: current,
     sourceFetchedAt: fetchedAt,
-    occurredAt: chooseWarStateTransitionOccurredAt(currentState, currentData, fetchedAt),
+    occurredAt: chooseWarStateTransitionOccurredAt(
+      currentState,
+      currentData ?? undefined,
+      fetchedAt,
+    ),
     detectedAt: fetchedAt,
   };
 }
 
 export function detectWarAttackEvents(
-  war: { clanTag: string; data?: unknown },
+  war: { clanTag?: unknown; data?: unknown },
   fetchedAt: Date,
 ): WarAttackEventInput[] {
-  const data = war.data;
-  if (!isWarData(data)) return [];
+  const data = extractWarData(war.data ?? war);
+  if (!data) return [];
 
-  const clanTag = normalizeTag(war.clanTag);
+  const clanTag = resolveWarClanTag(war);
   if (!clanTag) return [];
 
   const warKey = buildCurrentWarKey({ clanTag, data });
@@ -164,13 +169,13 @@ export function detectWarAttackEvents(
 }
 
 export function detectMissedWarAttackEvents(
-  war: { clanTag: string; state: string; data?: unknown },
+  war: { clanTag?: unknown; state: string; data?: unknown },
   fetchedAt: Date,
 ): MissedWarAttackEventInput[] {
-  const data = war.data;
-  if (normalizeState(war.state) !== 'warended' || !isWarData(data)) return [];
+  const data = extractWarData(war.data ?? war);
+  if (normalizeState(war.state) !== 'warended' || !data) return [];
 
-  const clanTag = normalizeTag(war.clanTag);
+  const clanTag = resolveWarClanTag(war);
   if (!clanTag) return [];
   const perspectiveClan = choosePerspectiveWarClan(clanTag, data);
   const members = getWarMembers(perspectiveClan);
@@ -212,9 +217,9 @@ export function detectMissedWarAttackEvents(
   });
 }
 
-export function buildCurrentWarKey(war: { clanTag: string; data?: unknown }): string {
-  const clanTag = normalizeTag(war.clanTag) ?? war.clanTag;
-  const data = isWarData(war.data) ? war.data : {};
+export function buildCurrentWarKey(war: { clanTag?: unknown; data?: unknown }): string {
+  const clanTag = resolveWarClanTag(war) ?? normalizeNonBlankString(war.clanTag) ?? 'unknown-clan';
+  const data = extractWarData(war.data ?? war) ?? {};
   const start = normalizeNonBlankString(data.startTime) ?? 'unknown-start';
   const opponentTag = normalizeTag(data.opponent?.tag) ?? 'unknown-opponent';
   return `current:${(normalizeTag(clanTag) ?? clanTag).toUpperCase()}:${opponentTag}:${start}`.toLowerCase();
@@ -249,6 +254,9 @@ interface WarData {
 interface WarClan {
   readonly tag?: unknown;
   readonly members?: unknown;
+  readonly memberList?: unknown;
+  readonly attacks?: unknown;
+  readonly data?: unknown;
 }
 
 interface WarMember {
@@ -256,6 +264,7 @@ interface WarMember {
   readonly name?: unknown;
   readonly attacks?: unknown;
   readonly bestOpponentAttack?: { readonly order?: unknown };
+  readonly data?: unknown;
 }
 
 interface WarAttack {
@@ -271,6 +280,37 @@ function isWarData(value: unknown): value is WarData {
   return isRecord(value) && 'clan' in value;
 }
 
+function extractWarData(value: unknown): WarData | null {
+  const unwrapped = unwrapWarRecord(value);
+  return isWarData(unwrapped) ? unwrapped : null;
+}
+
+function unwrapWarRecord(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  const record = value as { readonly data?: unknown; readonly snapshot?: unknown };
+  const data = record.data;
+  if (isRecord(data)) return unwrapWarRecord(data);
+
+  const snapshot = record.snapshot;
+  if (isRecord(snapshot)) return unwrapWarRecord(snapshot);
+
+  return value;
+}
+
+function resolveWarClanTag(
+  war: { clanTag?: unknown; data?: unknown },
+  fallback?: string,
+): string | null {
+  const directClanTag = normalizeTag(war.clanTag);
+  if (directClanTag) return directClanTag;
+
+  const data = extractWarData(war.data ?? war);
+  const dataClanTag = normalizeTag(data?.clan?.tag);
+  if (dataClanTag) return dataClanTag;
+
+  return normalizeTag(fallback);
+}
+
 function choosePerspectiveWarClan(clanTag: string, data: WarData): WarClan | undefined {
   if (normalizeTag(data.clan?.tag) === clanTag) return data.clan;
   if (normalizeTag(data.opponent?.tag) === clanTag) return data.opponent;
@@ -284,11 +324,25 @@ function parseWarTimestamp(timestamp: unknown): Date | null {
 }
 
 function getWarMembers(clan: WarClan | undefined): readonly WarMember[] {
-  return Array.isArray(clan?.members) ? clan.members.filter(isRecord) : [];
+  const unwrapped = unwrapWarRecord(clan);
+  if (!isRecord(unwrapped)) return [];
+  const clanRecord = unwrapped as { readonly members?: unknown; readonly memberList?: unknown };
+
+  const members = Array.isArray(clanRecord.members)
+    ? clanRecord.members
+    : Array.isArray(clanRecord.memberList)
+      ? clanRecord.memberList
+      : [];
+
+  return members.map(unwrapWarRecord).filter(isRecord);
 }
 
 function getWarAttacks(member: WarMember): readonly WarAttack[] {
-  return Array.isArray(member.attacks) ? member.attacks.filter(isRecord) : [];
+  const unwrapped = unwrapWarRecord(member);
+  if (!isRecord(unwrapped)) return [];
+  const attackRecord = unwrapped as { readonly attacks?: unknown };
+  const attacks = attackRecord.attacks;
+  return Array.isArray(attacks) ? attacks.map(unwrapWarRecord).filter(isRecord) : [];
 }
 
 function normalizeWarAttack(attack: WarAttack): {
