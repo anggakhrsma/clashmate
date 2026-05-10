@@ -14,7 +14,7 @@ import {
 export const PLAYER_COMMAND_NAME = 'player';
 export const PLAYER_COMMAND_DESCRIPTION = 'View a Clash of Clans player profile.';
 export const PLAYER_NOT_FOUND_MESSAGE =
-  'The player tag was accepted, but Clash API could not find that player. Check the tag and try again.';
+  'Live Clash API lookup did not find that player. Check the tag and try again; one-off lookups are not stored for polling.';
 
 export const playerCommandData = new SlashCommandBuilder()
   .setName(PLAYER_COMMAND_NAME)
@@ -236,12 +236,12 @@ export function formatPlayerNoLinkedMessage(
   if (result.isSelf) {
     return [
       'No stored Discord user link was found for you.',
-      'Use `/link create` first, or use `/player tag:<tag>` for a one-off lookup.',
+      'Use `/link create` first, or use `/player tag:<tag>` for a live one-off lookup that is not enrolled for polling.',
     ].join(' ');
   }
   return [
     `No stored Discord user link was found for **${result.targetUser.displayName}**.`,
-    'Use `/player tag:<tag>` for a one-off lookup.',
+    'Use `/player tag:<tag>` for a live one-off lookup that is not enrolled for polling.',
   ].join(' ');
 }
 
@@ -289,8 +289,8 @@ export function buildPlayerEmbed(
         `**Best Trophies**\n${formatNumber(data.bestTrophies)}`,
         data.clan
           ? `**Clan Info**\n[${escapeMarkdown(data.clan.name)}](${getClanUrl(data.clan.tag)}) (${formatRole(data.role)})`
-          : null,
-        '**Last Seen**\nUnknown',
+          : '**Clan Info**\nNot in a clan',
+        '**Last Seen**\nNo stored snapshot data',
       ]
         .filter((line): line is string => Boolean(line))
         .join('\n'),
@@ -308,8 +308,17 @@ export function buildPlayerEmbed(
     {
       name: '**Discord**',
       value: embedContext.linkedDiscordUserId
-        ? `<@${embedContext.linkedDiscordUserId}>`
-        : 'Not Found',
+        ? `Stored owner link: <@${embedContext.linkedDiscordUserId}>`
+        : 'No stored owner link found for this player in ClashMate.',
+    },
+    {
+      name: '**Public Links**',
+      value: [
+        `[Open player profile](${getPlayerUrl(player.tag)})`,
+        data.clan ? `[Open clan profile](${getClanUrl(data.clan.tag)})` : null,
+      ]
+        .filter((line): line is string => Boolean(line))
+        .join('\n'),
     },
   ];
 
@@ -356,13 +365,14 @@ function normalizePlayerEmbedContext(
 function formatPlayerSourceContext(context: PlayerEmbedContext): string {
   const source =
     context.source === 'explicit_tag'
-      ? 'Explicit tag option'
-      : `Stored Discord user link${context.targetUser ? ` for **${context.targetUser.displayName}**` : ''}`;
+      ? 'Source: explicit `tag` option.'
+      : `Source: stored Discord user link${context.targetUser ? ` for **${context.targetUser.displayName}**` : ''}.`;
+  const lookup = 'Lookup: live Clash API request; this one-off command does not enroll polling.';
   const owner = context.linkedDiscordUserId
-    ? `Stored owner link found: <@${context.linkedDiscordUserId}>`
-    : 'Stored owner link found: no';
+    ? `Owner link: <@${context.linkedDiscordUserId}> is linked to this player in ClashMate.`
+    : 'Owner link: none found in this server. Use `/link create` to connect a Discord user.';
 
-  return `${source}\n${owner}`;
+  return `${source}\n${lookup}\n${owner}`;
 }
 
 interface PlayerDataView {
