@@ -9,7 +9,9 @@ import {
 export const NICKNAME_COMMAND_NAME = 'nickname';
 export const NICKNAME_COMMAND_DESCRIPTION = 'Manage automatic nickname settings.';
 export const NICKNAME_FIRST_PASS_NOTE =
-  'ClashMate stores these nickname preferences only. This command never changes Discord nicknames; nickname mutation and refresh are not implemented yet.';
+  'ClashMate stores these server nickname preferences only. `/nickname config` is a preview/dry-run command today: it never changes Discord nicknames, even when `change_nicknames` is set to `Yes`.';
+export const NICKNAME_REFRESH_NOTE =
+  'Automatic nickname refresh is not enabled yet because ClashMate does not currently run the member refresh job that safely applies stored preferences to Discord members.';
 export const DISCORD_NICKNAME_MAX_LENGTH = 32;
 export const SUPPORTED_NICKNAME_PLACEHOLDERS = [
   '{NAME}',
@@ -235,8 +237,8 @@ export function buildNicknameConfigEmbed(
           view.changeNicknames === null
             ? 'Not set'
             : view.changeNicknames === 'true'
-              ? 'Yes'
-              : 'No',
+              ? 'Yes — stored preference only; no Discord nickname update is run yet.'
+              : 'No — stored preference only.',
         inline: true,
       },
       {
@@ -257,13 +259,24 @@ export function buildNicknameConfigEmbed(
         inline: false,
       },
       {
-        name: 'Requirements',
+        name: 'Linked player source',
         value:
-          'Nickname previews assume members have linked Clash accounts. Clan, alias, and role placeholders only resolve for linked accounts in linked family clans with aliases configured where needed. Preferences are persisted per server and omitted options keep their existing values.',
+          'Nickname values are intended to come from Discord users who have linked Clash player accounts in ClashMate. Clan, alias, town hall, and role placeholders are based on stored linked-player/family-clan data; this command does not call the live Clash API or fall back to search-only lookups while previewing.',
         inline: false,
       },
       {
-        name: 'Preview only',
+        name: 'Server persistence',
+        value:
+          'Manage Server is required because these settings are saved for this Discord server and affect future nickname refresh behavior. Omitted options keep their existing saved values.',
+        inline: false,
+      },
+      {
+        name: 'Refresh status',
+        value: NICKNAME_REFRESH_NOTE,
+        inline: false,
+      },
+      {
+        name: 'Dry-run preview',
         value: formatNicknamePreview(view),
         inline: false,
       },
@@ -343,8 +356,8 @@ function formatNicknamePreview(view: NicknameConfigView): string {
   ].filter((line) => line !== null);
 
   return previews.length > 0
-    ? `${previews.join('\n')}\nNo Discord nicknames are changed by this command.`
-    : 'Set a nickname format to see an example. No Discord nicknames are changed by this command.';
+    ? `${previews.join('\n')}\nPreview only: no Discord nicknames are changed, and no live Clash API lookup is made.`
+    : 'Set a nickname format to see an example. Preview only: no Discord nicknames are changed, and no live Clash API lookup is made.';
 }
 
 function formatPreviewLine(label: string, format: string | null): string | null {
