@@ -141,6 +141,8 @@ export interface LegendLinkedClan {
 export interface LegendMemberSnapshotRow {
   readonly playerTag: string;
   readonly name: string;
+  readonly leagueId: number | null;
+  readonly leagueName: string | null;
   readonly trophies: number | null;
   readonly lastFetchedAt: Date;
 }
@@ -341,19 +343,26 @@ export function buildLegendLeaderboardEmbed(
     return embed.addFields({
       name: 'No data',
       value:
-        'No current linked-clan member snapshots at or near Legend League are available yet. Link/configure clans and wait for clan polling to store member trophies.',
+        'No current linked-clan member snapshots at or near Legend League are available yet. Link/configure clans and wait for clan polling to store member trophies and league names.',
       inline: false,
     });
   }
 
+  const coverage = countRowsWithStoredLeagueNames(rows);
+
   return embed
+    .addFields({
+      name: 'League coverage',
+      value: `${coverage.toLocaleString()}/${rows.length.toLocaleString()} shown-candidate snapshots include stored league names; numeric league IDs are only shown when names are unavailable.`,
+      inline: false,
+    })
     .addFields({
       name: 'Players',
       value: rows
         .slice(0, limit)
         .map(
           (row, index) =>
-            `${index + 1}. **${escapeMarkdown(row.member.name)}** (${row.member.playerTag}) · ${row.member.trophies?.toLocaleString()} trophies · ${escapeMarkdown(labelForLegendClan(row.clan))}`,
+            `${index + 1}. **${escapeMarkdown(row.member.name)}** (${row.member.playerTag}) · ${row.member.trophies?.toLocaleString()} trophies · ${escapeMarkdown(formatLegendLeague(row.member))} · ${escapeMarkdown(labelForLegendClan(row.clan))}`,
         )
         .join('\n'),
       inline: false,
@@ -379,6 +388,7 @@ export function buildLegendStatsEmbed(
       (row.member.trophies ?? 0) >= NEAR_LEGEND_TROPHY_FLOOR &&
       (row.member.trophies ?? 0) < LEGEND_TROPHY_FLOOR,
   ).length;
+  const leagueNameCoverage = countRowsWithStoredLeagueNames(rows);
   const top = [...rows].sort((a, b) => (b.member.trophies ?? -1) - (a.member.trophies ?? -1))[0];
 
   const embed = new EmbedBuilder()
@@ -407,7 +417,7 @@ export function buildLegendStatsEmbed(
     return embed.addFields({
       name: 'No data',
       value:
-        'No stored member trophy snapshots are available yet. Link/configure clans and wait for clan polling to observe members.',
+        'No stored member trophy snapshots are available yet. Link/configure clans and wait for clan polling to observe member trophies and league names.',
       inline: false,
     });
   }
@@ -417,9 +427,14 @@ export function buildLegendStatsEmbed(
     { name: 'Legend League (≥ 5,000)', value: legendCount.toLocaleString(), inline: true },
     { name: 'Near Legend (4,900–4,999)', value: nearLegendCount.toLocaleString(), inline: true },
     {
+      name: 'Stored league names',
+      value: `${leagueNameCoverage.toLocaleString()}/${rows.length.toLocaleString()}`,
+      inline: true,
+    },
+    {
       name: 'Current thresholds',
       value:
-        'Counts use persisted snapshot trophies with Legend ≥ 5,000 and Near Legend 4,900–4,999.',
+        'Counts use persisted snapshot trophies with Legend ≥ 5,000 and Near Legend 4,900–4,999; league labels prefer stored names over numeric IDs.',
       inline: false,
     },
   );
@@ -427,7 +442,7 @@ export function buildLegendStatsEmbed(
   if (top) {
     embed.addFields({
       name: 'Top stored player',
-      value: `**${escapeMarkdown(top.member.name)}** (${top.member.playerTag}) · ${top.member.trophies?.toLocaleString()} trophies · ${escapeMarkdown(labelForLegendClan(top.clan))}`,
+      value: `**${escapeMarkdown(top.member.name)}** (${top.member.playerTag}) · ${top.member.trophies?.toLocaleString()} trophies · ${escapeMarkdown(formatLegendLeague(top.member))} · ${escapeMarkdown(labelForLegendClan(top.clan))}`,
       inline: false,
     });
   }
@@ -571,7 +586,7 @@ function formatLegendUnsupportedFilterLines(
   }
   if (filterContext.player) {
     lines.push(
-      `Player: ${escapeMarkdown(filterContext.player.name)} (${filterContext.player.playerTag})`,
+      `Player: ${escapeMarkdown(filterContext.player.name)} (${filterContext.player.playerTag}) · ${escapeMarkdown(formatLegendLeague(filterContext.player))}`,
     );
   }
   if (filterContext.userMention) lines.push(`User: ${filterContext.userMention}`);
@@ -585,6 +600,23 @@ function collectLegendRows(snapshots: readonly LegendClanSnapshots[]) {
   return snapshots.flatMap((snapshot) =>
     snapshot.members.map((member) => ({ member, clan: snapshot.clan })),
   );
+}
+
+function countRowsWithStoredLeagueNames(
+  rows: readonly { readonly member: LegendMemberSnapshotRow }[],
+): number {
+  return rows.filter((row) => hasStoredLeagueName(row.member)).length;
+}
+
+function hasStoredLeagueName(member: LegendMemberSnapshotRow): boolean {
+  return (member.leagueName?.trim().length ?? 0) > 0;
+}
+
+function formatLegendLeague(member: LegendMemberSnapshotRow): string {
+  const leagueName = member.leagueName?.trim();
+  if (leagueName) return leagueName;
+  if (member.leagueId !== null) return `League ID ${member.leagueId.toLocaleString()}`;
+  return 'League unknown';
 }
 
 function clanMatchesQuery(clan: LegendLinkedClan, normalizedQuery: string): boolean {
