@@ -12,7 +12,13 @@ import {
 export const TIMEZONE_COMMAND_NAME = 'timezone';
 export const TIMEZONE_COMMAND_DESCRIPTION = 'Show the current time for an IANA timezone.';
 export const DEFAULT_TIMEZONE_EMBED_COLOR = 0x5865f2;
-export const TIMEZONE_FIRST_PASS_NOTE = 'Your timezone preference has been saved for this server.';
+export const TIMEZONE_FIRST_PASS_NOTE =
+  'Your per-server timezone preference has been saved for ClashMate reminders and event displays.';
+const INVALID_TIMEZONE_MESSAGE = [
+  'I could not recognize that timezone.',
+  'Choose an autocomplete suggestion or enter a valid IANA timezone such as `UTC`, `America/New_York`, `Europe/London`, or `Asia/Jakarta`.',
+  'City nicknames are accepted for common locations, but saved preferences are stored as canonical IANA identifiers.',
+].join('\n');
 
 export interface TimezoneCommandOptions {
   store: DatabaseUserTimezonePreferenceStore;
@@ -72,6 +78,20 @@ const FALLBACK_TIMEZONES = [
   'Australia/Sydney',
 ] as const;
 
+const COMMON_TIMEZONE_ALIASES = new Map<string, string>([
+  ['jakarta', 'Asia/Jakarta'],
+  ['new york', 'America/New_York'],
+  ['nyc', 'America/New_York'],
+  ['los angeles', 'America/Los_Angeles'],
+  ['la', 'America/Los_Angeles'],
+  ['london', 'Europe/London'],
+  ['paris', 'Europe/Paris'],
+  ['tokyo', 'Asia/Tokyo'],
+  ['sydney', 'Australia/Sydney'],
+  ['gmt', 'UTC'],
+  ['zulu', 'UTC'],
+]);
+
 type SupportedTimeZoneIntl = typeof Intl & {
   readonly supportedValuesOf?: (key: 'timeZone') => string[];
 };
@@ -105,20 +125,39 @@ async function autocompleteTimezone(interaction: AutocompleteInteraction): Promi
 
 export function filterTimezoneChoices(query: string): ApplicationCommandOptionChoiceData<string>[] {
   const normalizedQuery = query.trim().toLowerCase();
-  return listSupportedTimezones()
+  const choices = new Map<string, string>();
+
+  for (const timezone of listSupportedTimezones()) {
+    const normalizedTimezone = timezone.toLowerCase();
+    if (timezoneMatchesQuery(normalizedTimezone, normalizedQuery)) choices.set(timezone, timezone);
+  }
+
+  for (const [alias, timezone] of COMMON_TIMEZONE_ALIASES) {
+    if (!canonicalizeTimeZone(timezone)) continue;
+    const normalizedTimezone = timezone.toLowerCase();
+    if (
+      !normalizedQuery ||
+      alias.includes(normalizedQuery) ||
+      timezoneMatchesQuery(normalizedTimezone, normalizedQuery)
+    ) {
+      choices.set(`${timezone} (${alias})`, timezone);
+    }
+  }
+
+  return [...choices.entries()]
     .map((timezone, index) => ({
-      timezone,
+      name: timezone[0],
+      value: timezone[1],
       index,
-      normalizedTimezone: timezone.toLowerCase(),
+      normalizedTimezone: timezone[0].toLowerCase(),
     }))
-    .filter(({ normalizedTimezone }) => timezoneMatchesQuery(normalizedTimezone, normalizedQuery))
     .sort((left, right) => {
       const leftRank = timezoneMatchRank(left.normalizedTimezone, normalizedQuery);
       const rightRank = timezoneMatchRank(right.normalizedTimezone, normalizedQuery);
       return leftRank - rightRank || left.index - right.index;
     })
     .slice(0, 25)
-    .map(({ timezone }) => ({ name: timezone, value: timezone }));
+    .map(({ name, value }) => ({ name, value }));
 }
 
 export async function executeTimezoneInteraction(
@@ -138,8 +177,7 @@ export async function executeTimezoneInteraction(
   const timezone = canonicalizeTimeZone(timezoneInput);
   if (!timezone) {
     await interaction.reply({
-      content:
-        'Please provide a valid IANA timezone identifier, such as `UTC`, `America/New_York`, or `Asia/Jakarta`.',
+      content: INVALID_TIMEZONE_MESSAGE,
       ephemeral: true,
     });
     return;
@@ -172,7 +210,11 @@ export function collectTimezoneView(
     localDateTime: formatLocalDateTime(timezone, now),
     gmtOffset: formatGmtOffset(timezone, now),
     note: TIMEZONE_FIRST_PASS_NOTE,
-    preferenceSummary: `Canonical timezone: \`${timezone}\`\n${TIMEZONE_FIRST_PASS_NOTE}`,
+    preferenceSummary: [
+      `Canonical timezone: \`${timezone}\``,
+      'Scope: this Discord server only.',
+      'Persistence: saved in guild settings and audit logged as a timezone preference update.',
+    ].join('\n'),
     botName: context.client.user?.displayName ?? context.client.user?.username ?? 'ClashMate',
     ...(botAvatarUrl ? { botAvatarUrl } : {}),
     color: source.guild?.members.me?.displayColor || DEFAULT_TIMEZONE_EMBED_COLOR,
@@ -182,7 +224,7 @@ export function collectTimezoneView(
 export function buildTimezoneEmbed(view: TimezoneView): EmbedBuilder {
   return new EmbedBuilder()
     .setColor(view.color ?? DEFAULT_TIMEZONE_EMBED_COLOR)
-    .setTitle('Timezone')
+    .setTitle('Server timezone preference saved')
     .setDescription(view.note)
     .setAuthor(
       view.botAvatarUrl
@@ -194,12 +236,20 @@ export function buildTimezoneEmbed(view: TimezoneView): EmbedBuilder {
       { name: 'Timezone', value: `\`${view.timezone}\``, inline: false },
       { name: 'Current local time', value: view.localDateTime, inline: false },
       { name: 'Approximate GMT offset', value: `GMT${view.gmtOffset}`, inline: false },
+      {
+        name: 'Used by',
+        value: 'Events, reminders, and other server-aware ClashMate timestamps for you.',
+        inline: false,
+      },
     );
 }
 
 export function canonicalizeTimeZone(timezone: string): string | null {
   const trimmed = timezone.trim();
   if (!trimmed) return null;
+
+  const aliasMatch = COMMON_TIMEZONE_ALIASES.get(trimmed.toLowerCase());
+  if (aliasMatch) return canonicalizeTimeZone(aliasMatch);
 
   const supported = listSupportedTimezones();
   const supportedMatch = supported.find(
