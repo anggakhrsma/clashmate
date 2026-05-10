@@ -43,7 +43,7 @@ export const cwlCommandData = new SlashCommandBuilder()
 
 for (const name of SNAPSHOT_SUBCOMMANDS) {
   cwlCommandData.addSubcommand((subcommand) => {
-    subcommand.setName(name).setDescription(`Show CWL ${name} from stored war snapshots.`);
+    subcommand.setName(name).setDescription(`Show CWL ${name} from persisted war snapshots.`);
     addClanOption(subcommand);
     if (name === 'round') addSeasonOption(subcommand);
     addUserOption(subcommand);
@@ -52,7 +52,7 @@ for (const name of SNAPSHOT_SUBCOMMANDS) {
 }
 for (const name of HISTORY_SUBCOMMANDS) {
   cwlCommandData.addSubcommand((subcommand) => {
-    subcommand.setName(name).setDescription(`Show CWL ${name} from stored war attack history.`);
+    subcommand.setName(name).setDescription(`Show CWL ${name} from persisted war attack history.`);
     addClanOption(subcommand);
     addSeasonOption(subcommand);
     addUserOption(subcommand);
@@ -193,7 +193,7 @@ async function executeCwl(
     : [];
   if (user && playerTags.length === 0) {
     await interaction.editReply(
-      'No linked player tags were found for that user. Use `/link create` to link a Clash account first.',
+      'No linked player tags were found for that user. Use `/link create` to link a Clash account first; `/cwl` can only filter users through linked Clash accounts.',
     );
     return;
   }
@@ -360,7 +360,7 @@ export function buildCwlHistoryEmbed(
       { name: 'Totals', value: `${totals.attacks} attacks · ${totals.stars} stars`, inline: false },
       {
         name: 'Source',
-        value: `Persisted-only: scanned ${rows.length} stored attack ${rows.length === 1 ? 'row' : 'rows'}${formatLatestDate('latest attack', maxDate(rows.map((row) => row.lastAttackedAt)))}. Exact CWL-only filtering may be approximate until stored event metadata identifies CWL rounds.`,
+        value: `Persisted-only: scanned ${rows.length} stored attack ${rows.length === 1 ? 'row' : 'rows'}${formatLatestDate('latest attack', maxDate(rows.map((row) => row.lastAttackedAt)))}. No live Clash API fallback is used; war polling must have stored activity first. Exact CWL-only filtering may be approximate; season filtering may also be approximate until stored event metadata identifies CWL rounds.`,
         inline: false,
       },
     )
@@ -369,6 +369,12 @@ export function buildCwlHistoryEmbed(
     embed.addFields({
       name: 'Clan filter',
       value: `${input.clan.alias ?? input.clan.name ?? 'Linked Clan'} (${input.clan.clanTag})`,
+      inline: false,
+    });
+  if (input.season)
+    embed.addFields({
+      name: 'Season filter',
+      value: `${formatSeasonLabel(input.season)} — display/filter label only until persisted CWL season metadata is available.`,
       inline: false,
     });
   if (input.user)
@@ -419,7 +425,7 @@ function addClanOption(subcommand: SlashCommandSubcommandBuilder): void {
   subcommand.addStringOption((option) =>
     option
       .setName('clan')
-      .setDescription('Clan tag, name, or alias.')
+      .setDescription('Linked clan tag, name, or alias to filter persisted CWL data.')
       .setAutocomplete(true)
       .setRequired(false),
   );
@@ -428,7 +434,7 @@ function addUserOption(subcommand: SlashCommandSubcommandBuilder): void {
   subcommand.addUserOption((option) =>
     option
       .setName('user')
-      .setDescription('Discord user whose linked players should be matched.')
+      .setDescription('Discord user whose linked Clash accounts should be matched.')
       .setRequired(false),
   );
 }
@@ -436,7 +442,7 @@ function addSeasonOption(subcommand: SlashCommandSubcommandBuilder): void {
   subcommand.addStringOption((option) =>
     option
       .setName('season')
-      .setDescription('CWL season label (display/filter label only in this first pass).')
+      .setDescription('CWL season label; exact filtering depends on stored war metadata.')
       .addChoices(...CWL_SEASON_CHOICES)
       .setRequired(false),
   );
@@ -529,15 +535,18 @@ function noDataMessage(
     : '';
   return [
     `No CWL ${source} data is available for the accepted filters${filters ? ` (${filters})` : ''}.`,
-    `${coverage} ClashMate only reads persisted war data here; it did not make a live Clash API lookup or enroll new polling.`,
-    'Linked clans must be configured and war polling must store matching CWL or war activity first.',
+    `${coverage} ClashMate only reads persisted war snapshots and attack history here; it did not make a live Clash API lookup or enroll new polling.`,
+    'Link the clan, wait for war polling to store CWL/war activity, or try a broader clan/user/season filter.',
   ].join(' ');
 }
 function buildSourceFooter(season: string | null): string {
   if (!season) return 'Persisted war data first pass';
-  const choice = CWL_SEASON_CHOICES.find((candidate) => candidate.value === season);
-  const label = choice ? `${choice.name} (${season})` : season;
+  const label = formatSeasonLabel(season);
   return `Season label: ${label} · persisted war data first pass`;
+}
+function formatSeasonLabel(season: string): string {
+  const choice = CWL_SEASON_CHOICES.find((candidate) => candidate.value === season);
+  return choice ? `${choice.name} (${season})` : season;
 }
 function buildSnapshotSourceContext(
   snapshots: readonly CwlWarSnapshotRecord[],
@@ -556,9 +565,11 @@ function buildSnapshotSourceField(
   const details = [
     `Persisted-only: scanned ${context.scannedCount} stored war ${context.scannedCount === 1 ? 'snapshot' : 'snapshots'}`,
     formatLatestDate('latest fetched', context.latestFetchedAt).replace(/^; /, ''),
-    ...(context.season ? [`season label ${context.season}`] : []),
+    ...(context.season ? [`season label ${formatSeasonLabel(context.season)}`] : []),
     `state ${formatState(entry.war.state ?? entry.snapshot.state)}`,
     ...formatRoundContext(entry.snapshot, entry.war),
+    'CWL-only filtering is approximate until stored round metadata is available',
+    'no live Clash API fallback',
   ].filter((detail) => detail.length > 0);
   return { name: 'Source / coverage', value: details.join(' · '), inline: false };
 }
