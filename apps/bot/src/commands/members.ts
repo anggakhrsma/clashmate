@@ -35,6 +35,7 @@ const EMBED_DESCRIPTION_LIMIT = 4096;
 
 interface MembersFilterContext {
   readonly clan?: MembersLinkedClan;
+  readonly linkedClanCount: number;
   readonly user: User | null;
   readonly option: MembersOption;
 }
@@ -195,7 +196,12 @@ export async function executeMembers(
       guildId: interaction.guildId,
       clanTag: clan.clanTag,
     });
-    await replyWithMembers(interaction, snapshots, { clan, user: userOption, option });
+    await replyWithMembers(interaction, snapshots, {
+      clan,
+      linkedClanCount: clans.length,
+      user: userOption,
+      option,
+    });
     return;
   }
 
@@ -211,7 +217,11 @@ export async function executeMembers(
     return;
   }
 
-  await replyWithMembers(interaction, selected, { user: userOption, option });
+  await replyWithMembers(interaction, selected, {
+    linkedClanCount: clans.length,
+    user: userOption,
+    option,
+  });
 }
 
 function parseMembersOption(value: string | null): MembersOption {
@@ -248,22 +258,25 @@ async function replyWithMembers(
     return;
   }
   await interaction.editReply({
-    embeds: [buildMembersEmbed(snapshots, filters.option, filters.user)],
+    embeds: [buildMembersEmbed(snapshots, filters.option, filters.user, filters.linkedClanCount)],
   });
 }
 
 function formatNoMembersSnapshotMessage(filters: MembersFilterContext): string {
   const parts = ['No stored member snapshot rows matched the accepted `/members` filters.'];
+  parts.push(`linked clans: ${filters.linkedClanCount}`);
   if (filters.clan) {
     const clanName = filters.clan.alias ?? filters.clan.name ?? filters.clan.clanTag;
     parts.push(`clan: ${escapeMarkdown(clanName)} (${filters.clan.clanTag})`);
+  } else {
+    parts.push('clan: first linked clan with stored member rows');
   }
   if (filters.user) parts.push(`user: ${escapeMarkdown(filters.user.displayName)}`);
   parts.push(`view: ${formatMembersOptionLabel(filters.option)}`);
   parts.push(
     'ClashMate only reads persisted polling snapshots here and did not query the Clash API.',
   );
-  parts.push(MEMBERS_NO_SNAPSHOT_MESSAGE);
+  parts.push(formatMembersPollingPrerequisite(filters.linkedClanCount));
   return parts.join('\n');
 }
 
@@ -304,6 +317,7 @@ export function buildMembersEmbed(
   snapshots: MembersClanSnapshots,
   option: MembersOption,
   user: User | null,
+  linkedClanCount = 1,
 ): EmbedBuilder {
   const members = sortMembers(snapshots.members, option).slice(0, MAX_MEMBER_ROWS);
   const clanName = snapshots.clan.alias ?? snapshots.clan.name ?? 'Linked Clan';
@@ -326,9 +340,10 @@ export function buildMembersEmbed(
     name: 'Coverage',
     value: [
       `View: ${formatMembersOptionLabel(option)}`,
+      `Linked clans in server: ${linkedClanCount}`,
       `Rows considered: ${snapshots.members.length}`,
       `Visible rows: ${members.length}`,
-      `Latest snapshot: ${latestFetchedAt ? time(latestFetchedAt, 'R') : 'not available'}`,
+      `Latest snapshot: ${formatLatestMemberSnapshot(latestFetchedAt)}`,
       'Source: persisted polling snapshots only; no live Clash API lookup.',
     ].join('\n'),
     inline: false,
@@ -337,6 +352,18 @@ export function buildMembersEmbed(
     embed.addFields({ name: 'Snapshot limitation', value: limitation, inline: false });
   }
   return embed;
+}
+
+function formatLatestMemberSnapshot(latestFetchedAt: Date | null): string {
+  if (!latestFetchedAt) return 'not available';
+  return `${time(latestFetchedAt, 'R')} (${time(latestFetchedAt, 'f')})`;
+}
+
+function formatMembersPollingPrerequisite(linkedClanCount: number): string {
+  if (linkedClanCount === 0) {
+    return 'Polling prerequisite: link at least one clan with `/setup clan`, then wait for clan polling to create member snapshots.';
+  }
+  return MEMBERS_NO_SNAPSHOT_MESSAGE;
 }
 
 function getLatestMemberSnapshotTime(members: readonly MembersSnapshotRow[]): Date | null {
