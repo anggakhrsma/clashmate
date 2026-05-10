@@ -773,7 +773,10 @@ export function buildSummaryTrophiesPayload(
               .join('\n'),
           ),
         )
-        .addFields(coverageField(coverage))
+        .addFields(
+          sourceField('Current persisted member snapshots; no live player lookup is performed.'),
+          coverageField(coverage),
+        )
         .setFooter({ text: `Showing ${Math.min(rows.length, rowLimit)}/${rows.length} members` }),
     ],
   };
@@ -815,7 +818,10 @@ export function buildSummaryLeaguesPayload(
               .join('\n'),
           ),
         )
-        .addFields(coverageField(coverage))
+        .addFields(
+          sourceField('League fields from current persisted linked-clan snapshots.'),
+          coverageField(coverage),
+        )
         .setFooter({
           text: `Showing ${Math.min(rows.length, SUMMARY_ROW_LIMIT)}/${rows.length} clans`,
         }),
@@ -1085,7 +1091,7 @@ function coverageField(coverage: SummaryCoverageContext | undefined): {
   if (!coverage) {
     return {
       name: 'Coverage',
-      value: 'Persisted snapshots only; no live Clash API lookup.',
+      value: 'Persisted snapshots/events only; no live Clash API lookup.',
       inline: false,
     };
   }
@@ -1094,7 +1100,7 @@ function coverageField(coverage: SummaryCoverageContext | undefined): {
     `${coverage.usableRowCount} rows with usable data`,
     `latest ${coverage.latestAt ? time(coverage.latestAt, 'R') : 'unknown'}`,
     `filters: ${coverage.filters?.length ? coverage.filters.join('; ') : 'none'}`,
-    'persisted snapshots only; no live Clash API lookup',
+    'persisted snapshots/events only; no live Clash API lookup',
   ];
   return { name: 'Coverage', value: parts.join(' · '), inline: false };
 }
@@ -1105,7 +1111,7 @@ function sourceField(value: string): { name: string; value: string; inline: fals
 
 function noDataMessage(subject: string, coverage: SummaryCoverageContext | undefined): string {
   const field = coverageField(coverage).value;
-  return `No ${subject} are available for the accepted filters. ${field}. Link/configure clans and wait for polling to persist data.`;
+  return `No ${subject} are available for the accepted filters. ${field}. This summary reads persisted ClashMate snapshots/events only and does not run a live Clash API lookup. Link or configure clans with \`/setup clan\`, keep the relevant poller enabled, and wait for new snapshots/events to be persisted.`;
 }
 
 function latestMemberSnapshotAt(members: readonly SummaryMemberSnapshotRow[]): Date | undefined {
@@ -1267,7 +1273,7 @@ function clampSummaryLimit(limit: number): number {
 
 function unavailableSummaryMessage(subcommand: string, filters: readonly string[]): string {
   const filterText = filters.length ? filters.join('; ') : 'none';
-  return `Stored data for \`/summary ${subcommand}\` is not available for the accepted filters (${filterText}) yet. This command only uses persisted ClashMate snapshots and will not call the Clash API or invent historical data.`;
+  return `Stored data for \`/summary ${subcommand}\` is not available for the accepted filters (${filterText}) yet. This command only uses persisted ClashMate snapshots/events, will not call the Clash API live, and will not invent historical season, raid-week, or capital data. Link/configure clans and wait for the matching poller history before retrying.`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
