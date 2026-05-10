@@ -339,7 +339,7 @@ export function buildCapitalLeaderboardEmbed(
     }))
     .filter((row) => row.hall !== null || row.league !== null || row.points !== null)
     .sort((a, b) => (b.points ?? -1) - (a.points ?? -1) || (b.hall ?? -1) - (a.hall ?? -1));
-  const coverage = buildClanCoverage(clans.length, filteredClans.length, rows.length);
+  const coverage = buildCapitalCoverage(clans.length, filteredClans.length, rows);
 
   const embed = baseEmbed('Linked Capital Leaderboard', location, season);
   if (rows.length === 0) {
@@ -350,12 +350,12 @@ export function buildCapitalLeaderboardEmbed(
           ? locationHadMatches
             ? `Location filter matched stored linked-clan locations, but those current snapshots do not include usable capital hall/league/trophy fields.\n${coverage}`
             : `Location filter accepted, but no stored linked-clan location matched it.\n${coverage}`
-          : `No current clan capital snapshot data is available for linked clans yet.\n${coverage}`,
+          : `No persisted clan capital hall, league, or trophy fields are available for linked clans yet.\n${coverage}`,
       )
       .addFields({
         name: 'Next step',
         value:
-          'Wait for clan polling to store current capital hall, capital league, or capital trophy data; season selections do not backfill historical capital rows.',
+          'Ensure clans are linked/configured and wait for clan polling to persist capital hall, capital league, or capital trophy fields; season selections do not backfill historical capital rows.',
       });
   }
 
@@ -365,11 +365,36 @@ export function buildCapitalLeaderboardEmbed(
         .slice(0, MAX_ROWS)
         .map(
           (row, index) =>
-            `${index + 1}. ${formatClanLink(row.clan)} · ${formatNumber(row.points)} capital trophies · Hall ${formatNumber(row.hall)} · ${escapeMarkdown(row.league ?? 'Unknown league')}`,
+            `${index + 1}. ${formatClanLink(row.clan)} · ${formatCapitalRankContext(row)}`,
         )
         .join('\n')}`,
     )
     .setFooter({ text: `Showing ${Math.min(rows.length, MAX_ROWS)}/${rows.length} linked clans` });
+}
+
+function formatCapitalRankContext(row: {
+  readonly hall: number | null;
+  readonly league: string | null;
+  readonly points: number | null;
+}): string {
+  const parts = [
+    row.points === null ? null : `${formatNumber(row.points)} trophies`,
+    row.hall === null ? null : `CH ${formatNumber(row.hall)}`,
+    row.league === null ? null : escapeMarkdown(row.league),
+  ].filter((part): part is string => part !== null);
+  return parts.length > 0 ? parts.join(' · ') : 'No capital fields';
+}
+
+function buildCapitalCoverage(
+  totalLinkedClans: number,
+  linkedClansConsidered: number,
+  rows: readonly { hall: number | null; league: string | null; points: number | null }[],
+): string {
+  const hallCount = rows.filter((row) => row.hall !== null).length;
+  const leagueCount = rows.filter((row) => row.league !== null).length;
+  const trophyCount = rows.filter((row) => row.points !== null).length;
+  const denominator = linkedClansConsidered.toLocaleString('en-US');
+  return `${buildClanCoverage(totalLinkedClans, linkedClansConsidered, rows.length)} Capital fields after filters: hall ${hallCount.toLocaleString('en-US')}/${denominator} · league ${leagueCount.toLocaleString('en-US')}/${denominator} · trophies ${trophyCount.toLocaleString('en-US')}/${denominator}.`;
 }
 
 function buildClanCoverage(
