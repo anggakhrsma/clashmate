@@ -395,11 +395,14 @@ export interface ClanMemberSnapshotListRow {
   role: string | null;
   expLevel: number | null;
   leagueId: number | null;
+  leagueName: string | null;
   trophies: number | null;
   clanRank: number | null;
   previousClanRank: number | null;
   donations: number | null;
   donationsReceived: number | null;
+  capitalContribution: number | null;
+  capitalGold: number | null;
   firstSeenAt: Date;
   lastSeenAt: Date;
   lastFetchedAt: Date;
@@ -3557,6 +3560,46 @@ export function createLastSeenSnapshotReader(database: Database): LastSeenSnapsh
   };
 }
 
+function readClanMemberLeagueName(rawMember: unknown): string | null {
+  if (!isRecord(rawMember)) return null;
+  const directName = readNullableString(readCaseInsensitiveRecordValue(rawMember, 'leagueName'));
+  if (directName) return directName;
+
+  const league = readCaseInsensitiveRecordValue(rawMember, 'league');
+  if (!isRecord(league)) return null;
+  return readNullableString(readCaseInsensitiveRecordValue(league, 'name'));
+}
+
+function readClanMemberCapitalInteger(rawMember: unknown, keys: readonly string[]): number | null {
+  if (!isRecord(rawMember)) return null;
+
+  for (const key of keys) {
+    const value = readCaseInsensitiveRecordValue(rawMember, key);
+    const integer = normalizeNonNegativeInteger(value);
+    if (integer !== null) return integer;
+  }
+
+  return null;
+}
+
+function readCaseInsensitiveRecordValue(record: Record<string, unknown>, key: string): unknown {
+  const direct = record[key];
+  if (direct !== undefined) return direct;
+
+  const normalizedKey = key.toLowerCase();
+  const matchingEntry = Object.entries(record).find(
+    ([entryKey]) => entryKey.toLowerCase() === normalizedKey,
+  );
+  return matchingEntry?.[1];
+}
+
+function normalizeNonNegativeInteger(value: unknown): number | null {
+  const numberValue =
+    typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  if (!Number.isSafeInteger(numberValue) || numberValue < 0) return null;
+  return numberValue;
+}
+
 export function createClanMemberSnapshotReader(database: Database): ClanMemberSnapshotReader {
   return {
     listClanMemberSnapshotsForGuild: async (input) => {
@@ -3582,6 +3625,7 @@ export function createClanMemberSnapshotReader(database: Database): ClanMemberSn
           previousClanRank: schema.clanMemberSnapshots.previousClanRank,
           donations: schema.clanMemberSnapshots.donations,
           donationsReceived: schema.clanMemberSnapshots.donationsReceived,
+          rawMember: schema.clanMemberSnapshots.rawMember,
           firstSeenAt: schema.clanMemberSnapshots.firstSeenAt,
           lastSeenAt: schema.clanMemberSnapshots.lastSeenAt,
           lastFetchedAt: schema.clanMemberSnapshots.lastFetchedAt,
@@ -3623,6 +3667,19 @@ export function createClanMemberSnapshotReader(database: Database): ClanMemberSn
           previousClanRank: row.previousClanRank,
           donations: row.donations,
           donationsReceived: row.donationsReceived,
+          leagueName: readClanMemberLeagueName(row.rawMember),
+          capitalContribution: readClanMemberCapitalInteger(row.rawMember, [
+            'capitalContribution',
+            'capitalContributions',
+            'clanCapitalContribution',
+            'clanCapitalContributions',
+          ]),
+          capitalGold: readClanMemberCapitalInteger(row.rawMember, [
+            'capitalGold',
+            'capitalGoldLooted',
+            'capitalGoldContribution',
+            'capitalGoldContributions',
+          ]),
           firstSeenAt: row.firstSeenAt,
           lastSeenAt: row.lastSeenAt,
           lastFetchedAt: row.lastFetchedAt,
