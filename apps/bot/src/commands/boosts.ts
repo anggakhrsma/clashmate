@@ -11,11 +11,16 @@ import {
 } from 'discord.js';
 
 export const BOOSTS_COMMAND_NAME = 'boosts';
-export const BOOSTS_COMMAND_DESCRIPTION = 'Show currently boosted Super Troops for a linked clan.';
+export const BOOSTS_COMMAND_DESCRIPTION = 'Displays active super troops of clan members.';
 export const BOOSTS_NO_SNAPSHOT_MESSAGE =
-  'No member snapshot is available yet. Link/configure a clan and wait for clan polling to observe members.';
+  'No member snapshot is available for this linked clan yet. `/boosts` needs a clan linked with `/setup clan`, then clan polling must observe at least one member before boosts can be checked.';
 export const BOOSTS_NO_ACTIVE_DATA_MESSAGE =
-  'No active Super Troop boost data is stored yet for this clan. ClashMate needs player troop data from a lookup before boosts can be displayed.';
+  'No members are boosting in this clan from the live player lookups ClashMate could analyze.';
+
+const BOOSTS_CONTEXT_MESSAGE =
+  'Source: active Super Troop boosts are read from current Clash player troop data for members in the latest stored clan member snapshot. This command only accepts the optional `clan` filter; troop/recent filters are not slash-command options in ClashMate yet.';
+const BOOSTS_POLLING_PREREQUISITE_MESSAGE =
+  'Prerequisites: link the clan with `/setup clan`, keep the clan poller running so member snapshots stay fresh, and allow live player lookups to complete.';
 
 const EMBED_FIELD_VALUE_LIMIT = 1024;
 const MAX_PLAYER_FETCHES = 50;
@@ -151,7 +156,10 @@ export async function executeBoosts(
   const clans = await options.store.listLinkedClans(interaction.guildId);
   if (clans.length === 0) {
     await interaction.editReply({
-      content: 'No clans are linked to this server yet. Use `/setup clan` to link one.',
+      content: [
+        'No clans are linked to this server yet. Use `/setup clan` to link one before using `/boosts`.',
+        BOOSTS_POLLING_PREREQUISITE_MESSAGE,
+      ].join('\n'),
     });
     return;
   }
@@ -159,7 +167,10 @@ export async function executeBoosts(
   const clanOption = interaction.options.getString('clan');
   const clan = clanOption ? resolveBoostsClan(clans, clanOption) : clans[0];
   if (!clan) {
-    await interaction.editReply({ content: 'No linked clan was found for that clan option.' });
+    await interaction.editReply({
+      content:
+        'No linked clan was found for that `clan` option. Use a linked clan tag, alias, or exact clan name from `/setup clan`.',
+    });
     return;
   }
 
@@ -169,7 +180,9 @@ export async function executeBoosts(
   });
 
   if (!snapshots || snapshots.members.length === 0) {
-    await interaction.editReply({ content: BOOSTS_NO_SNAPSHOT_MESSAGE });
+    await interaction.editReply({
+      content: [BOOSTS_NO_SNAPSHOT_MESSAGE, BOOSTS_POLLING_PREREQUISITE_MESSAGE].join('\n'),
+    });
     return;
   }
 
@@ -179,7 +192,9 @@ export async function executeBoosts(
   const players = scan.players;
   const boosts = collectActiveBoosts(players);
   if (boosts.length === 0) {
-    await interaction.editReply({ content: `${BOOSTS_NO_ACTIVE_DATA_MESSAGE}\n${coverageText}` });
+    await interaction.editReply({
+      content: [BOOSTS_NO_ACTIVE_DATA_MESSAGE, coverageText, BOOSTS_CONTEXT_MESSAGE].join('\n'),
+    });
     return;
   }
 
@@ -225,7 +240,7 @@ function buildBoostsScanCoverage(
 export function formatBoostsScanCoverage(coverage: BoostsScanCoverage): string {
   const failedText =
     coverage.failedLookups === 0 ? '' : `, ${coverage.failedLookups} lookup(s) failed`;
-  return `Scan coverage: ${coverage.storedMembers} stored member(s) considered, ${coverage.fetchedPlayers} fetched/analyzed, ${coverage.skippedPlayers} skipped due to the ${MAX_PLAYER_FETCHES} player lookup cap${failedText}.`;
+  return `Scan coverage: ${coverage.storedMembers} member(s) from the latest stored clan snapshot, ${coverage.fetchedPlayers} live player lookup(s) fetched/analyzed, ${coverage.skippedPlayers} skipped due to the ${MAX_PLAYER_FETCHES} player lookup cap${failedText}.`;
 }
 
 export function collectActiveBoosts(players: readonly ClashPlayer[]): ActiveBoostGroup[] {
@@ -260,7 +275,7 @@ export function buildBoostsEmbed(
   const embed = new EmbedBuilder()
     .setTitle('Currently Boosted Super Troops')
     .setAuthor({ name: `${clanName} (${clan.clanTag})` })
-    .setDescription(formatBoostsScanCoverage(coverage))
+    .setDescription([formatBoostsScanCoverage(coverage), BOOSTS_CONTEXT_MESSAGE].join('\n'))
     .setFooter({
       text: `Total ${boostedPlayers.size}/${coverage.storedMembers} stored members with active boosts`,
     })
