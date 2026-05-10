@@ -11,6 +11,8 @@ export const ALIAS_COMMAND_NAME = 'alias';
 export const ALIAS_COMMAND_DESCRIPTION = 'Create, delete or view clan aliases.';
 const MAX_ALIAS_LENGTH = 15;
 const MAX_ALIAS_LIST_LENGTH = 1900;
+const ALIAS_SCOPE_NOTE =
+  'Aliases are saved on this server’s linked-clan configuration only; they do not perform live Clash API lookups or enroll new clans for polling.';
 
 export const aliasCommandData = new SlashCommandBuilder()
   .setName(ALIAS_COMMAND_NAME)
@@ -133,7 +135,8 @@ async function executeAlias(
 
   if (!interaction.memberPermissions.has(PermissionFlagsBits.ManageGuild)) {
     await interaction.reply({
-      content: 'You need the Manage Server permission to use `/alias`.',
+      content:
+        'You need the Manage Server permission to change this server’s linked-clan alias configuration with `/alias`.',
       ephemeral: true,
     });
     return;
@@ -189,7 +192,7 @@ async function executeAlias(
     const duplicate = findDuplicateAlias(clans, clan.clanTag, alias.value);
     if (duplicate) {
       await interaction.reply({
-        content: `An alias with the name ${inlineCode(alias.value)} already exists for **${escapeDiscordText(duplicate.name)}** (${inlineCode(duplicate.clanTag)}). Delete or change that alias first.`,
+        content: `An alias with the name ${inlineCode(alias.value)} already exists for **${escapeDiscordText(duplicate.name)}** (${inlineCode(duplicate.clanTag)}). Alias names are exact, server-scoped configuration values; delete or change that alias first.`,
         ephemeral: true,
       });
       return;
@@ -227,7 +230,7 @@ async function executeAlias(
     }
     if (!clan.alias?.trim()) {
       await interaction.reply({
-        content: `Matched linked clan **${escapeDiscordText(clan.name)}** (${inlineCode(clan.clanTag)}), but it does not have an alias to delete.`,
+        content: `Matched linked clan **${escapeDiscordText(clan.name)}** (${inlineCode(clan.clanTag)}), but it does not have an alias to delete. Choose an existing alias from autocomplete or create one with \`/alias create\` first.`,
         ephemeral: true,
       });
       return;
@@ -320,20 +323,21 @@ export function formatAliasList(clans: readonly AliasTrackedClan[]): string {
   const header = [
     '**Clan Aliases**',
     `Linked clans: **${clans.length}** • Aliases: **${aliasedClans.length}**`,
-    'Aliases are saved to this server’s linked-clan configuration and audited with the user who changed them.',
+    `${ALIAS_SCOPE_NOTE} Changes are audited with the user who changed them.`,
+    'Autocomplete filters the same linked clans by tag, exact saved alias, or linked clan name; delete choices only show clans that currently have aliases.',
   ];
   if (clans.length === 0) {
     return [
       ...header,
       '',
-      'No clans are linked to this server yet. Link a clan before creating aliases.',
+      'No clans are linked to this server yet. Link a clan before creating aliases; `/alias` will not look up or add clans by itself.',
     ].join('\n');
   }
   if (aliasedClans.length === 0) {
     return [
       ...header,
       '',
-      'No linked clan aliases are configured yet. Use `/alias create` with a linked clan to add one.',
+      'No linked clan aliases are configured yet. Use `/alias create` with a linked clan tag, exact linked clan name, or autocomplete choice to add one.',
     ].join('\n');
   }
 
@@ -364,27 +368,27 @@ export function formatSetAliasMessage(
   alias: string,
 ): string {
   if (result.status === 'not_found') return 'That clan is no longer linked to this server.';
-  return `Clan alias or nickname updated: ${inlineCode(alias)} now points to **${escapeDiscordText(result.clan.name)}** (${inlineCode(result.clan.clanTag)}). This server configuration change was saved and audited.`;
+  return `Clan alias or nickname updated: ${inlineCode(alias)} now points to **${escapeDiscordText(result.clan.name)}** (${inlineCode(result.clan.clanTag)}). This server configuration change was saved and audited; it does not change polling enrollment beyond the already linked clan.`;
 }
 
 export function formatClearAliasMessage(
   result: Awaited<ReturnType<AliasStore['clearAlias']>>,
 ): string {
   if (result.status === 'not_found') return 'That clan is no longer linked to this server.';
-  return `Successfully deleted the clan alias for **${escapeDiscordText(result.clan.name)}** (${inlineCode(result.clan.clanTag)}). This server configuration change was saved and audited.`;
+  return `Successfully deleted the clan alias for **${escapeDiscordText(result.clan.name)}** (${inlineCode(result.clan.clanTag)}). This server configuration change was saved and audited; the linked clan remains configured.`;
 }
 
 function formatNoLinkedClansMessage(action: 'create' | 'delete'): string {
   const verb = action === 'create' ? 'create aliases for' : 'delete aliases from';
-  return `No clans are linked to this server yet. Link a clan before using \`/alias ${action}\`; aliases can only ${verb} linked clans.`;
+  return `No clans are linked to this server yet. Link a clan before using \`/alias ${action}\`; aliases can only ${verb} linked clans and never perform live Clash API fallback lookups.`;
 }
 
 function formatAliasLookupFailureMessage(query: string, action: 'create' | 'delete'): string {
   const value = inlineCode(query.trim() || query);
   if (action === 'create') {
-    return `No linked clan matched ${value}. Aliases can only be created for clans already linked to this server; choose a linked clan from autocomplete or enter its exact tag.`;
+    return `No linked clan matched ${value}. Aliases can only be created for clans already linked to this server; choose a linked clan from autocomplete or enter its exact tag or exact linked clan name. No live Clash API fallback is used.`;
   }
-  return `No linked clan alias matched ${value}. Choose an existing alias from autocomplete, or enter the exact linked clan tag that currently has an alias.`;
+  return `No linked clan alias matched ${value}. Choose an existing alias from autocomplete, or enter the exact saved alias, linked clan tag, or exact linked clan name for a clan that currently has an alias. No live Clash API fallback is used.`;
 }
 
 function findDuplicateAlias(
