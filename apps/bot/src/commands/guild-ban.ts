@@ -10,6 +10,9 @@ export const GUILD_BAN_ID_OPTION_DESCRIPTION =
 
 const DISCORD_SNOWFLAKE_PATTERN = /^\d{17,20}$/;
 
+export const GUILD_BAN_OPERATOR_CONTEXT =
+  'Owner-only global guild access toggle; target is a Discord server id or cached server name; bans persist until toggled off and are audited.';
+
 export const guildBanCommandData = new SlashCommandBuilder()
   .setName(GUILD_BAN_COMMAND_NAME)
   .setDescription(GUILD_BAN_COMMAND_DESCRIPTION)
