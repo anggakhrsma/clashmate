@@ -14,6 +14,10 @@ export const LEADERBOARD_COMMAND_DESCRIPTION =
 
 const MAX_ROWS = 25;
 const LEADERBOARD_SEASON_CHOICE_COUNT = 18;
+const SNAPSHOT_SOURCE_NOTE =
+  'Uses the latest persisted ClashMate snapshots for linked clans only; Discord does not expose a live Clash API leaderboard source here.';
+const SNAPSHOT_LIMITATION_NOTE =
+  'Season and location options are accepted for command parity, but results are not historical global leaderboards.';
 const MONTH_NAMES = [
   'January',
   'February',
@@ -234,13 +238,14 @@ export function buildClansLeaderboardEmbed(
       .setDescription(
         location?.trim() && !isAllLocations(location)
           ? locationHadMatches
-            ? `Location filter accepted and matched stored linked-clan snapshots, but no usable clan leaderboard rows were stored.\n${coverage}`
-            : `Location filter accepted, but no stored linked-clan snapshot matched it.\n${coverage}`
-          : `No linked-clan snapshot data is available yet.\n${coverage}`,
+            ? `Location filter matched stored linked-clan locations, but those current snapshots do not include usable clan trophy/member fields.\n${coverage}`
+            : `Location filter accepted, but no stored linked-clan location matched it.\n${coverage}`
+          : `No current linked-clan trophy/member snapshot data is available yet.\n${coverage}`,
       )
       .addFields({
         name: 'Next step',
-        value: 'Link/configure a clan and wait for clan polling to store clan trophy snapshots.',
+        value:
+          'Link/configure a clan and wait for clan polling to store current clan trophy snapshots; season selections do not backfill historical rows.',
       });
   }
 
@@ -295,13 +300,14 @@ export function buildPlayersLeaderboardEmbed(
       .setDescription(
         shouldFilterByLocation
           ? filteredLocationHadSnapshots
-            ? `Location filter accepted and matched stored linked-clan snapshots, but no usable member trophy rows were stored.\n${coverage}`
-            : `Location filter accepted, but no stored linked-clan snapshot matched it.\n${coverage}`
-          : `No current member snapshot trophies are available yet.\n${coverage}`,
+            ? `Location filter matched stored linked-clan locations, but their current member snapshots do not include usable trophy fields.\n${coverage}`
+            : `Location filter accepted, but no stored linked-clan location matched it.\n${coverage}`
+          : `No current member trophy snapshot data is available yet.\n${coverage}`,
       )
       .addFields({
         name: 'Next step',
-        value: 'Link/configure a clan and wait for clan polling to observe current members.',
+        value:
+          'Link/configure a clan and wait for clan polling to observe current members; season selections do not backfill historical player rows.',
       });
   }
 
@@ -342,14 +348,14 @@ export function buildCapitalLeaderboardEmbed(
       .setDescription(
         location?.trim() && !isAllLocations(location)
           ? locationHadMatches
-            ? `Location filter accepted and matched stored linked-clan snapshots, but no usable capital leaderboard rows were stored.\n${coverage}`
-            : `Location filter accepted, but no stored linked-clan snapshot matched it.\n${coverage}`
-          : `No clan capital snapshot data is available for linked clans yet.\n${coverage}`,
+            ? `Location filter matched stored linked-clan locations, but those current snapshots do not include usable capital hall/league/trophy fields.\n${coverage}`
+            : `Location filter accepted, but no stored linked-clan location matched it.\n${coverage}`
+          : `No current clan capital snapshot data is available for linked clans yet.\n${coverage}`,
       )
       .addFields({
         name: 'Next step',
         value:
-          'Wait for clan polling to store capital hall, capital league, or capital trophy data.',
+          'Wait for clan polling to store current capital hall, capital league, or capital trophy data; season selections do not backfill historical capital rows.',
       });
   }
 
@@ -371,7 +377,7 @@ function buildClanCoverage(
   linkedClansConsidered: number,
   usableRows: number,
 ): string {
-  return `Coverage: ${totalLinkedClans.toLocaleString('en-US')} linked clan${totalLinkedClans === 1 ? '' : 's'} configured · ${linkedClansConsidered.toLocaleString('en-US')} considered · ${usableRows.toLocaleString('en-US')} row${usableRows === 1 ? '' : 's'} with usable snapshot data.`;
+  return `Coverage: ${totalLinkedClans.toLocaleString('en-US')} linked clan${totalLinkedClans === 1 ? '' : 's'} configured · ${linkedClansConsidered.toLocaleString('en-US')} matched by the current location filter · ${usableRows.toLocaleString('en-US')} row${usableRows === 1 ? '' : 's'} with usable current snapshot fields.`;
 }
 
 function buildMemberCoverage(
@@ -381,7 +387,7 @@ function buildMemberCoverage(
   usableRows: number,
   latestSnapshotAt: Date | null,
 ): string {
-  return `${buildClanCoverage(totalLinkedClans, linkedClansConsidered, usableRows)} Member snapshots considered: ${memberSnapshotsConsidered.toLocaleString('en-US')}. Latest member snapshot: ${formatSnapshotRecency(latestSnapshotAt)}.`;
+  return `${buildClanCoverage(totalLinkedClans, linkedClansConsidered, usableRows)} Current member snapshot rows considered: ${memberSnapshotsConsidered.toLocaleString('en-US')}. Latest member snapshot: ${formatSnapshotRecency(latestSnapshotAt)}.`;
 }
 
 function latestMemberSnapshotAt(snapshots: readonly LeaderboardClanSnapshots[]): Date | null {
@@ -408,14 +414,16 @@ function formatSnapshotRecency(snapshotAt: Date | null): string {
 }
 
 function baseEmbed(title: string, location: string | null, season: string | null): EmbedBuilder {
-  const notes = [
-    'Uses current persisted snapshots for linked clans only; no live Clash API leaderboard lookup is performed.',
-  ];
+  const notes = [SNAPSHOT_SOURCE_NOTE, SNAPSHOT_LIMITATION_NOTE];
   if (location?.trim() && !isAllLocations(location))
-    notes.push(`Filtered by stored linked-clan location: ${location.trim()}.`);
-  if (isAllLocations(location)) notes.push('Location: all linked clans.');
+    notes.push(
+      `Location filter: ${location.trim()} (matched against stored linked-clan location only).`,
+    );
+  if (isAllLocations(location)) notes.push('Location filter: all linked clans.');
   if (season?.trim())
-    notes.push(`Season option accepted but not filtered: ${formatSeasonNote(season.trim())}.`);
+    notes.push(
+      `Season option: ${formatSeasonNote(season.trim())} (accepted for parity; current snapshots are still shown).`,
+    );
   return new EmbedBuilder().setTitle(title).addFields({ name: 'Source', value: notes.join('\n') });
 }
 
