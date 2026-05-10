@@ -41,12 +41,24 @@ export type NotificationFanOutSource =
 
 export interface NotificationFanOutSourceResultSummary {
   readonly source: NotificationFanOutSource;
+  readonly attempted: number;
+  readonly created: number;
+  readonly skipped: number;
+  readonly failed: number;
+  readonly cursorAdvanced: boolean;
   readonly eventsScanned: number;
   readonly matchedTargets: number;
   readonly insertedOutboxEntries: number;
+  readonly errorMessage?: string;
 }
 
 export interface NotificationFanOutTotalsSummary {
+  readonly attempted: number;
+  readonly created: number;
+  readonly skipped: number;
+  readonly failed: number;
+  readonly cursorsAdvanced: number;
+  readonly totalOutboxRowsCreated: number;
   readonly eventsScanned: number;
   readonly matchedTargets: number;
   readonly insertedOutboxEntries: number;
@@ -55,9 +67,15 @@ export interface NotificationFanOutTotalsSummary {
 export interface NotificationFanOutIterationSummary {
   readonly sources: readonly NotificationFanOutSourceResultSummary[];
   readonly totals: NotificationFanOutTotalsSummary;
+  readonly failedFamilies: readonly { source: NotificationFanOutSource; message: string }[];
   readonly error: boolean;
   readonly errorMessage?: string;
 }
+
+type NotificationFanOutSourceStoreResult = Pick<
+  NotificationFanOutTotalsSummary,
+  'eventsScanned' | 'matchedTargets' | 'insertedOutboxEntries'
+>;
 
 const MAX_NOTIFICATION_FANOUT_BATCH_SIZE = 1000;
 
@@ -80,35 +98,38 @@ function createNotificationFanOutInput(limit: number | undefined): { limit?: num
   return limit === undefined ? {} : { limit };
 }
 
-function createEmptyNotificationFanOutIterationSummary(): NotificationFanOutIterationSummary {
-  return {
-    sources: [],
-    totals: {
-      eventsScanned: 0,
-      matchedTargets: 0,
-      insertedOutboxEntries: 0,
-    },
-    error: false,
-  };
-}
-
-function createNotificationFanOutErrorSummary(error: unknown): NotificationFanOutIterationSummary {
-  return {
-    ...createEmptyNotificationFanOutIterationSummary(),
-    error: true,
-    errorMessage: error instanceof Error ? error.message : String(error),
-  };
-}
-
 function summarizeNotificationFanOutSourceResult(
   source: NotificationFanOutSource,
-  result: NotificationFanOutTotalsSummary,
+  result: NotificationFanOutSourceStoreResult,
 ): NotificationFanOutSourceResultSummary {
   return {
     source,
+    attempted: result.eventsScanned,
+    created: result.insertedOutboxEntries,
+    skipped: Math.max(result.matchedTargets - result.insertedOutboxEntries, 0),
+    failed: 0,
+    cursorAdvanced: result.eventsScanned > 0,
     eventsScanned: result.eventsScanned,
     matchedTargets: result.matchedTargets,
     insertedOutboxEntries: result.insertedOutboxEntries,
+  };
+}
+
+function summarizeNotificationFanOutSourceFailure(
+  source: NotificationFanOutSource,
+  error: unknown,
+): NotificationFanOutSourceResultSummary {
+  return {
+    source,
+    attempted: 0,
+    created: 0,
+    skipped: 0,
+    failed: 1,
+    cursorAdvanced: false,
+    eventsScanned: 0,
+    matchedTargets: 0,
+    insertedOutboxEntries: 0,
+    errorMessage: error instanceof Error ? error.message : String(error),
   };
 }
 
@@ -119,22 +140,54 @@ function createNotificationFanOutIterationSummary(
     sources,
     totals: sources.reduce<NotificationFanOutTotalsSummary>(
       (totals, source) => ({
+        attempted: totals.attempted + source.attempted,
+        created: totals.created + source.created,
+        skipped: totals.skipped + source.skipped,
+        failed: totals.failed + source.failed,
+        cursorsAdvanced: totals.cursorsAdvanced + (source.cursorAdvanced ? 1 : 0),
+        totalOutboxRowsCreated: totals.totalOutboxRowsCreated + source.insertedOutboxEntries,
         eventsScanned: totals.eventsScanned + source.eventsScanned,
         matchedTargets: totals.matchedTargets + source.matchedTargets,
         insertedOutboxEntries: totals.insertedOutboxEntries + source.insertedOutboxEntries,
       }),
       {
+        attempted: 0,
+        created: 0,
+        skipped: 0,
+        failed: 0,
+        cursorsAdvanced: 0,
+        totalOutboxRowsCreated: 0,
         eventsScanned: 0,
         matchedTargets: 0,
         insertedOutboxEntries: 0,
       },
     ),
-    error: false,
+    failedFamilies: sources
+      .filter((source) => source.failed > 0)
+      .map((source) => ({
+        source: source.source,
+        message: source.errorMessage ?? 'Unknown error',
+      })),
+    error: sources.some((source) => source.failed > 0),
   };
 }
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
+}
+
+async function runNotificationFanOutSource(
+  source: NotificationFanOutSource,
+  run: () => Promise<NotificationFanOutSourceStoreResult>,
+  logger: Pick<Logger, 'error'>,
+): Promise<NotificationFanOutSourceResultSummary> {
+  try {
+    return summarizeNotificationFanOutSourceResult(source, await run());
+  } catch (error) {
+    const summary = summarizeNotificationFanOutSourceFailure(source, error);
+    logger.error({ error, source }, 'Notification fan-out source failed');
+    return summary;
+  }
 }
 
 function validateNotificationFanOutLoopOptions(options: NotificationFanOutLoopOptions): void {
@@ -215,122 +268,89 @@ export async function runNotificationFanOutIteration(
   validateNotificationFanOutLoopOptions(options);
   const limit = resolveNotificationFanOutIterationLimit(options.batchSize);
 
-  try {
-    const input: FanOutClanMemberEventNotificationsInput = createNotificationFanOutInput(limit);
+  const sources: NotificationFanOutSourceResultSummary[] = [];
+  const clanMemberInput: FanOutClanMemberEventNotificationsInput =
+    createNotificationFanOutInput(limit);
+  sources.push(
+    await runNotificationFanOutSource(
+      'clanMember',
+      () => options.fanOutStore.fanOutClanMemberEventNotifications(clanMemberInput),
+      options.logger,
+    ),
+  );
 
-    const result = await options.fanOutStore.fanOutClanMemberEventNotifications(input);
-    const warAttackInput: FanOutWarAttackEventNotificationsInput =
-      createNotificationFanOutInput(limit);
-    const warAttackResult =
-      await options.fanOutStore.fanOutWarAttackEventNotifications(warAttackInput);
-    const warStateInput: FanOutWarStateEventNotificationsInput =
-      createNotificationFanOutInput(limit);
-    const warStateResult =
-      await options.fanOutStore.fanOutWarStateEventNotifications(warStateInput);
-    const missedWarAttackInput: FanOutMissedWarAttackEventNotificationsInput =
-      createNotificationFanOutInput(limit);
-    const missedWarAttackResult =
-      await options.fanOutStore.fanOutMissedWarAttackEventNotifications(missedWarAttackInput);
-    const donationInput: FanOutClanDonationEventNotificationsInput =
-      createNotificationFanOutInput(limit);
-    const donationResult =
-      await options.fanOutStore.fanOutClanDonationEventNotifications(donationInput);
-    const roleChangeInput: FanOutClanRoleChangeEventNotificationsInput =
-      createNotificationFanOutInput(limit);
-    const roleChangeResult =
-      await options.fanOutStore.fanOutClanRoleChangeEventNotifications(roleChangeInput);
+  const warAttackInput: FanOutWarAttackEventNotificationsInput =
+    createNotificationFanOutInput(limit);
+  sources.push(
+    await runNotificationFanOutSource(
+      'warAttack',
+      () => options.fanOutStore.fanOutWarAttackEventNotifications(warAttackInput),
+      options.logger,
+    ),
+  );
+
+  const warStateInput: FanOutWarStateEventNotificationsInput = createNotificationFanOutInput(limit);
+  sources.push(
+    await runNotificationFanOutSource(
+      'warState',
+      () => options.fanOutStore.fanOutWarStateEventNotifications(warStateInput),
+      options.logger,
+    ),
+  );
+
+  const missedWarAttackInput: FanOutMissedWarAttackEventNotificationsInput =
+    createNotificationFanOutInput(limit);
+  sources.push(
+    await runNotificationFanOutSource(
+      'missedWarAttack',
+      () => options.fanOutStore.fanOutMissedWarAttackEventNotifications(missedWarAttackInput),
+      options.logger,
+    ),
+  );
+
+  const donationInput: FanOutClanDonationEventNotificationsInput =
+    createNotificationFanOutInput(limit);
+  sources.push(
+    await runNotificationFanOutSource(
+      'clanDonation',
+      () => options.fanOutStore.fanOutClanDonationEventNotifications(donationInput),
+      options.logger,
+    ),
+  );
+
+  const roleChangeInput: FanOutClanRoleChangeEventNotificationsInput =
+    createNotificationFanOutInput(limit);
+  sources.push(
+    await runNotificationFanOutSource(
+      'clanRoleChange',
+      () => options.fanOutStore.fanOutClanRoleChangeEventNotifications(roleChangeInput),
+      options.logger,
+    ),
+  );
+
+  const fanOutClanGames = options.fanOutStore.fanOutClanGamesEventNotifications;
+  if (typeof fanOutClanGames === 'function') {
     const clanGamesInput: FanOutClanGamesEventNotificationsInput =
       createNotificationFanOutInput(limit);
-    const fanOutClanGames = options.fanOutStore.fanOutClanGamesEventNotifications;
-    const clanGamesResult =
-      typeof fanOutClanGames === 'function'
-        ? await fanOutClanGames.call(options.fanOutStore, clanGamesInput)
-        : null;
-    const sources: NotificationFanOutSourceResultSummary[] = [
-      summarizeNotificationFanOutSourceResult('clanMember', result),
-      summarizeNotificationFanOutSourceResult('warAttack', warAttackResult),
-      summarizeNotificationFanOutSourceResult('warState', warStateResult),
-      summarizeNotificationFanOutSourceResult('missedWarAttack', missedWarAttackResult),
-      summarizeNotificationFanOutSourceResult('clanDonation', donationResult),
-      summarizeNotificationFanOutSourceResult('clanRoleChange', roleChangeResult),
-    ];
-    if (clanGamesResult) {
-      sources.push(summarizeNotificationFanOutSourceResult('clanGames', clanGamesResult));
-    }
-    const summary = createNotificationFanOutIterationSummary(sources);
-
-    options.logger.info(
-      {
-        eventsScanned: result.eventsScanned,
-        matchedTargets: result.matchedTargets,
-        insertedOutboxEntries: result.insertedOutboxEntries,
-      },
-      'Clan member notification fan-out completed',
+    sources.push(
+      await runNotificationFanOutSource(
+        'clanGames',
+        () => fanOutClanGames.call(options.fanOutStore, clanGamesInput),
+        options.logger,
+      ),
     );
-    options.logger.info(
-      {
-        eventsScanned: warAttackResult.eventsScanned,
-        matchedTargets: warAttackResult.matchedTargets,
-        insertedOutboxEntries: warAttackResult.insertedOutboxEntries,
-      },
-      'War attack notification fan-out completed',
-    );
-    options.logger.info(
-      {
-        eventsScanned: warStateResult.eventsScanned,
-        matchedTargets: warStateResult.matchedTargets,
-        insertedOutboxEntries: warStateResult.insertedOutboxEntries,
-      },
-      'War state notification fan-out completed',
-    );
-    options.logger.info(
-      {
-        eventsScanned: missedWarAttackResult.eventsScanned,
-        matchedTargets: missedWarAttackResult.matchedTargets,
-        insertedOutboxEntries: missedWarAttackResult.insertedOutboxEntries,
-      },
-      'Missed war attack notification fan-out completed',
-    );
-    options.logger.info(
-      {
-        eventsScanned: donationResult.eventsScanned,
-        matchedTargets: donationResult.matchedTargets,
-        insertedOutboxEntries: donationResult.insertedOutboxEntries,
-      },
-      'Clan donation notification fan-out completed',
-    );
-    options.logger.info(
-      {
-        eventsScanned: roleChangeResult.eventsScanned,
-        matchedTargets: roleChangeResult.matchedTargets,
-        insertedOutboxEntries: roleChangeResult.insertedOutboxEntries,
-      },
-      'Clan role change notification fan-out completed',
-    );
-    if (clanGamesResult) {
-      options.logger.info(
-        {
-          eventsScanned: clanGamesResult.eventsScanned,
-          matchedTargets: clanGamesResult.matchedTargets,
-          insertedOutboxEntries: clanGamesResult.insertedOutboxEntries,
-        },
-        'Clan Games notification fan-out completed',
-      );
-    }
-    options.logger.info(
-      {
-        sources: summary.sources.length,
-        eventsScanned: summary.totals.eventsScanned,
-        matchedTargets: summary.totals.matchedTargets,
-        insertedOutboxEntries: summary.totals.insertedOutboxEntries,
-      },
-      'Notification fan-out iteration completed',
-    );
-    return summary;
-  } catch (error) {
-    options.logger.error({ error }, 'Notification fan-out failed');
-    return createNotificationFanOutErrorSummary(error);
   }
+
+  const summary = createNotificationFanOutIterationSummary(sources);
+  options.logger.info(
+    {
+      sources: summary.sources,
+      totals: summary.totals,
+      failedFamilies: summary.failedFamilies,
+    },
+    'Notification fan-out iteration completed',
+  );
+  return summary;
 }
 
 export function startNotificationFanOutLoop(
