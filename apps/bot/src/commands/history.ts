@@ -14,13 +14,13 @@ import {
 export const HISTORY_COMMAND_NAME = 'history';
 export const HISTORY_COMMAND_DESCRIPTION = 'Show tracked historical activity.';
 export const HISTORY_NO_DONATION_EVENTS_MESSAGE =
-  'No donation history is available yet. Link/configure a clan and wait for donation events to be detected.';
+  'No donation history is available yet for the selected filters.';
 export const HISTORY_NO_WAR_ATTACK_EVENTS_MESSAGE =
-  'No war attack history is available yet. Link/configure a clan and wait for war attacks to be detected.';
+  'No war attack history is available yet for the selected filters.';
 export const HISTORY_NO_JOIN_LEAVE_EVENTS_MESSAGE =
-  'No join/leave history is available yet. Link/configure a clan and wait for clan member events to be detected.';
+  'No join/leave history is available yet for the selected filters.';
 export const HISTORY_NO_CLAN_GAMES_EVENTS_MESSAGE =
-  'No Clan Games history is available yet. Link/configure a clan and wait for Clan Games snapshots to be stored.';
+  'No Clan Games history is available yet for the selected filters.';
 export const HISTORY_NO_CAPITAL_RAIDS_EVENTS_MESSAGE =
   'Capital raid history is not available yet because raid-week attack logs are not stored. This command only reads stored data and does not query the Clash API.';
 export const HISTORY_NO_CAPITAL_CONTRIBUTION_EVENTS_MESSAGE =
@@ -47,7 +47,7 @@ const HISTORY_OPTIONS = [
   'legend-attacks',
   'eos-trophies',
 ] as const;
-type HistoryOption = (typeof HISTORY_OPTIONS)[number];
+export type HistoryOption = (typeof HISTORY_OPTIONS)[number];
 const MAX_HISTORY_ROWS = 15;
 const EMBED_DESCRIPTION_LIMIT = 4096;
 
@@ -313,7 +313,9 @@ export async function executeHistory(
     });
 
     if (rows.length === 0) {
-      await interaction.editReply({ content: HISTORY_NO_WAR_ATTACK_EVENTS_MESSAGE });
+      await interaction.editReply({
+        embeds: [buildNoHistoryEmbed(option, HISTORY_NO_WAR_ATTACK_EVENTS_MESSAGE, filterContext)],
+      });
       return;
     }
 
@@ -339,7 +341,9 @@ export async function executeHistory(
     });
 
     if (rows.length === 0) {
-      await interaction.editReply({ content: HISTORY_NO_JOIN_LEAVE_EVENTS_MESSAGE });
+      await interaction.editReply({
+        embeds: [buildNoHistoryEmbed(option, HISTORY_NO_JOIN_LEAVE_EVENTS_MESSAGE, filterContext)],
+      });
       return;
     }
 
@@ -357,7 +361,9 @@ export async function executeHistory(
     });
 
     if (rows.length === 0) {
-      await interaction.editReply({ content: HISTORY_NO_CLAN_GAMES_EVENTS_MESSAGE });
+      await interaction.editReply({
+        embeds: [buildNoHistoryEmbed(option, HISTORY_NO_CLAN_GAMES_EVENTS_MESSAGE, filterContext)],
+      });
       return;
     }
 
@@ -374,7 +380,9 @@ export async function executeHistory(
   });
 
   if (rows.length === 0) {
-    await interaction.editReply({ content: HISTORY_NO_DONATION_EVENTS_MESSAGE });
+    await interaction.editReply({
+      embeds: [buildNoHistoryEmbed('donations', HISTORY_NO_DONATION_EVENTS_MESSAGE, filterContext)],
+    });
     return;
   }
 
@@ -587,6 +595,49 @@ export function buildUnavailableHistoryEmbed(
       `${message}\n\nNo Clash API calls or polling enrollment will be performed for this request.`,
     )
     .addFields({ name: 'Accepted filters', value: filterText, inline: false });
+}
+
+export function buildNoHistoryEmbed(
+  option: Extract<
+    HistoryOption,
+    'donations' | 'war-attacks' | 'cwl-attacks' | 'join-leave' | 'clan-games'
+  >,
+  message: string,
+  filters: HistoryFilterContext,
+): EmbedBuilder {
+  return new EmbedBuilder()
+    .setTitle(`No ${formatHistoryOptionTitle(option)} History`)
+    .setDescription(message)
+    .addFields(
+      { name: 'Accepted filters', value: formatAcceptedHistoryFilters(filters), inline: false },
+      { name: 'Source coverage', value: formatHistoryCoverage(option), inline: false },
+      {
+        name: 'Polling prerequisites',
+        value:
+          'History appears after a clan is linked/configured for this server and the worker has detected matching events from persisted polling snapshots. This command reads stored data only; it does not query the Clash API live or start polling for search-only filters.',
+        inline: false,
+      },
+    );
+}
+
+function formatHistoryCoverage(
+  option: Extract<
+    HistoryOption,
+    'donations' | 'war-attacks' | 'cwl-attacks' | 'join-leave' | 'clan-games'
+  >,
+): string {
+  switch (option) {
+    case 'donations':
+      return 'Stored donation delta events for players seen in linked/configured clans.';
+    case 'war-attacks':
+      return 'Stored regular war attack events for linked/configured clans.';
+    case 'cwl-attacks':
+      return 'Stored war attack events for linked/configured clans; CWL-only classification is approximate until separate CWL metadata is persisted.';
+    case 'join-leave':
+      return 'Stored clan member join/leave events detected for linked/configured clans.';
+    case 'clan-games':
+      return 'Stored Clan Games player snapshots for linked/configured clans.';
+  }
 }
 
 function formatAcceptedHistoryFilters(filters: HistoryFilterContext): string {
