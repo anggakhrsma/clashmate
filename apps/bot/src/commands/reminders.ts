@@ -24,7 +24,11 @@ const MAX_REMINDER_DURATION_MINUTES = 30 * 24 * 60;
 const MAX_MENTIONS = 40;
 const MAX_MESSAGE_LENGTH = 1_800;
 const STORAGE_ONLY_NOTE =
-  'Scheduled delivery is handled by the worker from persisted member snapshots; no live Clash API lookup is performed.';
+  'Schedules use linked clans and polling snapshots only; there is no live Clash API fallback from this command.';
+const REMINDER_WORKER_NOTE =
+  'The worker must be running with clan/player/war polling enabled for scheduled reminders and member mentions to stay current.';
+const SUPPORTED_REMINDER_TYPES_NOTE =
+  'Supported schedule types: Clan Wars, Capital Raids, and Clan Games.';
 
 const allowedReminderChannelTypes = [
   ChannelType.GuildText,
@@ -392,7 +396,8 @@ export async function executeReminders(
     await interaction.editReply({
       content:
         `No persisted member snapshot is available for ${formatClanLabel(clan)} yet. ` +
-        'Link/configure the clan and wait for clan polling to store member snapshots.',
+        'Link/configure the clan, make sure polling is running, and wait for clan polling to store member snapshots. ' +
+        STORAGE_ONLY_NOTE,
     });
     return;
   }
@@ -460,7 +465,10 @@ async function handleCreateReminder(
       formatReminderNextDue(schedule) +
       '. ' +
       formatUnmatchedClanWarning(unmatchedClanInputs) +
-      STORAGE_ONLY_NOTE,
+      `Exclude participant list: ${schedule.excludeParticipantList ? 'yes' : 'no'}. ` +
+      STORAGE_ONLY_NOTE +
+      ' ' +
+      REMINDER_WORKER_NOTE,
     ephemeral: true,
   });
 }
@@ -488,7 +496,7 @@ async function handleListReminders(
     content:
       schedules.length === 0
         ? `${formatReminderNoDataContext({ type, clanFilter, channelId, reminderId, totalForType })} ${STORAGE_ONLY_NOTE}`
-        : `${formatReminderList(schedules, compact)}\n\n${STORAGE_ONLY_NOTE}`,
+        : `${formatReminderList(schedules, compact)}\n\n${SUPPORTED_REMINDER_TYPES_NOTE} ${STORAGE_ONLY_NOTE} ${REMINDER_WORKER_NOTE}`,
     ephemeral: true,
   });
 }
@@ -522,8 +530,8 @@ async function handleEditReminder(
   });
   await interaction.reply({
     content: updated
-      ? `Updated reminder ${inlineCode(id)} duration to ${formatReminderDurationForDisplay(updated.duration)}. Next due: ${formatReminderNextDue(updated)}. ${STORAGE_ONLY_NOTE}`
-      : `No ${formatReminderType(type)} reminder was found with ID ${inlineCode(id)}.`,
+      ? `Updated reminder ${inlineCode(id)} duration to ${formatReminderDurationForDisplay(updated.duration)}. Next due: ${formatReminderNextDue(updated)}. ${STORAGE_ONLY_NOTE} ${REMINDER_WORKER_NOTE}`
+      : `No ${formatReminderType(type)} reminder was found with ID ${inlineCode(id)}. Use ${inlineCode('/reminders list')} for stored IDs and verify the selected type.`,
     ephemeral: true,
   });
 }
@@ -548,7 +556,7 @@ async function handleDeleteReminder(
   await interaction.reply({
     content: deleted
       ? `Deleted reminder ${inlineCode(id)}. ${STORAGE_ONLY_NOTE}`
-      : `No ${formatReminderType(type)} reminder was found with ID ${inlineCode(id)}.`,
+      : `No ${formatReminderType(type)} reminder was found with ID ${inlineCode(id)}. Use ${inlineCode('/reminders list')} for stored IDs and verify the selected type.`,
     ephemeral: true,
   });
 }
@@ -570,7 +578,7 @@ async function handleReminderConfig(
     content:
       'Reminder ping exclusion is ' +
       (settings.reminderPingExclusion ? 'enabled' : 'disabled') +
-      '. ' +
+      '. When enabled, players covered by reminder ping exclusion config are skipped by reminder delivery; immediate pings still use linked player accounts from the latest member snapshot. ' +
       STORAGE_ONLY_NOTE,
     ephemeral: true,
   });
@@ -612,6 +620,9 @@ export function buildImmediateReminderMessage(input: {
     '',
     `Source: persisted member snapshot for ${formatClanLabel(input.clan)}; storage-only, no live Clash API lookup.`,
     `Members considered: ${input.members.length}. Linked mention count: ${linkedMentionCount}. Mention cap: ${MAX_MENTIONS}. Mentioned now: ${mentions.length}. Unlinked snapshot members: ${Math.max(unlinkedCount, 0)}.${truncatedNote}`,
+    mentions.length === 0
+      ? 'Action: link Discord users to player tags and wait for player/member snapshots before retrying.'
+      : 'Immediate pings mention linked Discord users from the stored snapshot only.',
     STORAGE_ONLY_NOTE,
   ].join('\n');
 }
@@ -797,7 +808,9 @@ function formatReminderNoDataContext(input: {
   return (
     `No stored ${formatReminderType(input.type)} reminders matched. ` +
     `Active filters: ${filters.join(', ')}. ` +
-    `Stored schedules for this type: ${input.totalForType}.`
+    `Stored schedules for this type: ${input.totalForType}. ` +
+    `Action: use ${inlineCode('/reminders create')} to store a schedule, or clear filters/use autocomplete to find an existing reminder. ` +
+    REMINDER_WORKER_NOTE
   );
 }
 
