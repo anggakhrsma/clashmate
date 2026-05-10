@@ -345,16 +345,26 @@ export function buildCapitalContributionEmbed(
   const rows = filteredMembers
     .map((row) => ({
       ...row,
-      contribution:
-        readMemberCapitalNumber(row.member, 'capitalContribution') ??
-        readMemberCapitalNumber(row.member, 'capitalGold'),
+      capitalContribution: readMemberCapitalNumber(row.member, 'capitalContribution'),
+      capitalGold: readMemberCapitalNumber(row.member, 'capitalGold'),
     }))
-    .filter((row) => row.contribution !== null)
+    .map((row) => ({
+      ...row,
+      sortValue: row.capitalContribution ?? row.capitalGold,
+    }))
+    .filter((row) => row.sortValue !== null)
     .sort(
       (a, b) =>
-        (b.contribution ?? -1) - (a.contribution ?? -1) ||
+        (b.sortValue ?? -1) - (a.sortValue ?? -1) ||
+        (b.capitalGold ?? -1) - (a.capitalGold ?? -1) ||
         a.member.name.localeCompare(b.member.name),
     );
+  const capitalContributionRows = filteredMembers.filter(
+    (row) => readMemberCapitalNumber(row.member, 'capitalContribution') !== null,
+  ).length;
+  const capitalGoldRows = filteredMembers.filter(
+    (row) => readMemberCapitalNumber(row.member, 'capitalGold') !== null,
+  ).length;
 
   const embed = baseCapitalEmbed('Capital Contribution', {
     ...filters,
@@ -362,6 +372,8 @@ export function buildCapitalContributionEmbed(
     memberSnapshotRows: members.length,
     filteredMemberRows: filteredMembers.length,
     usableRows: rows.length,
+    capitalContributionRows,
+    capitalGoldRows,
   });
   if (members.length === 0) {
     return embed.setDescription(
@@ -386,7 +398,7 @@ export function buildCapitalContributionEmbed(
       formatCapitalNoDataMessage(
         'No stored member snapshot rows with usable capital contribution data match the accepted filters.',
         filters,
-        'Existing member snapshots do not include capital contribution or capital gold fields.',
+        'Existing member snapshots do not include derived raw snapshot fields for `capitalContribution` or `capitalGold` yet. Wait for clan polling to refresh member snapshots that include those fields.',
       ),
     );
   }
@@ -397,14 +409,14 @@ export function buildCapitalContributionEmbed(
         .slice(0, CAPITAL_ROW_LIMIT)
         .map(
           (row, index) =>
-            `${index + 1}. **${escapeMarkdown(row.member.name)}** · ${formatNumber(row.contribution)} capital gold · ${escapeMarkdown(labelForClan(row.clan))}`,
+            `${index + 1}. **${escapeMarkdown(row.member.name)}** · ${formatCapitalContributionValues(row.capitalContribution, row.capitalGold)} · ${escapeMarkdown(labelForClan(row.clan))}`,
         )
         .join('\n'),
     )
     .addFields({
       name: 'Contribution Fields',
       value:
-        'Contribution uses stored member `capitalContribution` when present, then `capitalGold`. If polling snapshots do not include either field, ClashMate reports no usable contribution rows instead of fetching live data.',
+        'Shows stored member `capitalContribution` and `capitalGold` separately when available. Coverage is counted after filters; missing fields stay hidden instead of using live Clash API fallback.',
     })
     .setFooter({
       text: `Showing ${Math.min(rows.length, CAPITAL_ROW_LIMIT)}/${rows.length} members`,
@@ -443,6 +455,8 @@ function baseCapitalEmbed(
     readonly memberSnapshotRows?: number;
     readonly filteredMemberRows?: number;
     readonly usableRows?: number;
+    readonly capitalContributionRows?: number;
+    readonly capitalGoldRows?: number;
   },
 ): EmbedBuilder {
   const notes = [
@@ -464,6 +478,12 @@ function baseCapitalEmbed(
     notes.push(`Member rows after filters: ${filters.filteredMemberRows.toLocaleString('en-US')}.`);
   if (typeof filters.usableRows === 'number')
     notes.push(`Rows with usable capital data: ${filters.usableRows.toLocaleString('en-US')}.`);
+  if (typeof filters.capitalContributionRows === 'number')
+    notes.push(
+      `capitalContribution coverage: ${filters.capitalContributionRows.toLocaleString('en-US')}.`,
+    );
+  if (typeof filters.capitalGoldRows === 'number')
+    notes.push(`capitalGold coverage: ${filters.capitalGoldRows.toLocaleString('en-US')}.`);
   if (filters.latestMemberSnapshotAt)
     notes.push(
       `Latest member snapshot: ${formatRelativeSnapshotAge(filters.latestMemberSnapshotAt)}.`,
@@ -603,6 +623,19 @@ function clanProfileUrl(clanTag: string): string {
 
 function formatNumber(value: number | null): string {
   return value === null ? 'Unknown' : value.toLocaleString('en-US');
+}
+
+function formatCapitalContributionValues(
+  capitalContribution: number | null,
+  capitalGold: number | null,
+): string {
+  const parts = [
+    capitalContribution === null
+      ? undefined
+      : `capitalContribution ${formatNumber(capitalContribution)}`,
+    capitalGold === null ? undefined : `capitalGold ${formatNumber(capitalGold)}`,
+  ].filter((value): value is string => Boolean(value));
+  return parts.join(' · ');
 }
 
 function readMemberCapitalNumber(
