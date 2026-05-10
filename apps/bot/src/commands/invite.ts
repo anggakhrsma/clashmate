@@ -10,15 +10,24 @@ import {
 } from 'discord.js';
 
 export const INVITE_COMMAND_NAME = 'invite';
-export const INVITE_COMMAND_DESCRIPTION = 'Get an invite link for ClashMate.';
+export const INVITE_COMMAND_DESCRIPTION = 'Get the bot invite and support server link.';
 export const DEFAULT_INVITE_EMBED_COLOR = 0x5865f2;
 export const CLASHMATE_SOURCE_URL = 'https://github.com/anggakhrsma/clashmate';
 export const CLASHMATE_SUPPORT_URL = 'https://cmte.io/support';
+export const CLASHMATE_INVITE_NOTE =
+  'ClashMate is open-source and self-hostable; there is no premium tier or custom bot hosting upsell.';
 
 const INVITE_PERMISSIONS = new PermissionsBitField([
   PermissionFlagsBits.ViewChannel,
   PermissionFlagsBits.SendMessages,
+  PermissionFlagsBits.SendMessagesInThreads,
   PermissionFlagsBits.EmbedLinks,
+  PermissionFlagsBits.AttachFiles,
+  PermissionFlagsBits.ReadMessageHistory,
+  PermissionFlagsBits.UseExternalEmojis,
+  PermissionFlagsBits.AddReactions,
+  PermissionFlagsBits.ManageRoles,
+  PermissionFlagsBits.ManageWebhooks,
 ]);
 
 export const inviteCommandData = new SlashCommandBuilder()
@@ -77,16 +86,21 @@ export function collectInviteView(
 export function buildInviteEmbed(view: InviteView): EmbedBuilder {
   const description = view.inviteUrl
     ? [
-        'ClashMate can be added to any server where you have permission to manage apps.',
+        'ClashMate can be added to as many servers as you want. Share the bot with friends or run your own self-hosted copy.',
         '',
         `**[Add to Discord](${view.inviteUrl})**`,
         '',
-        `Source: [GitHub](${CLASHMATE_SOURCE_URL}) • Support: [ClashMate Support](${CLASHMATE_SUPPORT_URL})`,
+        '**Scopes:** `bot`, `applications.commands`',
+        `**Requested permissions:** ${formatInvitePermissions()}`,
+        '',
+        `**Support Server:** ${CLASHMATE_SUPPORT_URL} | **Source Code:** ${CLASHMATE_SOURCE_URL}`,
+        CLASHMATE_INVITE_NOTE,
       ]
     : [
         'I could not build an invite link because the bot application id is unavailable.',
         '',
-        `Source: [GitHub](${CLASHMATE_SOURCE_URL}) • Support: [ClashMate Support](${CLASHMATE_SUPPORT_URL})`,
+        `**Support Server:** ${CLASHMATE_SUPPORT_URL} | **Source Code:** ${CLASHMATE_SOURCE_URL}`,
+        CLASHMATE_INVITE_NOTE,
       ];
 
   return new EmbedBuilder()
@@ -100,9 +114,15 @@ export function buildInviteEmbed(view: InviteView): EmbedBuilder {
 }
 
 export function buildInviteUrl(applicationId: string): string {
-  const url = new URL('https://discord.com/oauth2/authorize');
+  const url = new URL('https://discord.com/api/oauth2/authorize');
   url.searchParams.set('client_id', applicationId);
   url.searchParams.set('scope', [OAuth2Scopes.Bot, OAuth2Scopes.ApplicationsCommands].join(' '));
   url.searchParams.set('permissions', INVITE_PERMISSIONS.bitfield.toString());
   return url.toString();
+}
+
+function formatInvitePermissions(): string {
+  return INVITE_PERMISSIONS.toArray()
+    .map((permission) => `\`${permission}\``)
+    .join(', ');
 }
