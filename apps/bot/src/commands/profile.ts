@@ -23,15 +23,17 @@ const EMBED_MAX_FIELDS = 25;
 
 const PROFILE_EMBED_TITLE = truncateEmbedText('ClashMate Profile', EMBED_TITLE_LIMIT, 'Profile');
 const PROFILE_EMBED_DESCRIPTION = truncateEmbedText(
-  'Based on ClashMate player links and profile preferences already stored for this server.',
+  'Based on ClashMate player links and profile preferences already stored for this server; linked player tags open their in-game profiles.',
   EMBED_DESCRIPTION_LIMIT,
   'Stored player links.',
 );
 
 const PROFILE_SOURCE_DETAILS = [
   'Source: saved ClashMate player links and profile preferences for this server.',
-  'No Clash API request is made, so player names, Town Hall, clan, heroes, and live stats are not fetched here.',
-  'Use `/link create` to add an account before it can appear in `/profile`.',
+  'Live API: `/profile` does not call the Clash API; player names, Town Hall, clan, heroes, and live stats are intentionally not fetched here.',
+  'Links: stored player tags link to the in-game player profile. Clan profile links only appear in commands that fetch live clan/player data.',
+  'Tracking: one-off profile lookups do not enroll players or clans into polling; only linked/configured resources are tracked elsewhere.',
+  'Add data: use `/link create` to add an account before it can appear in `/profile`.',
 ].join('\n');
 
 export const profileCommandData = new SlashCommandBuilder()
@@ -184,7 +186,11 @@ export async function executeProfile(
   });
 
   if (resolution.status === 'invalid_tag') {
-    await interaction.reply({ content: 'That player tag is not valid.', ephemeral: true });
+    await interaction.reply({
+      content:
+        'That player tag is not valid. Enter a full Clash player tag such as `#2PP`, or choose one of your stored links from autocomplete.',
+      ephemeral: true,
+    });
     return;
   }
 
@@ -200,7 +206,7 @@ export async function executeProfile(
 
   if (resolution.status === 'no_player_link') {
     await interaction.reply({
-      content: `No stored ClashMate player link was found for **${resolution.playerTag}**. \`/profile\` resolves the \`player\` option from saved links only and never searches the Clash API, so live player data is not fetched. Use \`/link create\` to link it first.`,
+      content: `No stored ClashMate player link was found for **${resolution.playerTag}**. \`/profile\` resolves the \`player\` option from saved links only and never searches the Clash API, so this is not a live API lookup or outage. Use \`/link create\` to link it first, or use a live player lookup command when you need current player/clan details.`,
       ephemeral: true,
     });
     return;
@@ -274,11 +280,11 @@ function formatNoUserLinksMessage(
   result: Extract<ProfileResolution, { status: 'no_user_links' }>,
 ): string {
   const storedOnlyNote =
-    '`/profile` only reads stored ClashMate links/profile preferences for this server and never searches the Clash API.';
+    '`/profile` only reads stored ClashMate links/profile preferences for this server and never searches the Clash API, so there is no live player/clan data to show yet.';
   if (result.isSelf) {
-    return `You do not have linked player accounts. ${storedOnlyNote} Use \`/link create\` first so your accounts can appear here.`;
+    return `You do not have linked player accounts. ${storedOnlyNote} Use \`/link create\` first so your accounts can appear here; this one-off check will not start polling any player or clan.`;
   }
-  return `**${sanitizeEmbedText(result.targetUser.displayName, 'This user')}** does not have linked player accounts. ${storedOnlyNote} Ask them to use \`/link create\` to add one.`;
+  return `**${sanitizeEmbedText(result.targetUser.displayName, 'This user')}** does not have linked player accounts. ${storedOnlyNote} Ask them to use \`/link create\` to add one; this one-off check will not start polling any player or clan.`;
 }
 
 export function buildProfileEmbed(
@@ -437,7 +443,14 @@ function formatLinkedPlayerTag(link: ProfilePlayerLinkRecord): string {
     .filter((marker): marker is string => Boolean(marker))
     .join(', ');
   const markerText = markers ? ` (${markers})` : '';
-  return `**${sanitizeEmbedText(link.playerTag, 'Unknown Tag')}**${markerText}`;
+  const tag = sanitizeEmbedText(link.playerTag, 'Unknown Tag');
+  return `**[${tag}](${formatPlayerProfileUrl(link.playerTag)})**${markerText}`;
+}
+
+function formatPlayerProfileUrl(playerTag: string): string {
+  return `https://link.clashofclans.com/en?action=OpenPlayerProfile&tag=${encodeURIComponent(
+    playerTag,
+  )}`;
 }
 
 function formatLinkStatus(link: ProfilePlayerLinkRecord): string {
