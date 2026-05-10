@@ -363,6 +363,7 @@ export async function executeStats(
       buildStatsAttacksEmbed(rankedRows, {
         clanLabel,
         user: userOption,
+        playerTagCount: playerTags?.length ?? 0,
         starsOption,
         attemptOption,
         days,
@@ -445,6 +446,7 @@ export function buildStatsAttacksEmbed(
   input: {
     readonly clanLabel: string | undefined;
     readonly user: User | null;
+    readonly playerTagCount: number;
     readonly starsOption: StarsOption | null;
     readonly attemptOption: AttemptOption | null;
     readonly days: number | null;
@@ -485,7 +487,13 @@ export function buildStatsAttacksEmbed(
       },
       {
         name: 'Source & limitations',
-        value: buildSourceNote(input.starsOption, input.attemptOption),
+        value: buildSourceNote(input.starsOption, input.attemptOption, Boolean(input.user)),
+        inline: false,
+      },
+      {
+        name: 'Polling prerequisites',
+        value:
+          'War attack stats appear after a clan is linked/configured, the war poller observes wars for that clan, and persisted attack events exist for the selected filters. One-off `/stats` lookups do not enroll clans or players for polling.',
         inline: false,
       },
     )
@@ -550,13 +558,19 @@ function buildStatsDefenseUnavailableEmbed(input: {
       {
         name: 'Source & coverage',
         value:
-          'This response does not query the Clash API. Persisted defense history is not stored yet, so 0 rows are available/visible for rankings or totals.',
+          'This response does not query the Clash API. Persisted defense history is not stored yet, so 0 rows are available/visible for rankings or totals. Clan and user filters are validated against linked ClashMate configuration only.',
         inline: false,
       },
       {
         name: 'Limitations',
         value:
           'Accepted filters are echoed for parity and troubleshooting only; they cannot produce defense stats until defense events are persisted.',
+        inline: false,
+      },
+      {
+        name: 'Polling prerequisites',
+        value:
+          'Defense rankings require future persisted defense events from observed wars for linked/configured clans. Current war polling only feeds the stored attack-history source used by `/stats attacks`.',
         inline: false,
       },
     );
@@ -620,10 +634,19 @@ function formatStatsRows(rows: readonly StatsWarAttackHistoryRow[]): string {
     .join('\n');
 }
 
-function buildSourceNote(stars: StarsOption | null, attempt: AttemptOption | null): string {
+function buildSourceNote(
+  stars: StarsOption | null,
+  attempt: AttemptOption | null,
+  hasUserFilter: boolean,
+): string {
   const notes = [
     'Data source: persisted war attack history for linked/configured clans; no live Clash API lookup is performed by this command.',
   ];
+  if (hasUserFilter) {
+    notes.push(
+      'User filters expand to linked player tags in this server and match those tags against stored attacker tags.',
+    );
+  }
   if (stars) {
     notes.push(
       'Star filtering is shown as a label only because stored rows are attacker aggregates, not exact per-hit star buckets.',
@@ -648,6 +671,7 @@ function buildStatsCoverageNote(input: {
 function formatStatsAppliedFilterLabels(input: {
   readonly clanLabel: string | undefined;
   readonly user: User | null;
+  readonly playerTagCount: number;
   readonly starsOption: StarsOption | null;
   readonly attemptOption: AttemptOption | null;
   readonly days: number | null;
@@ -655,7 +679,11 @@ function formatStatsAppliedFilterLabels(input: {
 }): string[] {
   const labels: string[] = [];
   if (input.clanLabel) labels.push(`Clan: ${input.clanLabel}`);
-  if (input.user) labels.push(`User: ${escapeMarkdown(input.user.displayName)}`);
+  if (input.user) {
+    labels.push(
+      `User: ${escapeMarkdown(input.user.displayName)} (${input.playerTagCount} linked players matched as attacker tags)`,
+    );
+  }
   if (input.days) labels.push(`Detected since: last ${input.days} days`);
   if (input.season)
     labels.push(`Season boundary: since ${formatSeasonLabel(formatSeasonValue(input.season))}`);
@@ -684,7 +712,7 @@ function buildStatsNoAttackEventsMessage(input: {
   const nextHint =
     input.rowsConsidered > 0
       ? 'Try relaxing the accepted filters; some labels are not fully applied while history rows are stored as attacker aggregates.'
-      : 'Link/configure a clan and wait for war attacks to be persisted, or choose a filter with stored history.';
+      : 'Link/configure a clan, ensure the war poller can observe wars for it, and wait for attack events to be persisted, or choose a filter with stored history.';
   return `${STATS_NO_ATTACK_EVENTS_MESSAGE} Source: persisted war attack history only; no live Clash API lookup is performed. Rows considered: ${input.rowsConsidered}.${filterText} ${nextHint}`;
 }
 
