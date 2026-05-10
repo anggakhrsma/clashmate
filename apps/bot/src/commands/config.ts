@@ -216,7 +216,7 @@ export function buildConfigEmbed(
     .setColor(effectiveColor)
     .setTitle('ClashMate Configuration')
     .setDescription(
-      'Current server configuration. Bot manager roles bypass command whitelists, and links manager roles can manage player links for other users. Slash `/` is fixed because ClashMate is slash-only.',
+      'Current saved server configuration. Use command options to persist updates; without options this is a diagnostics view. Slash `/` is fixed because ClashMate is slash-only.',
     )
     .addFields(
       {
@@ -224,15 +224,25 @@ export function buildConfigEmbed(
         value: formatUpdateStatus(view, before, attemptedUpdate),
         inline: false,
       },
-      { name: 'Slash Prefix', value: '`/` (fixed)', inline: true },
+      {
+        name: 'Permissions & Audit',
+        value:
+          'Requires Discord Manage Server. Saved changes include the acting user for audit logs when the backing store records configuration history.',
+        inline: false,
+      },
+      {
+        name: 'Slash Prefix',
+        value: '`/` (fixed; message prefixes are not supported)',
+        inline: true,
+      },
       {
         name: 'Webhook Limit',
-        value: `${view.webhookLimit} (allowed ${MIN_WEBHOOK_LIMIT}-${MAX_WEBHOOK_LIMIT})`,
+        value: `${view.webhookLimit} per channel (allowed ${MIN_WEBHOOK_LIMIT}-${MAX_WEBHOOK_LIMIT}; values outside the range are clamped before saving)`,
         inline: true,
       },
       {
         name: 'Color Code',
-        value: `${view.embedColor ?? 'None'}\nEffective preview: ${formatColorPreview(effectiveColor)}`,
+        value: `${view.embedColor ?? 'None'}\nPreview color: ${formatColorPreview(effectiveColor)}`,
         inline: true,
       },
       {
@@ -243,6 +253,12 @@ export function buildConfigEmbed(
       {
         name: `Links Manager Roles (${view.linksManagerRoleIds.length})`,
         value: formatRoleList(view.linksManagerRoleIds),
+        inline: false,
+      },
+      {
+        name: 'Configuration Diagnostics',
+        value:
+          'Premium, Patreon, and feature-flag dumps are intentionally not shown. ClashMate reports normal persisted settings and supported self-hosted capabilities instead.',
         inline: false,
       },
     );
