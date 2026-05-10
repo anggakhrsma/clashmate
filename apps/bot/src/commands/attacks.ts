@@ -15,7 +15,12 @@ export const ATTACKS_COMMAND_DESCRIPTION = 'Show attack and defense wins for a l
 export const ATTACKS_NO_LINKED_CLANS_MESSAGE =
   'No clans are linked to this server yet. Use `/setup clan` to link one.';
 export const ATTACKS_NO_DATA_MESSAGE =
-  'No attack or defense win data is available from the current public Clash API response.';
+  'No attack or defense win data is available from the current public Clash API response for the scanned clan members.';
+
+const ATTACKS_FILTER_HELP_TEXT =
+  "Accepted clan filters: linked clan tag, saved alias, or exact linked clan name. The `user` filter uses one of that Discord user's linked players to pick a linked clan, then falls back to the first linked clan.";
+const ATTACKS_SOURCE_HELP_TEXT =
+  'Source: live public Clash API clan member list plus one player lookup per scanned member. Historical season archives are not available from the public API yet, so season choices currently label the request but still show current attack/defense wins.';
 
 const MAX_PLAYER_FETCHES = 50;
 const EMBED_DESCRIPTION_LIMIT = 4096;
@@ -204,7 +209,9 @@ export async function executeAttacks(
       });
   const { clan } = resolution;
   if (!clan) {
-    await interaction.editReply({ content: 'No linked clan was found for that clan option.' });
+    await interaction.editReply({
+      content: `No linked clan was found for that clan option.\n${ATTACKS_FILTER_HELP_TEXT}`,
+    });
     return;
   }
 
@@ -217,10 +224,11 @@ export async function executeAttacks(
   }
 
   const discoveredMemberTags = readClanMemberTags(clashClan.data);
+  const season = interaction.options.getString('season');
   const memberTags = discoveredMemberTags.slice(0, MAX_PLAYER_FETCHES);
   if (discoveredMemberTags.length === 0) {
     await interaction.editReply({
-      content: `${ATTACKS_NO_DATA_MESSAGE}\n${formatAttacksCoverageText(
+      content: `${ATTACKS_NO_DATA_MESSAGE}\n${formatAttacksLimitationsText(season)}\n${formatAttacksCoverageText(
         createAttacksScanCoverage({
           clanMembersDiscovered: 0,
           playerLookupsAttempted: 0,
@@ -244,12 +252,13 @@ export async function executeAttacks(
   });
   if (rows.length === 0) {
     await interaction.editReply({
-      content: `${ATTACKS_NO_DATA_MESSAGE}\n${formatAttacksCoverageText(coverage)}`,
+      content: `${ATTACKS_NO_DATA_MESSAGE}\n${formatAttacksLimitationsText(season)}\n${formatAttacksCoverageText(
+        coverage,
+      )}`,
     });
     return;
   }
 
-  const season = interaction.options.getString('season');
   await interaction.editReply({
     ...(resolution.note ? { content: resolution.note } : {}),
     embeds: [buildAttacksEmbed(clashClan, rows, { coverage, season })],
@@ -359,6 +368,7 @@ export function buildAttacksEmbed(
   if (options.coverage) {
     embed.addFields({ name: 'Scan Coverage', value: formatAttacksCoverageText(options.coverage) });
   }
+  embed.addFields({ name: 'Source & Limits', value: formatAttacksLimitationsText(options.season) });
 
   if (badgeUrl) embed.setThumbnail(badgeUrl);
   return embed;
@@ -384,10 +394,16 @@ export function formatAttacksCoverageText(coverage: AttacksScanCoverage): string
   return [
     `Clan members discovered: ${coverage.clanMembersDiscovered}`,
     `Player lookups attempted/analyzed: ${coverage.playerLookupsAttempted}/${coverage.playerLookupsAnalyzed}`,
-    `Skipped due to MAX_PLAYER_FETCHES (${MAX_PLAYER_FETCHES}): ${coverage.skippedDueToMaxPlayerFetches}`,
+    `Skipped after scan cap (${MAX_PLAYER_FETCHES}): ${coverage.skippedDueToMaxPlayerFetches}`,
     `Failed lookups: ${coverage.failedLookups}`,
     `Rows with attack/defense data: ${coverage.rowsWithData}`,
   ].join('\n');
+}
+
+export function formatAttacksLimitationsText(season: string | null | undefined): string {
+  return season
+    ? `${ATTACKS_SOURCE_HELP_TEXT}\nRequested season: ${formatAttacksSeasonLabel(season)}.`
+    : ATTACKS_SOURCE_HELP_TEXT;
 }
 
 export function formatAttacksSeasonLabel(season: string): string {
