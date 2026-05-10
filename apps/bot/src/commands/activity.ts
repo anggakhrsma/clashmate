@@ -15,7 +15,7 @@ import { filterTimezoneChoices } from './timezone.js';
 export const ACTIVITY_COMMAND_NAME = 'activity';
 export const ACTIVITY_COMMAND_DESCRIPTION = 'Show active members from tracked clan snapshots.';
 export const ACTIVITY_NO_SNAPSHOT_MESSAGE =
-  'No activity snapshot is available yet. Link/configure a clan and wait for clan polling to observe members.';
+  'No persisted member snapshot is available for this server/filter yet. Link or configure a clan, keep the worker running, and wait for clan polling to store member rows.';
 
 const ACTIVITY_DAYS = [1, 3, 7, 15, 30] as const;
 export type ActivityDays = (typeof ACTIVITY_DAYS)[number];
@@ -347,14 +347,14 @@ function formatActivitySourceContext(context: ActivitySnapshotContext): string {
   const configuredClans =
     typeof context.linkedClanCount === 'number' ? `${context.linkedClanCount}` : 'unknown';
   return [
-    'Persisted-only: reads stored ClashMate member snapshots; no live Clash API lookup or image chart rendering is performed.',
-    `Window: ${context.windowLabel}`,
+    'Source: persisted ClashMate clan-member snapshots written by clan polling. This command does not call the Clash API live, backfill history, or render the old image chart.',
+    `Activity calculation: members with last-seen timestamps inside ${context.windowLabel} count as active; other stored members count as inactive for the percentage.`,
     `Linked clans configured: ${configuredClans} · Snapshot clans returned: ${context.snapshotsConsidered} · With member rows: ${context.clansWithSnapshots}`,
     `Member rows considered: ${context.memberRowsConsidered} · Visible rows: ${context.visibleRows}`,
-    `Latest snapshot: ${context.latestFetchedAt ? time(context.latestFetchedAt, 'R') : 'none'}`,
-    `Active filters: ${context.filters.join(' · ')}`,
+    `Latest stored snapshot fetch: ${context.latestFetchedAt ? time(context.latestFetchedAt, 'R') : 'none; wait for polling or check linked clan setup'}`,
+    `Active filters: ${context.filters.join(' · ')} · user=not filtered by /activity`,
     `Timezone: ${context.timezoneLabel}`,
-    'Prerequisite: clan polling must have run after a clan was linked/configured for this server.',
+    'Polling prerequisite: clan polling must run after the clan is linked/configured; search-only lookups and Discord user links do not create activity snapshots.',
   ].join('\n');
 }
 
@@ -366,10 +366,10 @@ function formatActivityNoDataMessage(options: BuildActivityOptions): string {
   return [
     ACTIVITY_NO_SNAPSHOT_MESSAGE,
     linkedClanText,
-    `Selected filters: ${formatActivityFilters(options).join(' · ')} · timezone=${formatActivityTimezoneLabel(options)}.`,
-    `Activity window: ${formatActivityWindowLabel(options.days)}.`,
-    'Source coverage: stored linked-clan member snapshots only; no live Clash API lookup, historical ClickHouse activity table, or image chart renderer is used.',
-    'Polling prerequisite: link/configure a clan for this server, keep the worker running, and wait for clan polling to fetch member snapshots.',
+    `Selected filters: ${formatActivityFilters(options).join(' · ')} · user=not filtered by /activity · timezone=${formatActivityTimezoneLabel(options)}.`,
+    `Activity/inactivity calculation: ${formatActivityWindowLabel(options.days)}; members seen inside the window are active, stored members outside it are inactive.`,
+    'Source coverage: stored linked-clan member snapshots only; there is no live Clash API fallback, historical ClickHouse activity table, or image chart renderer.',
+    'Action: verify the clan is linked/configured for this server, check that the selected clan filter matches a linked clan, keep the worker running, and wait for clan polling to fetch fresh snapshots.',
   ].join('\n');
 }
 
@@ -422,7 +422,7 @@ function formatActivityDescription(
   timezone: string | undefined,
 ): string {
   if (summaries.length === 0)
-    return 'No member activity snapshots are available for linked clans yet.';
+    return 'No persisted member activity rows matched the linked clan filter yet; wait for clan polling to store snapshots.';
   return summaries
     .map((summary) => {
       const recent = summary.recentMembers.length
