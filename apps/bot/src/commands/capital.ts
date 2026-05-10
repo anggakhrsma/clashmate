@@ -155,7 +155,10 @@ export async function executeCapital(
   const clans = await options.store.listClansForGuild(interaction.guildId);
   const clan = clanOption ? resolveCapitalClan(clans, clanOption) : undefined;
   if (clanOption && !clan) {
-    await interaction.editReply({ content: 'No linked clan was found for that clan option.' });
+    await interaction.editReply({
+      content:
+        'No linked clan was found for that clan option. Use a linked clan tag, bare tag, exact name, or alias from this server; `/capital` does not do live Clash API lookups.',
+    });
     return;
   }
 
@@ -163,7 +166,10 @@ export async function executeCapital(
     ? await options.store.listPlayerTagsForUser(interaction.guildId, user.id)
     : undefined;
   if (user && playerTags?.length === 0) {
-    await interaction.editReply({ content: 'That Discord user has no linked Clash accounts.' });
+    await interaction.editReply({
+      content:
+        'That Discord user has no linked Clash accounts in this server. Link the player first, then wait for linked-clan member polling before using the user filter.',
+    });
     return;
   }
 
@@ -312,7 +318,7 @@ export function buildCapitalRaidsEmbed(
     .addFields({
       name: 'Raid Weekend Logs',
       value:
-        'Raid-week attack logs are not persisted in ClashMate yet, so this first pass shows linked-clan capital snapshot rankings only.',
+        'Raid-week attack logs are not persisted in ClashMate yet, so this first pass shows linked-clan capital snapshot rankings only. The `week` option is accepted as a parity/display filter, but it cannot load per-attack raid history.',
     })
     .setFooter({
       text: `Showing ${Math.min(rows.length, CAPITAL_ROW_LIMIT)}/${rows.length} linked clans`,
@@ -395,6 +401,11 @@ export function buildCapitalContributionEmbed(
         )
         .join('\n'),
     )
+    .addFields({
+      name: 'Contribution Fields',
+      value:
+        'Contribution uses stored member `capitalContribution` when present, then `capitalGold`. If polling snapshots do not include either field, ClashMate reports no usable contribution rows instead of fetching live data.',
+    })
     .setFooter({
       text: `Showing ${Math.min(rows.length, CAPITAL_ROW_LIMIT)}/${rows.length} members`,
     });
@@ -435,7 +446,7 @@ function baseCapitalEmbed(
   },
 ): EmbedBuilder {
   const notes = [
-    'Persisted-only: uses current stored linked-clan/member snapshots; no Clash API lookup.',
+    'Persisted-only: uses current stored linked-clan/member snapshots for clans configured in this server; no Clash API lookup or fallback enrollment.',
   ];
   if (typeof filters.linkedClansConsidered === 'number')
     notes.push(
@@ -462,8 +473,18 @@ function baseCapitalEmbed(
       `Week label only: ${formatRaidWeekFilter(filters.week)}; raid logs are not persisted or filtered.`,
     );
   if (filters.userId)
-    notes.push('User filter uses linked Clash account tags where member data exists.');
-  notes.push('Raid-week logs are not persisted yet; week filters cannot load attack-log history.');
+    notes.push(
+      'User filter uses this server’s linked Clash account tags and only matches players present in stored linked-clan member snapshots.',
+    );
+  notes.push(
+    'Accepted filters: clan tag/name/alias, linked Discord user, and recent raid-week label.',
+  );
+  notes.push(
+    'Polling required: link/configure clans and allow clan polling to store capital and member snapshots before data appears.',
+  );
+  notes.push(
+    'Raid-week attack logs and per-week contribution history are not persisted yet; week filters cannot load attack-log history.',
+  );
   return new EmbedBuilder().setTitle(title).addFields({ name: 'Source', value: notes.join('\n') });
 }
 
@@ -483,7 +504,9 @@ function formatCapitalNoDataMessage(
     summary,
     acceptedFilters.length > 0 ? `Accepted filters: ${acceptedFilters.join(', ')}.` : undefined,
     nextStep,
-    'This command is persisted-only; raid-week logs are not stored yet, so the week option is a display/parity label and does not load attack-log history.',
+    'Accepted filter inputs are linked clan tag/name/alias, linked Discord user, and recent raid-week label. Filters only narrow stored snapshots for linked clans in this server.',
+    'This command is persisted-only; it will not call the Clash API live or enroll search-only clans into polling.',
+    'Raid-week attack logs and per-week contribution history are not stored yet, so the week option is a display/parity label and does not load attack-log history.',
   ]
     .filter((value): value is string => Boolean(value))
     .join('\n');
