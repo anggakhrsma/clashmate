@@ -124,7 +124,10 @@ export async function executeUnits(
   });
 
   if (resolution.status === 'invalid_tag') {
-    await interaction.reply({ content: PLAYER_NOT_FOUND_MESSAGE, ephemeral: true });
+    await interaction.reply({
+      content: formatInvalidUnitsLookupMessage(resolution.input),
+      ephemeral: true,
+    });
     return;
   }
 
@@ -139,14 +142,17 @@ export async function executeUnits(
   try {
     player = await options.coc.getPlayer(resolution.playerTag);
   } catch {
-    await interaction.editReply(PLAYER_NOT_FOUND_MESSAGE);
+    await interaction.editReply(formatUnitsApiErrorMessage(resolution.playerTag));
     return;
   }
 
-  await interaction.editReply({ embeds: [buildUnitsEmbed(player)] });
+  await interaction.editReply({ embeds: [buildUnitsEmbed(player, resolution.source)] });
 }
 
-export function buildUnitsEmbed(player: ClashPlayer): EmbedBuilder {
+export function buildUnitsEmbed(
+  player: ClashPlayer,
+  source: 'explicit_tag' | 'stored_user_link',
+): EmbedBuilder {
   const data = isRecord(player.data) ? player.data : {};
   const townHallLevel = readNumber(readValue(data, 'townHallLevel'));
   const builderHallLevel = readNumber(readValue(data, 'builderHallLevel'));
@@ -154,7 +160,14 @@ export function buildUnitsEmbed(player: ClashPlayer): EmbedBuilder {
     .setAuthor({ name: `${sanitize(player.name)} (${player.tag})` })
     .setDescription(
       `Units for TH${townHallLevel ?? 'Unknown'}${builderHallLevel ? ` and BH${builderHallLevel}` : ''}`,
-    );
+    )
+    .setFooter({
+      text: [
+        `Lookup source: ${formatLookupSource(source)}.`,
+        'Filters: player tag or linked Discord user only.',
+        'One-off lookups do not enroll players for polling.',
+      ].join(' '),
+    });
 
   const groups: UnitGroupView[] = [
     {
@@ -182,7 +195,17 @@ export function buildUnitsEmbed(player: ClashPlayer): EmbedBuilder {
     inline: false,
   });
 
-  let fieldCount = 1;
+  embed.addFields({
+    name: 'Display Notes',
+    value: [
+      'Shows public Clash API levels for troops, spells, heroes, and hero equipment.',
+      'Pets, siege machines, and other troop-like units may appear under Home Troops when the API does not expose a separate display category.',
+      'Max levels are the values returned by the API for the player snapshot, not a manual ClashMate progression table.',
+    ].join('\n'),
+    inline: false,
+  });
+
+  let fieldCount = 2;
   let unitFieldCount = 0;
   for (const { title, units } of groups) {
     if (units.length === 0 || fieldCount >= EMBED_MAX_FIELDS) continue;
@@ -201,12 +224,34 @@ export function buildUnitsEmbed(player: ClashPlayer): EmbedBuilder {
   if (unitFieldCount === 0) {
     embed.addFields({
       name: 'Units',
-      value: 'No public unit level data was found.',
+      value: [
+        'No public unit, hero, spell, pet, or equipment level data was found in the Clash API response.',
+        'Try again later, verify the player tag, or use `/link create` to choose a linked account.',
+      ].join(' '),
       inline: false,
     });
   }
 
   return embed;
+}
+
+function formatInvalidUnitsLookupMessage(input: string): string {
+  return [
+    `I could not normalize \`${input.trim() || 'that value'}\` as a Clash player tag.`,
+    'Use `player:#ABC123`, choose an autocomplete result from your linked accounts, or use `user:@member` for a stored Discord user link.',
+  ].join(' ');
+}
+
+function formatUnitsApiErrorMessage(playerTag: string): string {
+  return [
+    `Clash API could not return unit data for \`${playerTag}\`.`,
+    PLAYER_NOT_FOUND_MESSAGE,
+    'This lookup was one-off only and did not create polling state; check the tag or try again later if the API is unavailable.',
+  ].join(' ');
+}
+
+function formatLookupSource(source: 'explicit_tag' | 'stored_user_link'): string {
+  return source === 'explicit_tag' ? 'player option' : 'linked Discord user';
 }
 
 function summarizeUnitProgress(groups: readonly UnitGroupView[]): UnitProgressSummary {
