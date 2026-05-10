@@ -78,6 +78,72 @@ export function computeWorkerLoopDelayMs(
   return (baseSeconds + jitter) * 1000;
 }
 
+type PollingOutcomeStatus = ProcessDuePollingLeaseResult['status'];
+
+interface PollingOutcomeLeaseDetail {
+  readonly resourceType: PollingResourceType;
+  readonly resourceId: string;
+  readonly durationMs?: number;
+  readonly nextRunAt?: string;
+  readonly errorMessage?: string;
+}
+
+interface PollingOutcomeSummary {
+  readonly counts: Record<PollingOutcomeStatus, number>;
+  readonly processed: PollingOutcomeLeaseDetail[];
+  readonly failed: PollingOutcomeLeaseDetail[];
+}
+
+const POLLING_OUTCOME_STATUSES: readonly PollingOutcomeStatus[] = ['processed', 'idle', 'failed'];
+
+function createPollingOutcomeLeaseDetail(
+  result: ProcessDuePollingLeaseResult,
+): PollingOutcomeLeaseDetail | undefined {
+  if (!result.resourceId) return undefined;
+
+  return {
+    resourceType: result.resourceType,
+    resourceId: result.resourceId,
+    ...(result.durationMs !== undefined ? { durationMs: result.durationMs } : {}),
+    ...(result.nextRunAt ? { nextRunAt: result.nextRunAt.toISOString() } : {}),
+    ...(result.errorMessage ? { errorMessage: result.errorMessage } : {}),
+  };
+}
+
+export function summarizePollingOutcomes(
+  results: readonly ProcessDuePollingLeaseResult[],
+): PollingOutcomeSummary {
+  const counts: Record<PollingOutcomeStatus, number> = {
+    processed: 0,
+    idle: 0,
+    failed: 0,
+  };
+  const processed: PollingOutcomeLeaseDetail[] = [];
+  const failed: PollingOutcomeLeaseDetail[] = [];
+
+  for (const result of results) {
+    counts[result.status] += 1;
+
+    if (result.status !== 'processed' && result.status !== 'failed') continue;
+    const detail = createPollingOutcomeLeaseDetail(result);
+    if (!detail) continue;
+
+    if (result.status === 'processed') {
+      processed.push(detail);
+    } else {
+      failed.push(detail);
+    }
+  }
+
+  return {
+    counts: Object.fromEntries(
+      POLLING_OUTCOME_STATUSES.map((status) => [status, counts[status]]),
+    ) as Record<PollingOutcomeStatus, number>,
+    processed,
+    failed,
+  };
+}
+
 function validateWorkerPollingLoopOptions(options: WorkerPollingLoopOptions): void {
   if (!options || typeof options !== 'object') {
     throw new Error('Worker polling loop options must be an object.');
@@ -131,8 +197,9 @@ export async function runWorkerPollingIteration(
       ...(options.random ? { random: options.random } : {}),
     };
     const results = await processOneDuePollingLeasePerFamily(orchestrationOptions);
+    const pollingOutcome = summarizePollingOutcomes(results);
 
-    options.logger.debug({ results }, 'Worker polling iteration completed');
+    options.logger.debug({ results, pollingOutcome }, 'Worker polling iteration completed');
     return results;
   } catch (error) {
     options.logger.error({ error }, 'Worker polling iteration failed');
