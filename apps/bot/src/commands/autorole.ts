@@ -92,6 +92,45 @@ export interface AutoroleSettingsStore {
   updateAutoroleSettings: (input: UpdateAutoroleSettingsInput) => Promise<AutoroleSettingsView>;
 }
 
+export type AutoroleRefreshTargetKind = 'server' | 'role' | 'user';
+
+export interface AutoroleRefreshPlanTarget {
+  readonly kind: AutoroleRefreshTargetKind;
+  readonly id: string;
+  readonly label: string;
+  readonly memberEstimate: string;
+}
+
+export interface AutoroleRefreshPlanOptions {
+  readonly isTestRun: boolean | null;
+  readonly forceRefresh: boolean | null;
+}
+
+export interface AutoroleRefreshPlanCounts {
+  readonly clanRoleGroups: number;
+  readonly clanRoleMappings: number;
+  readonly townHallRoles: number;
+  readonly leagueRoles: number;
+  readonly familyRoles: number;
+}
+
+export interface AutoroleRefreshPlanMappings {
+  readonly clanRoles: boolean;
+  readonly townHallRoles: boolean;
+  readonly leagueRoles: boolean;
+  readonly familyRoles: boolean;
+  readonly any: boolean;
+}
+
+export interface AutoroleRefreshPlan {
+  readonly counts: AutoroleRefreshPlanCounts;
+  readonly mappingsExist: AutoroleRefreshPlanMappings;
+  readonly target: AutoroleRefreshPlanTarget;
+  readonly requested: AutoroleRefreshPlanOptions;
+  readonly prerequisites: readonly string[];
+  readonly actionabilityNotes: readonly string[];
+}
+
 export interface AutoroleLinkedClan {
   readonly id: string;
   readonly clanTag: string;
@@ -553,10 +592,13 @@ export function buildAutoroleRefreshPreviewEmbed(
   interaction: ChatInputCommandInteraction,
 ): EmbedBuilder {
   const target = interaction.options.getMentionable('user_or_role');
-  const isTestRun = interaction.options.getBoolean('is_test_run');
-  const forceRefresh = interaction.options.getBoolean('force_refresh');
-  const counts = getAutoroleConfigCounts(view);
-  const targetSummary = formatAutoroleRefreshTarget(interaction, target);
+  const plan = buildAutoroleRefreshPlan(view, {
+    target: buildAutoroleRefreshPlanTarget(interaction, target),
+    options: {
+      isTestRun: interaction.options.getBoolean('is_test_run'),
+      forceRefresh: interaction.options.getBoolean('force_refresh'),
+    },
+  });
 
   return new EmbedBuilder()
     .setColor(0x5865f2)
@@ -568,18 +610,18 @@ export function buildAutoroleRefreshPreviewEmbed(
       {
         name: 'Target scope',
         value: [
-          `Kind: ${targetSummary.kind}`,
-          `Target: ${targetSummary.label}`,
-          `Target ID: ${targetSummary.id}`,
-          `Estimated members: ${targetSummary.memberEstimate}`,
+          `Kind: ${formatAutoroleRefreshTargetKind(plan.target.kind)}`,
+          `Target: ${plan.target.label}`,
+          `Target ID: ${plan.target.id}`,
+          `Estimated members: ${plan.target.memberEstimate}`,
         ].join('\n'),
         inline: false,
       },
       {
         name: 'Requested options',
         value: [
-          `Test run flag: ${formatProvidedBoolean(isTestRun)}`,
-          `Force refresh flag: ${formatProvidedBoolean(forceRefresh)}`,
+          `Test run flag: ${formatProvidedBoolean(plan.requested.isTestRun)}`,
+          `Force refresh flag: ${formatProvidedBoolean(plan.requested.forceRefresh)}`,
           'Result: Previewed stored config only; no Discord role or nickname changes were made.',
         ].join('\n'),
         inline: false,
@@ -587,11 +629,11 @@ export function buildAutoroleRefreshPreviewEmbed(
       {
         name: 'Stored config counts',
         value: [
-          `Clan role groups: ${counts.clanRoleGroups}`,
-          `Clan role mappings: ${counts.clanRoleMappings}`,
-          `Town Hall roles: ${counts.townHallRoles}`,
-          `League/trophy roles: ${counts.leagueRoles}`,
-          `Family roles: ${counts.familyRoles}`,
+          `Clan role groups: ${plan.counts.clanRoleGroups}`,
+          `Clan role mappings: ${plan.counts.clanRoleMappings}`,
+          `Town Hall roles: ${plan.counts.townHallRoles}`,
+          `League/trophy roles: ${plan.counts.leagueRoles}`,
+          `Family roles: ${plan.counts.familyRoles}`,
         ].join('\n'),
         inline: false,
       },
@@ -602,27 +644,57 @@ export function buildAutoroleRefreshPreviewEmbed(
       },
       {
         name: 'Future refresh would consider',
-        value: [
-          'Linked Discord accounts for the selected members.',
-          'Linked clans configured for this server.',
-          'Stored clan and member snapshots already collected by polling.',
-          'Saved clan, Town Hall, league/trophy, and family role mappings above.',
-          'No live Clash API fallback is used by this preview.',
-        ].join('\n'),
+        value: plan.prerequisites.join('\n'),
         inline: false,
       },
-      { name: 'No data?', value: formatNoDataActionability(counts), inline: false },
+      { name: 'No data?', value: plan.actionabilityNotes.join('\n'), inline: false },
       { name: 'Last action', value: `/${AUTOROLE_COMMAND_NAME} refresh`, inline: false },
     );
 }
 
-function formatAutoroleRefreshTarget(
+export function buildAutoroleRefreshPlan(
+  view: AutoroleSettingsView,
+  input: {
+    readonly target: AutoroleRefreshPlanTarget;
+    readonly options: AutoroleRefreshPlanOptions;
+  },
+): AutoroleRefreshPlan {
+  const counts = getAutoroleConfigCounts(view);
+  const mappingsExist = {
+    clanRoles: counts.clanRoleMappings > 0,
+    townHallRoles: counts.townHallRoles > 0,
+    leagueRoles: counts.leagueRoles > 0,
+    familyRoles: counts.familyRoles > 0,
+    any:
+      counts.clanRoleMappings > 0 ||
+      counts.townHallRoles > 0 ||
+      counts.leagueRoles > 0 ||
+      counts.familyRoles > 0,
+  };
+
+  return {
+    counts,
+    mappingsExist,
+    target: input.target,
+    requested: input.options,
+    prerequisites: [
+      'Linked Discord accounts for the selected members.',
+      'Linked clans configured for this server.',
+      'Stored clan and member snapshots already collected by polling.',
+      'Saved clan, Town Hall, league/trophy, and family role mappings above.',
+      'No live Clash API fallback is used by this preview.',
+    ],
+    actionabilityNotes: [formatNoDataActionability(counts)],
+  };
+}
+
+function buildAutoroleRefreshPlanTarget(
   interaction: ChatInputCommandInteraction,
   target: ReturnType<ChatInputCommandInteraction['options']['getMentionable']>,
-): { kind: string; label: string; id: string; memberEstimate: string } {
+): AutoroleRefreshPlanTarget {
   if (!target) {
     return {
-      kind: 'Whole server',
+      kind: 'server',
       label: interaction.guild?.name ?? 'This server',
       id: interaction.guildId ?? 'Unknown',
       memberEstimate: interaction.guild?.memberCount?.toString() ?? 'Unknown',
@@ -631,7 +703,7 @@ function formatAutoroleRefreshTarget(
 
   if (target instanceof Role) {
     return {
-      kind: 'Role',
+      kind: 'role',
       label: target.toString(),
       id: target.id,
       memberEstimate: `${target.members.size} cached member${target.members.size === 1 ? '' : 's'}`,
@@ -639,11 +711,17 @@ function formatAutoroleRefreshTarget(
   }
 
   return {
-    kind: 'User',
+    kind: 'user',
     label: target.toString(),
     id: getMentionableUserId(target),
     memberEstimate: '1 member',
   };
+}
+
+function formatAutoroleRefreshTargetKind(kind: AutoroleRefreshTargetKind): string {
+  if (kind === 'server') return 'Whole server';
+  if (kind === 'role') return 'Role';
+  return 'User';
 }
 
 function getMentionableUserId(
