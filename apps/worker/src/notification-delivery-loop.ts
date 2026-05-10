@@ -50,6 +50,13 @@ export interface NotificationDeliveryLoopController {
   stop: () => void;
 }
 
+export interface NotificationDeliveryIterationResult {
+  readonly claimed: number;
+  readonly sent: number;
+  readonly failed: number;
+  readonly skipped: number;
+}
+
 const DISCORD_NOTIFICATION_CONTENT_LIMIT = 2000;
 const DISCORD_EMBED_TITLE_LIMIT = 256;
 const DISCORD_EMBED_DESCRIPTION_LIMIT = 4096;
@@ -197,7 +204,7 @@ function assertFinitePositiveInteger(name: string, value: number): void {
 
 export async function runNotificationDeliveryIteration(
   options: NotificationDeliveryLoopOptions,
-): Promise<void> {
+): Promise<NotificationDeliveryIterationResult> {
   validateNotificationDeliveryLoopOptions(options);
   const { batchSize, lockForSeconds, maxAttempts, retryBaseSeconds } =
     resolveNotificationDeliveryIterationOptions(options);
@@ -208,9 +215,18 @@ export async function runNotificationDeliveryIteration(
     maxAttempts,
   });
 
+  let sent = 0;
+  let failed = 0;
+  const skipped = 0;
+
+  options.logger?.debug?.(
+    { claimed: claimed.length, limit: batchSize, ownerId: options.ownerId },
+    'Claimed notification outbox batch',
+  );
+
   if (claimed.length === 0) {
     options.logger?.debug?.('No due notification outbox entries to deliver');
-    return;
+    return { claimed: 0, sent, failed, skipped };
   }
 
   for (const entry of claimed) {
@@ -242,6 +258,7 @@ export async function runNotificationDeliveryIteration(
         );
       }
       await options.deliveryStore.markNotificationOutboxSent(entry.id, options.ownerId, new Date());
+      sent += 1;
       options.logger?.info?.({ outboxId: entry.id, targetId: entry.targetId }, 'Sent notification');
     } catch (error) {
       const retryAt = computeNotificationRetryAt(new Date(), entry.attempts + 1, retryBaseSeconds);
@@ -252,9 +269,33 @@ export async function runNotificationDeliveryIteration(
         retryAt,
         maxAttempts,
       });
+      failed += 1;
       options.logger?.error?.({ error, outboxId: entry.id }, 'Failed to send notification');
     }
   }
+
+  const result: NotificationDeliveryIterationResult = {
+    claimed: claimed.length,
+    sent,
+    failed,
+    skipped,
+  };
+
+  if (sent > 0) {
+    options.logger?.info?.(
+      { claimed: claimed.length, sent, ownerId: options.ownerId },
+      'Sent notification outbox batch',
+    );
+  }
+  if (failed > 0) {
+    options.logger?.info?.(
+      { claimed: claimed.length, failed, ownerId: options.ownerId },
+      'Failed notification outbox batch',
+    );
+  }
+  options.logger?.debug?.({ ...result, ownerId: options.ownerId }, 'Completed notification batch');
+
+  return result;
 }
 
 export function formatDiscordNotificationMessage(entry: {
