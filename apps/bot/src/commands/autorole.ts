@@ -112,8 +112,19 @@ export interface AutoroleClanMemberSnapshot {
   };
   readonly members: readonly {
     readonly playerTag: string;
+    readonly name?: string | null;
+    readonly role?: string | null;
+    readonly leagueName?: string | null;
+    readonly trophies?: number | null;
     readonly lastFetchedAt: Date;
   }[];
+}
+
+export interface AutoroleRefreshPreviewActions {
+  readonly candidateAdds: number;
+  readonly candidateRemoves: number | null;
+  readonly examples: readonly string[];
+  readonly removalReason: string;
 }
 
 export interface AutoroleSnapshotCoverage {
@@ -146,6 +157,7 @@ export interface AutoroleRefreshPlan {
   readonly snapshotCoverage: AutoroleSnapshotCoverage;
   readonly target: AutoroleRefreshPlanTarget;
   readonly requested: AutoroleRefreshPlanOptions;
+  readonly previewActions: AutoroleRefreshPreviewActions;
   readonly prerequisites: readonly string[];
   readonly actionabilityNotes: readonly string[];
 }
@@ -676,6 +688,11 @@ export function buildAutoroleRefreshPreviewEmbed(
         inline: false,
       },
       {
+        name: 'Candidate role actions from snapshots',
+        value: formatPreviewActions(plan.previewActions),
+        inline: false,
+      },
+      {
         name: 'Supported role groups',
         value: [AUTOROLE_INCLUDED_GROUPS_NOTE, AUTOROLE_EXCLUDED_GROUPS_NOTE].join('\n'),
         inline: false,
@@ -722,12 +739,14 @@ export function buildAutoroleRefreshPlan(
     snapshotCoverage,
     target: input.target,
     requested: input.options,
+    previewActions: buildAutorolePreviewActions(view, input.snapshots ?? []),
     prerequisites: [
       'Linked Discord accounts for the selected members.',
       'Linked clans configured for this server.',
       'Stored clan and member snapshots already collected by polling.',
       'Saved clan, Town Hall, league/trophy, and family role mappings above.',
       'No live Clash API fallback is used by this preview.',
+      'Discord member fetching and current-role reconciliation are not implemented yet.',
     ],
     actionabilityNotes: formatRefreshActionability(counts, snapshotCoverage),
   };
@@ -761,6 +780,137 @@ function buildAutoroleRefreshPlanTarget(
     id: getMentionableUserId(target),
     memberEstimate: '1 member',
   };
+}
+
+function buildAutorolePreviewActions(
+  view: AutoroleSettingsView,
+  snapshots: readonly AutoroleClanMemberSnapshot[],
+): AutoroleRefreshPreviewActions {
+  const candidatePairs = new Set<string>();
+  const candidatesByPlayer = new Map<string, { player: string; roles: Set<string> }>();
+  for (const snapshot of snapshots) {
+    const clanMapping = findClanRoleMapping(view.clanRoles, snapshot.clan.clanTag);
+    for (const member of snapshot.members) {
+      const player = formatSnapshotPlayer(member);
+      const roleIds = [
+        ...getClanRoleIdsForMember(clanMapping, member.role),
+        ...getLeagueRoleIdsForMember(view.leagueRoles, member),
+        ...getFamilyRoleIdsForMember(view.familyRoles, member.role),
+      ];
+      for (const roleId of roleIds) {
+        candidatePairs.add(`${member.playerTag}:${roleId}`);
+        const candidate = candidatesByPlayer.get(member.playerTag) ?? {
+          player,
+          roles: new Set<string>(),
+        };
+        candidate.roles.add(roleId);
+        candidatesByPlayer.set(member.playerTag, candidate);
+      }
+    }
+  }
+
+  const examples = [...candidatesByPlayer.values()]
+    .sort((left, right) => left.player.localeCompare(right.player))
+    .slice(0, 5)
+    .map(
+      (candidate) =>
+        `${candidate.player} → ${[...candidate.roles].map((id) => `<@&${id}>`).join(', ')}`,
+    );
+
+  return {
+    candidateAdds: candidatePairs.size,
+    candidateRemoves: null,
+    examples,
+    removalReason:
+      'Unavailable: snapshots show Clash eligibility, but current Discord role state is unknown until a future Discord member/role reconciliation step exists.',
+  };
+}
+
+function findClanRoleMapping(
+  clanRoles: Record<string, Record<string, string>>,
+  clanTag: string,
+): Record<string, string> | null {
+  const normalizedClanTag = normalizeAutoroleKey(clanTag);
+  return (
+    Object.entries(clanRoles).find(
+      ([key]) => normalizeAutoroleKey(key) === normalizedClanTag,
+    )?.[1] ?? null
+  );
+}
+
+function getClanRoleIdsForMember(
+  mapping: Record<string, string> | null,
+  memberRole: string | null | undefined,
+): string[] {
+  if (!mapping) return [];
+  const roleKey = normalizeAutoroleKey(memberRole ?? '').replaceAll(' ', '_');
+  const mappedRole = roleKey ? mapping[`${roleKey}_role`] : '';
+  const everyoneRoleKey = 'everyone_role';
+  return compactRoleIds([mappedRole, mapping[everyoneRoleKey]]);
+}
+
+function getLeagueRoleIdsForMember(
+  leagueRoles: Record<string, string>,
+  member: AutoroleClanMemberSnapshot['members'][number],
+): string[] {
+  const leagueKey = normalizeAutoroleKey(member.leagueName ?? '').split('_')[0] ?? '';
+  const trophyKey = getTrophyRangeKey(member.trophies);
+  return compactRoleIds([leagueRoles[leagueKey], trophyKey ? leagueRoles[trophyKey] : '']);
+}
+
+function getFamilyRoleIdsForMember(
+  familyRoles: Record<string, string>,
+  memberRole?: string | null,
+): string[] {
+  const normalizedRole = normalizeAutoroleKey(memberRole ?? '');
+  const familyRoleKey = 'family_role';
+  const exclusiveFamilyRoleKey = 'exclusive_family_role';
+  const familyLeadersRoleKey = 'family_leaders_role';
+  return compactRoleIds([
+    familyRoles[familyRoleKey],
+    familyRoles[exclusiveFamilyRoleKey],
+    normalizedRole === 'leader' || normalizedRole === 'co_leader'
+      ? familyRoles[familyLeadersRoleKey]
+      : '',
+  ]);
+}
+
+function compactRoleIds(roleIds: readonly (string | undefined)[]): string[] {
+  return roleIds.filter((roleId): roleId is string => Boolean(roleId));
+}
+
+function getTrophyRangeKey(trophies: number | null | undefined): string | null {
+  if (typeof trophies !== 'number') return null;
+  if (trophies < 1000) return '0_999';
+  if (trophies < 2000) return '1000_1999';
+  if (trophies < 3000) return '2000_2999';
+  if (trophies < 4000) return '3000_3999';
+  if (trophies < 5000) return '4000_4999';
+  if (trophies < 6000) return '5000_5999';
+  return null;
+}
+
+function formatSnapshotPlayer(member: AutoroleClanMemberSnapshot['members'][number]): string {
+  return `${escapeMarkdown(member.name ?? member.playerTag)} (${member.playerTag})`;
+}
+
+function normalizeAutoroleKey(value: string): string {
+  return value.trim().replace(/^#/, '').toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
+}
+
+function formatPreviewActions(actions: AutoroleRefreshPreviewActions): string {
+  return [
+    `Candidate adds: ${actions.candidateAdds}`,
+    `Candidate removes: ${actions.candidateRemoves === null ? 'Unavailable' : actions.candidateRemoves}`,
+    `Remove reason: ${actions.removalReason}`,
+    actions.examples.length
+      ? `Examples:\n${actions.examples.join('\n')}`
+      : 'Examples: none from current snapshots and mappings.',
+    'Unavailable from these snapshots: Town Hall, verified/account-linked, guest, and any removals.',
+    'Basis: Clash linked-clan snapshot eligibility only; no Discord roles were changed.',
+  ]
+    .join('\n')
+    .slice(0, 1024);
 }
 
 function formatAutoroleRefreshTargetKind(kind: AutoroleRefreshTargetKind): string {
