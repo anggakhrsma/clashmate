@@ -14,7 +14,7 @@ import {
 export const MEMBERS_COMMAND_NAME = 'members';
 export const MEMBERS_COMMAND_DESCRIPTION = 'Show tracked clan members from polling snapshots.';
 export const MEMBERS_NO_SNAPSHOT_MESSAGE =
-  'No member snapshot is available yet. Link/configure a clan and wait for clan polling to observe members.';
+  'No member snapshot is available yet. Link a clan with `/setup clan`, then wait for clan polling to observe members.';
 
 const MEMBERS_OPTIONS = [
   'overview',
@@ -189,7 +189,10 @@ export async function executeMembers(
   if (clanOption) {
     const clan = resolveMemberClan(clans, clanOption);
     if (!clan) {
-      await interaction.editReply({ content: 'No linked clan was found for that clan option.' });
+      await interaction.editReply({
+        content:
+          'No linked clan was found for that clan option. Pick an autocomplete result or link the clan with `/setup clan` first.',
+      });
       return;
     }
     const [snapshots] = await options.store.listClanMemberSnapshotsForGuild({
@@ -244,8 +247,10 @@ async function selectClanForUser(
 }
 
 function formatNoLinkedMembersMessage(user: User | null): string {
-  if (!user) return 'No linked player accounts were found. Use `/link create` first.';
-  return `**${escapeMarkdown(user.displayName)}** does not have linked player accounts. Use \`/link create\` first.`;
+  if (!user) {
+    return 'No linked player accounts were found. Use `/link create` first, then run `/members user:<you>` again.';
+  }
+  return `**${escapeMarkdown(user.displayName)}** does not have linked player accounts in this server. Ask them to use \`/link create\`, then run \`/members user:${escapeMarkdown(user.displayName)}\` again.`;
 }
 
 async function replyWithMembers(
@@ -274,8 +279,13 @@ function formatNoMembersSnapshotMessage(filters: MembersFilterContext): string {
   if (filters.user) parts.push(`user: ${escapeMarkdown(filters.user.displayName)}`);
   parts.push(`view: ${formatMembersOptionLabel(filters.option)}`);
   parts.push(
-    'ClashMate only reads persisted polling snapshots here and did not query the Clash API.',
+    'Source: persisted clan-poller member snapshots only; `/members` does not perform a live Clash API lookup.',
   );
+  if (filters.user) {
+    parts.push(
+      'User filtering selects the first stored clan containing one of that Discord user’s linked player tags; it does not hide other rows from that clan.',
+    );
+  }
   parts.push(formatMembersPollingPrerequisite(filters.linkedClanCount));
   return parts.join('\n');
 }
@@ -344,7 +354,8 @@ export function buildMembersEmbed(
       `Rows considered: ${snapshots.members.length}`,
       `Visible rows: ${members.length}`,
       `Latest snapshot: ${formatLatestMemberSnapshot(latestFetchedAt)}`,
-      'Source: persisted polling snapshots only; no live Clash API lookup.',
+      'Source: persisted clan-poller member snapshots only; no live Clash API lookup.',
+      formatMembersUserFilterSummary(user),
     ].join('\n'),
     inline: false,
   });
@@ -357,6 +368,11 @@ export function buildMembersEmbed(
 function formatLatestMemberSnapshot(latestFetchedAt: Date | null): string {
   if (!latestFetchedAt) return 'not available';
   return `${time(latestFetchedAt, 'R')} (${time(latestFetchedAt, 'f')})`;
+}
+
+function formatMembersUserFilterSummary(user: User | null): string {
+  if (!user) return 'User filter: not applied.';
+  return `User filter: selected the first stored clan containing a linked tag for ${escapeMarkdown(user.displayName)}; rows remain clan-wide.`;
 }
 
 function formatMembersPollingPrerequisite(linkedClanCount: number): string {
@@ -451,7 +467,7 @@ function formatMembersDescription(
     return members
       .map(
         (member, index) =>
-          `${index + 1}. ${escapeMarkdown(member.name)} · \`${member.playerTag}\` · Discord link not stored in member snapshot`,
+          `${index + 1}. ${escapeMarkdown(member.name)} · \`${member.playerTag}\` · Discord link not stored in this clan snapshot`,
       )
       .join('\n');
   }
@@ -459,7 +475,7 @@ function formatMembersDescription(
     return members
       .map(
         (member, index) =>
-          `${index + 1}. ${escapeMarkdown(member.name)} · ${formatRole(member.role)} · war preference not stored`,
+          `${index + 1}. ${escapeMarkdown(member.name)} · ${formatRole(member.role)} · war preference not stored in clan snapshots`,
       )
       .join('\n');
   }
@@ -467,7 +483,7 @@ function formatMembersDescription(
     return members
       .map(
         (member, index) =>
-          `${index + 1}. ${escapeMarkdown(member.name)} · ${member.donations ?? 0}/${member.donationsReceived ?? 0} donated/received · attack and defense totals not stored`,
+          `${index + 1}. ${escapeMarkdown(member.name)} · ${member.donations ?? 0}/${member.donationsReceived ?? 0} donated/received · attack/defense totals not stored in clan snapshots`,
       )
       .join('\n');
   }
@@ -481,20 +497,22 @@ function formatMembersDescription(
 
 function formatMembersOptionLimitation(option: MembersOption): string | null {
   if (option === 'heroes') {
-    return 'Hero levels and war weight are not stored in clan member snapshots; showing XP, trophies, rank, and snapshot age instead.';
+    return 'Hero levels and war weight require player-detail data and are not stored in clan-poller member snapshots; showing persisted XP, trophies, rank, and snapshot age instead.';
   }
   if (option === 'link-list') {
-    return 'Discord link data is stored separately and is not embedded in persisted member snapshots.';
+    return 'Discord link records are stored separately from member snapshots; this view can show tags from the snapshot, but not linked Discord mentions.';
   }
-  if (option === 'war-pref') return 'War preference is not stored in persisted member snapshots.';
+  if (option === 'war-pref') {
+    return 'War preference is not included in persisted clan member snapshots; this view falls back to role context only.';
+  }
   if (option === 'join-date') {
-    return 'Join date is approximated from the first time this member appeared in stored snapshots.';
+    return 'Join date is approximated from the first time this player tag appeared in stored snapshots, not the original in-game join time.';
   }
   if (option === 'progress') {
-    return 'Detailed player progress is not stored in clan member snapshots; showing persisted XP, trophies, rank, and snapshot age instead.';
+    return 'Detailed player progress requires player-detail data and is not stored in clan-poller member snapshots; showing persisted XP, trophies, rank, and snapshot age instead.';
   }
   if (option === 'attacks') {
-    return 'Attack and defense totals are not stored in clan member snapshots; showing the closest persisted activity fields.';
+    return 'Attack and defense totals are not stored in clan-poller member snapshots; showing donations as the closest persisted activity fields.';
   }
   if (option === 'clan')
     return 'Clan overview uses the standard persisted member snapshot summary.';
