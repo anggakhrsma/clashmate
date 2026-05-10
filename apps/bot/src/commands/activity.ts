@@ -198,7 +198,10 @@ export async function executeActivity(
     await replyWithActivity(
       interaction,
       snapshots,
-      buildActivityOptions(days, limit, timezone, formatActivityClanLabel(clan)),
+      buildActivityOptions(days, limit, timezone, {
+        clanFilter: formatActivityClanLabel(clan),
+        linkedClanCount: clans.length,
+      }),
     );
     return;
   }
@@ -206,7 +209,11 @@ export async function executeActivity(
   const snapshots = await options.store.listClanMemberSnapshotsForGuild({
     guildId: interaction.guildId,
   });
-  await replyWithActivity(interaction, snapshots, buildActivityOptions(days, limit, timezone));
+  await replyWithActivity(
+    interaction,
+    snapshots,
+    buildActivityOptions(days, limit, timezone, { linkedClanCount: clans.length }),
+  );
 }
 
 async function replyWithActivity(
@@ -227,6 +234,7 @@ interface BuildActivityOptions {
   readonly timezone?: string;
   readonly timezoneSource?: ActivityTimezoneSource;
   readonly clanFilter?: string;
+  readonly linkedClanCount?: number;
   readonly now?: Date;
 }
 
@@ -236,14 +244,17 @@ function buildActivityOptions(
   days: ActivityDays,
   limit: number,
   timezone: ActivityResolvedTimezone,
-  clanFilter?: string,
+  context?: Pick<BuildActivityOptions, 'clanFilter' | 'linkedClanCount'>,
 ): BuildActivityOptions {
   return {
     days,
     limit,
     ...(timezone.timezone ? { timezone: timezone.timezone } : {}),
     ...(timezone.source ? { timezoneSource: timezone.source } : {}),
-    ...(clanFilter ? { clanFilter } : {}),
+    ...(context?.clanFilter ? { clanFilter: context.clanFilter } : {}),
+    ...(typeof context?.linkedClanCount === 'number'
+      ? { linkedClanCount: context.linkedClanCount }
+      : {}),
   };
 }
 
@@ -300,9 +311,12 @@ interface ActivitySnapshotContext {
   readonly snapshotsConsidered: number;
   readonly memberRowsConsidered: number;
   readonly visibleRows: number;
+  readonly linkedClanCount?: number;
+  readonly clansWithSnapshots: number;
   readonly latestFetchedAt?: Date;
   readonly filters: readonly string[];
   readonly timezoneLabel: string;
+  readonly windowLabel: string;
 }
 
 function collectActivitySnapshotContext(
@@ -318,27 +332,44 @@ function collectActivitySnapshotContext(
     snapshotsConsidered: snapshots.length,
     memberRowsConsidered: snapshots.reduce((total, snapshot) => total + snapshot.members.length, 0),
     visibleRows: summaries.reduce((total, summary) => total + summary.recentMembers.length, 0),
+    ...(typeof options.linkedClanCount === 'number'
+      ? { linkedClanCount: options.linkedClanCount }
+      : {}),
+    clansWithSnapshots: snapshots.filter((snapshot) => snapshot.members.length > 0).length,
     ...(latestFetchedAt ? { latestFetchedAt } : {}),
     filters: formatActivityFilters(options),
     timezoneLabel: formatActivityTimezoneLabel(options),
+    windowLabel: formatActivityWindowLabel(options.days),
   };
 }
 
 function formatActivitySourceContext(context: ActivitySnapshotContext): string {
+  const configuredClans =
+    typeof context.linkedClanCount === 'number' ? `${context.linkedClanCount}` : 'unknown';
   return [
-    'Persisted-only: reads stored ClashMate member snapshots; no live Clash API lookup is performed.',
-    `Snapshots considered: ${context.snapshotsConsidered} · Member rows considered: ${context.memberRowsConsidered} · Visible rows: ${context.visibleRows}`,
+    'Persisted-only: reads stored ClashMate member snapshots; no live Clash API lookup or image chart rendering is performed.',
+    `Window: ${context.windowLabel}`,
+    `Linked clans configured: ${configuredClans} · Snapshot clans returned: ${context.snapshotsConsidered} · With member rows: ${context.clansWithSnapshots}`,
+    `Member rows considered: ${context.memberRowsConsidered} · Visible rows: ${context.visibleRows}`,
     `Latest snapshot: ${context.latestFetchedAt ? time(context.latestFetchedAt, 'R') : 'none'}`,
     `Active filters: ${context.filters.join(' · ')}`,
     `Timezone: ${context.timezoneLabel}`,
+    'Prerequisite: clan polling must have run after a clan was linked/configured for this server.',
   ].join('\n');
 }
 
 function formatActivityNoDataMessage(options: BuildActivityOptions): string {
+  const linkedClanText =
+    typeof options.linkedClanCount === 'number'
+      ? `Linked clans configured: ${options.linkedClanCount}.`
+      : 'Linked clan coverage is unavailable.';
   return [
     ACTIVITY_NO_SNAPSHOT_MESSAGE,
-    `Accepted options: clans=${options.clanFilter ?? 'all linked clans'}, days=${options.days}, limit=${options.limit}, timezone=${formatActivityTimezoneLabel(options)}.`,
-    'Persisted-only: this command only reads stored member snapshots and does not perform a live Clash API lookup.',
+    linkedClanText,
+    `Selected filters: ${formatActivityFilters(options).join(' · ')} · timezone=${formatActivityTimezoneLabel(options)}.`,
+    `Activity window: ${formatActivityWindowLabel(options.days)}.`,
+    'Source coverage: stored linked-clan member snapshots only; no live Clash API lookup, historical ClickHouse activity table, or image chart renderer is used.',
+    'Polling prerequisite: link/configure a clan for this server, keep the worker running, and wait for clan polling to fetch member snapshots.',
   ].join('\n');
 }
 
@@ -348,6 +379,11 @@ function formatActivityFilters(options: BuildActivityOptions): string[] {
     `days=${options.days}`,
     `limit=${options.limit}`,
   ];
+}
+
+function formatActivityWindowLabel(days: ActivityDays): string {
+  const bucket = days <= 3 ? 'hourly-style recent activity window' : 'daily-style activity window';
+  return `${days} day(s), ${bucket}`;
 }
 
 export function summarizeClanActivity(
