@@ -154,7 +154,8 @@ async function executeCategory(
 
   if (!interaction.memberPermissions.has(PermissionFlagsBits.ManageGuild)) {
     await interaction.reply({
-      content: 'You need the Manage Server permission to use `/category`.',
+      content:
+        'You need the Discord Manage Server permission to use `/category`; this changes saved ClashMate server configuration.',
       ephemeral: true,
     });
     return;
@@ -196,7 +197,7 @@ async function executeCategory(
     if (rawDisplayName === null) {
       await interaction.reply({
         content:
-          'Choose a new category name to rename this category. Category reordering is not available in ClashMate yet; `/category list` shows the current saved order.',
+          'Choose a new category name to rename this saved clan category. Category reordering is not available in ClashMate yet; `/category list` shows the current saved order.',
         ephemeral: true,
       });
       return;
@@ -305,18 +306,18 @@ export function filterCategoryChoices(
     .map((category) => ({ name: category.displayName, value: category.id }));
   if (choices.length > 0 || normalizedQuery.length === 0) return choices;
 
-  return [{ name: 'No matching saved category', value: '__no_matching_category__' }];
+  return [{ name: 'No matching stored category', value: '__no_matching_category__' }];
 }
 
 export function formatCategoryList(categories: readonly CategoryRecord[]): string {
   const note =
-    'Categories are saved per server and can be selected when linking clans. Synthetic General/Uncategorized choices are not listed.';
+    'Categories are stored per server and only affect linked clan organization; they do not call the live Clash API or enroll extra polling.';
   if (categories.length === 0) {
     return [
       'Stored clan categories: 0',
       note,
-      'No clan categories are configured for this server yet.',
-      'Use `/category create` first, then assign the category when linking or updating a clan.',
+      'No clan categories are configured for this server yet, so linked clans use Uncategorized.',
+      'Use `/category create` first, then assign the category when linking or updating a linked clan.',
     ].join('\n');
   }
 
@@ -328,7 +329,7 @@ export function formatCategoryList(categories: readonly CategoryRecord[]): strin
 
   return [
     `Stored clan categories: ${categories.length}`,
-    'Sorted by configured order, then name.',
+    'Sorted by saved configuration order, then name.',
     note,
     ...rows,
   ].join('\n');
@@ -375,34 +376,34 @@ function formatCategoryLookupFailureMessage(
   status: Exclude<CategoryLookupResult['status'], 'found'>,
 ): string {
   if (status === 'no_categories') {
-    return 'No saved categories exist for this server yet. Use `/category create` before editing or deleting a category.';
+    return 'No stored categories exist for this server yet. Use `/category create` before editing or deleting a category; ClashMate will not search the live Clash API for categories.';
   }
 
-  return 'No saved category matched that value. Pick a category from autocomplete or run `/category list` to see available categories.';
+  return 'No stored category matched that value. Pick a saved category from autocomplete or run `/category list`; autocomplete filters stored server categories by name only.';
 }
 
 export function formatCreateCategoryMessage(
   result: Awaited<ReturnType<CategoryStore['createClanCategory']>>,
 ): string {
   if (result.status === 'duplicate') {
-    return 'A saved category with this name already exists for this server.';
+    return 'A stored category with this name already exists for this server.';
   }
-  return `Category created: ${escapeMarkdown(result.category.displayName)}. You can now use it when linking clans to this server.`;
+  return `Category created: ${escapeMarkdown(result.category.displayName)}. This saved server configuration is audit logged and can now be assigned to linked clans.`;
 }
 
 export function formatUpdateCategoryMessage(
   result: Awaited<ReturnType<CategoryStore['updateClanCategory']>>,
 ): string {
   if (result.status === 'duplicate') {
-    return 'A saved category with this name already exists for this server.';
+    return 'A stored category with this name already exists for this server.';
   }
-  if (result.status === 'not_found') return 'No saved category matched that value.';
-  return `Category name was updated to ${escapeMarkdown(result.category.displayName)}. Linked clans keep using this saved category.`;
+  if (result.status === 'not_found') return 'No stored category matched that value.';
+  return `Category name was updated to ${escapeMarkdown(result.category.displayName)}. Linked clans keep this category assignment, and the configuration change is audit logged.`;
 }
 
 export function formatDeleteCategoryMessage(
   result: Awaited<ReturnType<CategoryStore['deleteClanCategory']>>,
 ): string {
-  if (result.status === 'not_found') return 'No saved category matched that value.';
-  return `Successfully deleted category: ${escapeMarkdown(result.category.displayName)}. Linked clans assigned to it fall back to Uncategorized.`;
+  if (result.status === 'not_found') return 'No stored category matched that value.';
+  return `Successfully deleted category: ${escapeMarkdown(result.category.displayName)}. Linked clans assigned to it fall back to Uncategorized; this does not remove clans or change polling enrollment.`;
 }
