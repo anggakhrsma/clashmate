@@ -8,7 +8,7 @@ import {
 } from 'discord.js';
 
 export const WHITELIST_COMMAND_NAME = 'whitelist';
-export const WHITELIST_COMMAND_DESCRIPTION = 'Manage command whitelist restrictions.';
+export const WHITELIST_COMMAND_DESCRIPTION = 'Whitelist a role or user to use specific commands.';
 
 export interface CommandWhitelistEntry {
   commandName: string;
@@ -44,16 +44,14 @@ export const whitelistCommandData = new SlashCommandBuilder()
   .setDMPermission(false)
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
   .addMentionableOption((option) =>
-    option.setName('user_or_role').setDescription('User or role to whitelist for a command.'),
+    option.setName('user_or_role').setDescription('User or role to whitelist.'),
   )
   .addStringOption((option) =>
     option.setName('command').setDescription('Command to whitelist.').setAutocomplete(true),
   )
+  .addBooleanOption((option) => option.setName('clear').setDescription('Clear the whitelist.'))
   .addBooleanOption((option) =>
-    option.setName('clear').setDescription('Clear the matching whitelist entry.'),
-  )
-  .addBooleanOption((option) =>
-    option.setName('list').setDescription('List current whitelist entries.'),
+    option.setName('list').setDescription('List all whitelisted users and roles.'),
   );
 
 export function createWhitelistSlashCommand(
@@ -143,7 +141,15 @@ export async function executeWhitelistInteraction(
     return;
   }
 
+  const existingEntries = await options.store.listCommandWhitelist(interaction.guildId);
+  const existingEntry = existingEntries.find(
+    (entry) => entry.commandName === commandName && entry.userOrRoleId === mentionable.id,
+  );
+
   if (interaction.options.getBoolean('clear') ?? false) {
+    const commandEntryCount = existingEntries.filter(
+      (entry) => entry.commandName === commandName,
+    ).length;
     const result = await options.store.clearCommandWhitelistEntry({
       guildId: interaction.guildId,
       guildName: interaction.guild.name,
@@ -153,8 +159,30 @@ export async function executeWhitelistInteraction(
     });
     await interaction.reply({
       content: result.removed
-        ? `Removed whitelist entry: ${formatMention(mentionable.id, isRole)} can no longer use \`/${commandName}\` through this restriction.`
-        : `No matching whitelist entry existed for ${formatMention(mentionable.id, isRole)} on \`/${commandName}\`. Nothing changed.`,
+        ? [
+            `### Successfully cleared the whitelist for ${formatMention(mentionable.id, isRole)} on \`/${commandName}\``,
+            '',
+            `The change was saved for this server and an audit entry was recorded. Remaining \`/${commandName}\` whitelist entries: \`${Math.max(commandEntryCount - 1, 0)}\`.`,
+          ].join('\n')
+        : [
+            `No matching whitelist entry existed for ${formatMention(mentionable.id, isRole)} on \`/${commandName}\`. Nothing changed.`,
+            commandEntryCount === 0
+              ? `\`/${commandName}\` is not currently restricted by command whitelist entries.`
+              : `\`/${commandName}\` still has \`${commandEntryCount}\` other whitelist entr${commandEntryCount === 1 ? 'y' : 'ies'}.`,
+          ].join('\n'),
+      ephemeral: true,
+      allowedMentions: { parse: [] },
+    });
+    return;
+  }
+
+  if (existingEntry) {
+    await interaction.reply({
+      content: [
+        `${formatMention(mentionable.id, isRole)} is already whitelisted for \`/${commandName}\`. Nothing changed.`,
+        '',
+        `When a command has whitelist entries, only whitelisted users, whitelisted roles, server members with Manage Server, configured bot manager roles, and bot owners can use it.`,
+      ].join('\n'),
       ephemeral: true,
       allowedMentions: { parse: [] },
     });
@@ -170,10 +198,11 @@ export async function executeWhitelistInteraction(
 
   await interaction.reply({
     content: [
-      `Added whitelist entry: ${formatMention(mentionable.id, isRole)} can now use \`/${commandName}\`.`,
+      `### Successfully whitelisted ${formatMention(mentionable.id, isRole)} for \`/${commandName}\``,
       '',
-      '- You can whitelist a role or a user. Once you whitelist a command, only that role or user will be able to use it. The command will be restricted for others, blocking them from using it unless they have other managerial roles or permissions.',
-      '- The whitelist is limited to commands and does not extend to buttons or select menus.',
+      '- This entry was saved for this server and an audit entry was recorded.',
+      '- Once a command has whitelist entries, only whitelisted users, whitelisted roles, server members with Manage Server, configured bot manager roles, and bot owners can use it.',
+      '- The whitelist is limited to slash commands and does not extend to buttons or select menus.',
     ].join('\n'),
     ephemeral: true,
     allowedMentions: { parse: [] },
@@ -199,6 +228,8 @@ export function formatWhitelistList(entries: readonly CommandWhitelistEntry[]): 
       'Total entries: `0` • Commands: `0` • Users: `0` • Roles: `0`',
       '',
       'No whitelisted users or roles.',
+      '',
+      'Commands are unrestricted until at least one whitelist entry is saved for that command.',
     ].join('\n');
   }
 
@@ -230,6 +261,8 @@ export function formatWhitelistList(entries: readonly CommandWhitelistEntry[]): 
       `Total entries: \`${entries.length}\` • Commands: \`${commandNames.length}\` • Users: \`${userCount}\` • Roles: \`${roleCount}\``,
       '',
       lines.join('\n'),
+      '',
+      'Command checks use these saved entries: if a command is listed here, access is limited to matching users/roles plus Manage Server members, configured bot manager roles, and bot owners.',
     ].join('\n'),
   );
 }
