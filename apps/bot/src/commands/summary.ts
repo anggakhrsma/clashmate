@@ -913,26 +913,44 @@ export function buildSummaryCapitalContributionPayload(
   const rows = members
     .map((row) => ({
       ...row,
-      contribution:
-        readMemberCapitalNumber(row.member, 'capitalContribution') ??
-        readMemberCapitalNumber(row.member, 'capitalGold'),
+      capitalContribution: readMemberCapitalNumber(row.member, 'capitalContribution'),
+      capitalGold: readMemberCapitalNumber(row.member, 'capitalGold'),
     }))
-    .filter((row) => row.contribution !== undefined)
+    .map((row) => ({
+      ...row,
+      sortValue: row.capitalContribution ?? row.capitalGold,
+    }))
+    .filter((row) => row.sortValue !== undefined)
     .sort(
       (a, b) =>
-        (b.contribution ?? -1) - (a.contribution ?? -1) ||
+        (b.sortValue ?? -1) - (a.sortValue ?? -1) ||
+        (b.capitalGold ?? -1) - (a.capitalGold ?? -1) ||
         a.member.name.localeCompare(b.member.name),
     );
 
+  const capitalContributionRows = members.filter(
+    (row) => readMemberCapitalNumber(row.member, 'capitalContribution') !== undefined,
+  ).length;
+  const capitalGoldRows = members.filter(
+    (row) => readMemberCapitalNumber(row.member, 'capitalGold') !== undefined,
+  ).length;
+
   if (rows.length === 0)
     return {
-      content: noDataMessage('capital contribution fields in current member snapshots', coverage),
+      content: noDataMessage(
+        'derived raw snapshot fields `capitalContribution` or `capitalGold` in current member snapshots',
+        coverage,
+      ),
     };
 
   const weekNote = week?.trim()
     ? `Week label accepted but not filtered: ${formatRaidWeekFilter(week)}. `
     : '';
-  const total = rows.reduce((sum, row) => sum + (row.contribution ?? 0), 0);
+  const capitalContributionTotal = rows.reduce(
+    (sum, row) => sum + (row.capitalContribution ?? 0),
+    0,
+  );
+  const capitalGoldTotal = rows.reduce((sum, row) => sum + (row.capitalGold ?? 0), 0);
 
   return {
     embeds: [
@@ -944,7 +962,7 @@ export function buildSummaryCapitalContributionPayload(
               .slice(0, SUMMARY_ROW_LIMIT)
               .map(
                 (row, index) =>
-                  `${index + 1}. **${escapeMarkdown(row.member.name)}** · ${formatNumber(row.contribution)} capital gold · ${escapeMarkdown(row.clan.alias ?? row.clan.name ?? row.clan.clanTag)}`,
+                  `${index + 1}. **${escapeMarkdown(row.member.name)}** · ${formatCapitalContributionValues(row.capitalContribution, row.capitalGold)} · ${escapeMarkdown(row.clan.alias ?? row.clan.name ?? row.clan.clanTag)}`,
               )
               .join('\n'),
           ),
@@ -952,12 +970,12 @@ export function buildSummaryCapitalContributionPayload(
         .addFields(
           {
             name: 'Totals',
-            value: `${formatNumber(total)} capital gold · ${rows.length} members with contribution data`,
+            value: `capitalContribution ${formatNumber(capitalContributionTotal)} · capitalGold ${formatNumber(capitalGoldTotal)} · ${rows.length} members with capital data`,
             inline: false,
           },
           {
             name: 'Source',
-            value: `${weekNote}Raid-week contribution history is not persisted in ClashMate yet; showing current persisted member snapshot fields only.`,
+            value: `${weekNote}Shows stored member \`capitalContribution\` and \`capitalGold\` separately when available. Coverage after filters: capitalContribution ${capitalContributionRows}/${members.length}, capitalGold ${capitalGoldRows}/${members.length}. Raid-week contribution history is not persisted in ClashMate yet; showing current persisted member snapshot fields only.`,
             inline: false,
           },
           coverageField(coverage),
@@ -1261,6 +1279,20 @@ function readMemberCapitalNumber(
 ): number | undefined {
   const value = member[key];
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function formatCapitalContributionValues(
+  capitalContribution: number | undefined,
+  capitalGold: number | undefined,
+): string {
+  return [
+    capitalContribution === undefined
+      ? undefined
+      : `capitalContribution ${formatNumber(capitalContribution)}`,
+    capitalGold === undefined ? undefined : `capitalGold ${formatNumber(capitalGold)}`,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join(' · ');
 }
 
 function formatNumber(value: number | undefined): string {
