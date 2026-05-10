@@ -45,16 +45,25 @@ export const clanGamesCommandData = new SlashCommandBuilder()
 export function createClanGamesSeasonChoices(
   now: Date,
 ): ApplicationCommandOptionChoiceData<string>[] {
-  const currentMonth = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
+  const currentSeasonId = getCurrentClanGamesSeasonId(now);
+  const year = Number(currentSeasonId.slice(0, 4));
+  const month = Number(currentSeasonId.slice(5, 7));
+  const currentMonth = Date.UTC(year, month - 1, 1);
   return Array.from({ length: SEASON_CHOICE_LIMIT }, (_, index) => {
     const seasonDate = new Date(currentMonth);
     seasonDate.setUTCMonth(seasonDate.getUTCMonth() - index);
     const seasonId = seasonDate.toISOString().slice(0, 7);
     return {
-      name: formatClanGamesSeasonChoiceName(seasonDate),
+      name: `${formatClanGamesSeasonChoiceName(seasonDate)}${index === 0 ? ' (current)' : ''}`,
       value: seasonId,
     };
   });
+}
+
+export function getCurrentClanGamesSeasonId(now: Date): string {
+  const seasonDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  if (now.getUTCDate() < 20) seasonDate.setUTCMonth(seasonDate.getUTCMonth() - 1);
+  return seasonDate.toISOString().slice(0, 7);
 }
 
 export interface ClanGamesCommandOptions {
@@ -128,7 +137,8 @@ async function executeClanGames(
 
   const clan = interaction.options.getString('clan') ?? undefined;
   const user = interaction.options.getUser('user');
-  const seasonId = interaction.options.getString('season') ?? undefined;
+  const requestedSeasonId = interaction.options.getString('season') ?? undefined;
+  const seasonId = requestedSeasonId ?? getCurrentClanGamesSeasonId(new Date());
   const scoreboard = await options.reader.getLatestScoreboard({
     guildId: interaction.guildId,
     ...(clan ? { clanTag: clan } : {}),
@@ -139,7 +149,8 @@ async function executeClanGames(
     await interaction.reply({
       content: formatClanGamesNoDataMessage({
         ...(clan ? { clan } : {}),
-        ...(seasonId ? { seasonId } : {}),
+        seasonId,
+        usedCurrentSeasonDefault: !requestedSeasonId,
         user,
       }),
       ephemeral: true,
@@ -211,7 +222,7 @@ export function buildClanGamesEmbed(
     mentionSelectedClan
       ? `Using latest stored snapshot for **${escapeMarkdown(clanLabel)}**.`
       : null,
-    `Season: **${escapeMarkdown(seasonLabel)}**`,
+    `Season: **${escapeMarkdown(seasonLabel)}**${scoreboard.seasonId === getCurrentClanGamesSeasonId(new Date()) ? ' · current Clan Games season' : ''}`,
     `Snapshot source fetched: ${time(scoreboard.sourceFetchedAt, 'R')} · Persisted update: ${time(scoreboard.updatedAt, 'R')}`,
     `Snapshot coverage: ${totalStoredMembers.toLocaleString()} stored member${totalStoredMembers === 1 ? '' : 's'} · ${visibleMembers.length.toLocaleString()} visible in this response${scoreboard.members.length !== totalStoredMembers ? ` · ${scoreboard.members.length.toLocaleString()} after filters` : ''}`,
     scoreboard.userFilterNote ?? null,
@@ -235,7 +246,7 @@ export function buildClanGamesEmbed(
       {
         name: 'Data Source',
         value:
-          'Persisted Clan Games snapshot from linked/configured clan polling. Run the worker pollers first for fresh or new-season data.',
+          'Persisted Clan Games snapshot from linked/configured clan polling. No live Clash API lookup is performed; run the worker pollers first for fresh or new-season data.',
       },
     )
     .setFooter({
@@ -249,11 +260,12 @@ export function buildClanGamesEmbed(
 function formatClanGamesNoDataMessage(input: {
   readonly clan?: string;
   readonly seasonId?: string;
+  readonly usedCurrentSeasonDefault?: boolean;
   readonly user: User | null;
 }): string {
   const filters = [
     `clan: ${input.clan ? `\`${escapeMarkdown(input.clan)}\`` : '`latest linked clan`'}`,
-    `season: ${input.seasonId ? `\`${escapeMarkdown(input.seasonId)}\`` : '`latest stored season`'}`,
+    `season: ${input.seasonId ? `\`${escapeMarkdown(input.seasonId)}\`${input.usedCurrentSeasonDefault ? ' (current Clan Games season default)' : ''}` : '`current Clan Games season`'}`,
     `user: ${input.user ? `**${escapeMarkdown(input.user.displayName)}**` : '`not filtered`'}`,
   ];
 
@@ -261,6 +273,7 @@ function formatClanGamesNoDataMessage(input: {
     CLAN_GAMES_NO_DATA_MESSAGE,
     `Filters checked: ${filters.join(' · ')}.`,
     'Data source: persisted Clan Games snapshots for linked/configured clans only.',
+    'Season choices follow the Clan Games cycle: before the monthly event window, the previous month remains the current season.',
     'What to do next: link/configure the clan if needed, then run the ClashMate worker long enough for Clan Games polling to store a snapshot. This command does not call the Clash API or start polling on demand.',
   ].join('\n');
 }
