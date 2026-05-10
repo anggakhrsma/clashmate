@@ -13,7 +13,7 @@ import {
 } from 'discord.js';
 
 export const LAYOUT_COMMAND_NAME = 'layout';
-export const LAYOUT_COMMAND_DESCRIPTION = 'Share and configure Clash of Clans layouts.';
+export const LAYOUT_COMMAND_DESCRIPTION = 'Manage and share village layouts.';
 export const DEFAULT_LAYOUT_EMBED_COLOR = 0x5865f2;
 
 const PUBLIC_LAYOUT_LINK_REGEX =
@@ -26,24 +26,24 @@ export const layoutCommandData = new SlashCommandBuilder()
   .addSubcommand((subcommand) =>
     subcommand
       .setName('post')
-      .setDescription('Post a Clash of Clans layout.')
+      .setDescription('Post your village layout to showcase it to the community.')
       .addAttachmentOption((option) =>
         option
           .setName('screenshot')
-          .setDescription('Screenshot image for the layout.')
+          .setDescription('Upload a screenshot showing your village layout.')
           .setRequired(true),
       )
       .addStringOption((option) =>
         option
           .setName('layout_link')
-          .setDescription('Public Clash of Clans OpenLayout link.')
+          .setDescription('Provide a shareable link to your layout.')
           .setRequired(true)
           .setMaxLength(200),
       )
       .addStringOption((option) =>
         option
           .setName('notes')
-          .setDescription('Optional notes to include with the layout.')
+          .setDescription('Add custom notes or details about your layout.')
           .setRequired(false)
           .setMaxLength(2000),
       ),
@@ -51,17 +51,17 @@ export const layoutCommandData = new SlashCommandBuilder()
   .addSubcommand((subcommand) =>
     subcommand
       .setName('config')
-      .setDescription('Show or update layout voting and tracking settings.')
+      .setDescription('Adjust settings related to layout posting and interactions.')
       .addBooleanOption((option) =>
         option
           .setName('allow_voting')
-          .setDescription('Save whether layout voting should be shown as enabled.')
+          .setDescription('Enable or disable voting on posted layouts.')
           .setRequired(false),
       )
       .addBooleanOption((option) =>
         option
           .setName('allow_tracking')
-          .setDescription('Save whether layout submissions should be tracked.')
+          .setDescription('Enable or disable tracking of layout copies.')
           .setRequired(false),
       ),
   );
@@ -151,12 +151,24 @@ export async function executeLayoutPost(
   context: CommandContext,
   options: LayoutCommandOptions,
 ): Promise<void> {
+  if (!interaction.inGuild()) {
+    await interaction.reply({
+      content: 'Layout posting is only available in server channels.',
+      ephemeral: true,
+    });
+    return;
+  }
+
   const screenshot = interaction.options.getAttachment('screenshot', true);
   const layoutLink = interaction.options.getString('layout_link', true).trim();
   const notes = interaction.options.getString('notes')?.trim();
 
   if (!isPublicLayoutLink(layoutLink)) {
-    await interaction.reply({ content: 'Invalid layout link was provided.', ephemeral: true });
+    await interaction.reply({
+      content:
+        'Invalid layout link was provided. Use a public Clash of Clans OpenLayout link from the in-game layout share button.',
+      ephemeral: true,
+    });
     return;
   }
 
@@ -169,21 +181,18 @@ export async function executeLayoutPost(
   }
 
   const view = collectLayoutView(interaction, context);
-  const config = interaction.guildId
-    ? await options.store.getLayoutConfig(interaction.guildId)
+  const config = await options.store.getLayoutConfig(interaction.guildId);
+  const submission = config.allowTracking
+    ? await createTrackedLayoutSubmission(options.store, {
+        guildId: interaction.guildId,
+        guildName: interaction.guild?.name ?? null,
+        channelId: interaction.channelId,
+        actorDiscordUserId: interaction.user.id,
+        layoutLink,
+        screenshotUrl: screenshot.url,
+        ...(notes ? { notes } : {}),
+      })
     : null;
-  const submission =
-    interaction.guildId && config?.allowTracking
-      ? await options.store.createLayoutSubmission({
-          guildId: interaction.guildId,
-          guildName: interaction.guild?.name ?? null,
-          channelId: interaction.channelId,
-          actorDiscordUserId: interaction.user.id,
-          layoutLink,
-          screenshotUrl: screenshot.url,
-          ...(notes ? { notes } : {}),
-        })
-      : null;
 
   await interaction.reply({
     embeds: [
@@ -191,14 +200,15 @@ export async function executeLayoutPost(
         view,
         screenshot,
         layoutLink,
-        allowVoting: config?.allowVoting ?? false,
+        allowVoting: config.allowVoting,
+        allowTracking: config.allowTracking,
         ...(parseLayoutLinkMetadata(layoutLink) ?? {}),
         ...(notes ? { notes } : {}),
         submitterId: interaction.user.id,
         ...(submission ? { layoutId: submission.id } : {}),
       }),
     ],
-    components: [buildLayoutButtonRow(layoutLink, config?.allowVoting ?? false)],
+    components: [buildLayoutButtonRow(layoutLink, config.allowVoting, config.allowTracking)],
     allowedMentions: { users: [] },
   });
 }
@@ -263,6 +273,7 @@ export function buildLayoutPostEmbed(input: {
   screenshot: Attachment;
   layoutLink: string;
   allowVoting: boolean;
+  allowTracking: boolean;
   gameLayoutId?: string;
   townHall?: string;
   notes?: string;
@@ -285,25 +296,26 @@ export function buildLayoutPostEmbed(input: {
   fields.push({
     name: 'Submission Tracking',
     value: input.layoutId
-      ? 'Tracked and saved for this server.'
-      : 'Not tracked. Layout submission tracking is disabled for this server.',
+      ? 'Tracked and saved for this server. Copy counts and downloader history can be added by the interaction layer later.'
+      : input.allowTracking
+        ? 'Tracking is enabled, but this submission could not be saved.'
+        : 'Not tracked. Layout submission tracking is disabled for this server.',
     inline: false,
   });
 
-  if (input.allowVoting) {
-    fields.push({
-      name: 'Voting',
-      value:
-        'Voting display is enabled for this server. Upvote and Downvote buttons are shown disabled because vote collection is pending.',
-      inline: false,
-    });
-  }
+  fields.push({
+    name: 'Voting',
+    value: input.allowVoting
+      ? 'Voting is enabled for this server. Upvote and Downvote buttons are shown disabled until vote collection is wired to persisted interactions.'
+      : 'Voting is disabled for this server, so vote buttons are not shown.',
+    inline: false,
+  });
 
   if (input.notes) fields.push({ name: 'Notes', value: input.notes, inline: false });
 
   return new EmbedBuilder()
     .setColor(input.view.color ?? DEFAULT_LAYOUT_EMBED_COLOR)
-    .setTitle('Clash of Clans Layout')
+    .setTitle(input.townHall ? `${input.townHall} Layout` : 'Clash of Clans Layout')
     .setAuthor(
       input.view.botAvatarUrl
         ? { name: input.view.botName, iconURL: input.view.botAvatarUrl }
@@ -317,9 +329,13 @@ export function buildLayoutPostEmbed(input: {
 export function buildLayoutButtonRow(
   layoutLink: string,
   allowVoting: boolean,
+  allowTracking = false,
 ): ActionRowBuilder<ButtonBuilder> {
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Open Layout').setURL(layoutLink),
+    new ButtonBuilder()
+      .setStyle(ButtonStyle.Link)
+      .setLabel(allowTracking ? 'Copy Layout' : 'Open Layout')
+      .setURL(layoutLink),
   );
 
   if (allowVoting) {
@@ -351,8 +367,8 @@ export function buildLayoutConfigEmbed(input: {
   updated: boolean;
 }): EmbedBuilder {
   const settings = [
-    `Saved voting setting: ${formatEnabledBoolean(input.config.allowVoting)}`,
-    `Saved submission tracking: ${formatEnabledBoolean(input.config.allowTracking)}`,
+    `Layout Voting: ${formatEnabledBoolean(input.config.allowVoting)}`,
+    `Layout Tracking: ${formatEnabledBoolean(input.config.allowTracking)}`,
   ].join('\n');
   const trackedSubmissionSummary = formatLayoutSubmissionSummary(input.submissionSummary);
 
@@ -363,10 +379,18 @@ export function buildLayoutConfigEmbed(input: {
       [
         input.updated ? 'Layout configuration was saved.' : 'Current saved layout configuration.',
         input.config.allowVoting
-          ? 'Saved submission tracking works when enabled. Voting display is enabled, but vote collection is pending.'
-          : 'Saved submission tracking works when enabled. Voting is disabled.',
+          ? 'Voting buttons are displayed on new layout posts, but remain disabled until persisted vote collection is available.'
+          : 'Voting is disabled, so new layout posts only include the copy/open layout button.',
         '',
         settings,
+        '',
+        '**Accepted fields**',
+        '`allow_voting` toggles voting context on layout posts.',
+        '`allow_tracking` toggles persisted layout submission records and copy/download context.',
+        '',
+        '**Channel and permission requirements**',
+        '`/layout post` must be used in a server channel with an image screenshot and a public OpenLayout link.',
+        '`/layout config` requires Discord Manage Server permission.',
         '',
         trackedSubmissionSummary,
       ].join('\n'),
@@ -415,12 +439,25 @@ export function isImageAttachment(
   return /\.(?:png|jpe?g|gif|webp)$/i.test(fileName);
 }
 
+async function createTrackedLayoutSubmission(
+  store: LayoutConfigStore,
+  input: Parameters<LayoutConfigStore['createLayoutSubmission']>[0],
+): Promise<{ id: string } | null> {
+  try {
+    return await store.createLayoutSubmission(input);
+  } catch {
+    return null;
+  }
+}
+
 function formatEnabledBoolean(value: boolean): string {
   return value ? 'enabled' : 'disabled';
 }
 
 function formatLayoutSubmissionSummary(summary: LayoutSubmissionSummaryRecord): string {
-  if (summary.count === 0) return 'Stored submission summary: 0 tracked layouts';
+  if (summary.count === 0) {
+    return 'Stored submission summary: no tracked layouts yet. New posts are saved only when Layout Tracking is enabled.';
+  }
 
   const latest = summary.latest
     .map((submission) => {
