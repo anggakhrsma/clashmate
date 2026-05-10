@@ -44,11 +44,15 @@ export interface StatusMetrics {
   freeMemoryMb: number;
   uptimeSeconds: number;
   servers: number;
+  websocketLatencyMs?: number;
   commandsUsedLast30Days?: number;
   clans?: number;
   players?: number;
   links?: number;
   runtime: string;
+  cacheSource?: string;
+  metricSource?: string;
+  missingMetricReaders?: string[];
   version: string;
   commitSha?: string;
   repositoryUrl?: string;
@@ -99,7 +103,8 @@ export async function executeStatusInteraction(
     !interaction.appPermissions.has(PermissionFlagsBits.EmbedLinks)
   ) {
     await interaction.reply({
-      content: 'I need the **Embed Links** permission to show `/status`.',
+      content:
+        'I need the **Embed Links** permission in this channel to show `/status`. Grant it to the bot role or run the command where embeds are allowed.',
       ephemeral: true,
     });
     return;
@@ -143,9 +148,18 @@ export async function collectStatusView(options: {
     freeMemoryMb: os.freemem() / 1024 / 1024,
     uptimeSeconds: process.uptime(),
     servers: options.client.guilds.cache.size,
-    runtime: 'Single Discord gateway process',
+    runtime:
+      'Single Discord gateway process; multi-process gateway metrics are intentionally not collected.',
+    cacheSource: 'Discord client guild cache for live server count.',
+    metricSource: options.metricReader
+      ? 'PostgreSQL aggregate metric reader for persisted bot metrics.'
+      : 'No metric reader configured; persisted counts are unavailable.',
+    missingMetricReaders: getMissingMetricReaders(options.metricReader),
     version: options.version,
   };
+  if (Number.isFinite(options.client.ws.ping)) {
+    metrics.websocketLatencyMs = options.client.ws.ping;
+  }
 
   if (typeof commandsUsedLast30Days === 'number') {
     metrics.commandsUsedLast30Days = commandsUsedLast30Days;
@@ -229,6 +243,8 @@ export function buildStatusEmbed(view: StatusView): EmbedBuilder {
     },
   );
 
+  embed.setDescription(formatStatusDiagnostics(view.metrics));
+
   return embed;
 }
 
@@ -242,6 +258,33 @@ export function formatCount(value: number): string {
 
 export function formatOptionalCount(value: number | undefined): string {
   return typeof value === 'number' ? formatCount(value) : 'Unavailable';
+}
+
+export function formatLatency(value: number | undefined): string {
+  return typeof value === 'number' && value >= 0 ? `${Math.round(value)} ms` : 'Unavailable';
+}
+
+export function formatMetricSource(
+  metrics: Pick<StatusMetrics, 'metricSource' | 'missingMetricReaders'>,
+): string {
+  const missingMetricReaders = metrics.missingMetricReaders ?? [];
+  const metricSource = metrics.metricSource ?? 'No metric reader configured.';
+  if (missingMetricReaders.length === 0) return metricSource;
+
+  return `${metricSource}\nMissing readers: ${missingMetricReaders.join(', ')}. Wire StatusMetricReader methods to populate these counts.`;
+}
+
+export function formatStatusDiagnostics(
+  metrics: Pick<
+    StatusMetrics,
+    'websocketLatencyMs' | 'cacheSource' | 'metricSource' | 'missingMetricReaders'
+  >,
+): string {
+  return [
+    `Gateway latency: ${formatLatency(metrics.websocketLatencyMs)}.`,
+    `Cache: ${metrics.cacheSource ?? 'Discord client cache.'}`,
+    formatMetricSource(metrics),
+  ].join('\n');
 }
 
 export function formatDuration(totalSeconds: number): string {
@@ -299,4 +342,15 @@ async function readMetric(
     logger?.warn({ error, metric: name }, 'Failed to read status metric');
     return undefined;
   }
+}
+
+function getMissingMetricReaders(metricReader: StatusMetricReader | undefined): string[] {
+  return [
+    ['commandsUsedLast30Days', metricReader?.countCommandsUsedLast30Days],
+    ['clans', metricReader?.countClans],
+    ['players', metricReader?.countPlayers],
+    ['links', metricReader?.countLinks],
+  ]
+    .filter((entry): entry is [string, undefined] => typeof entry[1] === 'undefined')
+    .map(([name]) => name);
 }

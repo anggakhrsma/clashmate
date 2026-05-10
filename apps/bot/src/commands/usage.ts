@@ -96,6 +96,7 @@ export interface UsageView {
   dailyUsage: UsageDailyRecord[];
   commandTotals: UsageCommandTotalRecord[];
   totalUses: number;
+  metricSource?: string;
 }
 
 export function createUsageSlashCommand(options: UsageCommandOptions): SlashCommandDefinition {
@@ -125,7 +126,8 @@ export async function executeUsageInteraction(
     !interaction.appPermissions.has(PermissionFlagsBits.EmbedLinks)
   ) {
     await interaction.reply({
-      content: 'I need the **Embed Links** permission to show `/usage`.',
+      content:
+        'I need the **Embed Links** permission in this channel to show `/usage`. Grant it to the bot role or run the command where embeds are allowed.',
       ephemeral: true,
     });
     return;
@@ -186,6 +188,9 @@ export async function collectUsageView(
     dailyUsage: dailyUsage.slice(0, 15),
     commandTotals,
     totalUses,
+    metricSource: metricReader
+      ? 'PostgreSQL aggregate metric reader'
+      : 'Not configured; inject UsageMetricReader to enable persisted usage metrics.',
   };
 }
 
@@ -205,19 +210,19 @@ export function buildUsageEmbed(view: UsageView): EmbedBuilder {
 }
 
 export function formatUsageDescription(
-  view: Pick<UsageView, 'dailyUsage' | 'commandTotals'>,
+  view: Pick<UsageView, 'dailyUsage' | 'commandTotals' | 'metricSource'>,
 ): string {
   const dailyRows = view.dailyUsage.length
     ? view.dailyUsage.map(
         (record) => `${formatUsageDate(record.date).padEnd(8)} ${formatCount(record.uses)}`,
       )
-    : ['No daily usage recorded yet.'];
+    : ['No daily usage recorded yet. Metrics start after command instrumentation writes data.'];
   const commandRows = view.commandTotals.length
     ? view.commandTotals.map(
         (record, index) =>
           `${String(index + 1).padStart(2)} ${formatCount(record.uses).padStart(8)} /${record.commandName}`,
       )
-    : ['No command usage recorded yet.'];
+    : ['No command usage recorded yet. Check that the metric reader is configured.'];
 
   return [
     '```',
@@ -227,11 +232,16 @@ export function formatUsageDescription(
     '#      Uses Command',
     ...commandRows,
     '```',
-  ].join('\n');
+    view.metricSource ? `Metrics source: ${view.metricSource}` : undefined,
+  ]
+    .filter((line): line is string => typeof line === 'string')
+    .join('\n');
 }
 
 async function buildUsageChartReply(limit: number, options: UsageCommandOptions): Promise<string> {
-  if (!options.metricReader) return 'Usage metrics are not configured.';
+  if (!options.metricReader) {
+    return 'Usage metrics are not configured. Inject a UsageMetricReader backed by persisted bot-growth metrics.';
+  }
 
   const metricReader = options.metricReader;
   const records = await safeRead(
@@ -239,7 +249,9 @@ async function buildUsageChartReply(limit: number, options: UsageCommandOptions)
     metricReader ? () => metricReader.listRecentGrowth(limit) : undefined,
     options.logger,
   );
-  if (!records?.length) return 'No bot growth data has been recorded yet.';
+  if (!records?.length) {
+    return 'No bot growth data has been recorded yet. Growth charts require persisted guild add/remove metrics.';
+  }
 
   const views = records
     .slice(0, limit)
