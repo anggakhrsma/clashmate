@@ -10,8 +10,11 @@ import {
 export const SEARCH_COMMAND_NAME = 'search';
 export const SEARCH_COMMAND_DESCRIPTION = 'Search for Clash of Clans clans by name.';
 export const SEARCH_NO_RESULTS_MESSAGE =
-  'No clans found. Try `/search name:<clan name>` with a more specific clan name.';
+  'No clans found from the live Clash API. `/search` accepts only the `name` filter; try a more specific clan name, alternate spelling, or fewer words.';
+export const SEARCH_API_ERROR_MESSAGE =
+  'Could not search clans from the live Clash API right now. Please try again shortly; if it keeps failing, check the clan name and Clash API availability.';
 const SEARCH_RESULT_LIMIT = 10;
+const SEARCH_API_LIMIT = 100;
 
 export const searchCommandData = new SlashCommandBuilder()
   .setName(SEARCH_COMMAND_NAME)
@@ -64,9 +67,9 @@ export async function executeSearch(
 
   let result: ClashClanSearchResult;
   try {
-    result = await options.coc.getClans({ name, limit: 100 });
+    result = await options.coc.getClans({ name, limit: SEARCH_API_LIMIT });
   } catch {
-    await interaction.editReply({ content: SEARCH_NO_RESULTS_MESSAGE });
+    await interaction.editReply({ content: SEARCH_API_ERROR_MESSAGE });
     return;
   }
 
@@ -79,11 +82,30 @@ export async function executeSearch(
 }
 
 export function buildSearchEmbed(name: string, clans: readonly ClashClan[]): EmbedBuilder {
+  const shownCount = Math.min(clans.length, SEARCH_RESULT_LIMIT);
+
   return new EmbedBuilder()
-    .setTitle(`Search results for ${escapeMarkdown(name)}`)
-    .setDescription(clans.slice(0, SEARCH_RESULT_LIMIT).map(formatSearchResultLine).join('\n\n'))
+    .setTitle(`Clan search results for ${escapeMarkdown(name)}`)
+    .setDescription(
+      [
+        `Live Clash API one-off lookup by clan name. Showing the first ${shownCount} matching clans; no polling or long-term tracking is created.`,
+        clans.slice(0, SEARCH_RESULT_LIMIT).map(formatSearchResultLine).join('\n\n'),
+      ].join('\n\n'),
+    )
+    .addFields(
+      {
+        name: 'Accepted filters',
+        value: '`name` only. Use setup/link commands for persisted guild tracking.',
+        inline: false,
+      },
+      {
+        name: 'Result coverage',
+        value: `Requested up to ${SEARCH_API_LIMIT} clans from the Clash API and displayed ${shownCount}. Results depend on the live API search index and may change over time.`,
+        inline: false,
+      },
+    )
     .setFooter({
-      text: `Showing ${Math.min(clans.length, SEARCH_RESULT_LIMIT)} of ${clans.length}`,
+      text: `Showing ${shownCount} of ${clans.length} returned clans • Source: live Clash API`,
     });
 }
 
