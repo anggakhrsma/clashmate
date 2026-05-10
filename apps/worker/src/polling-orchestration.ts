@@ -26,6 +26,32 @@ export interface ProcessDuePollingLeaseResult {
   readonly resourceType: PollingResourceType;
   readonly status: 'processed' | 'idle' | 'failed';
   readonly resourceId?: string;
+  readonly claimedAt?: Date;
+  readonly completedAt?: Date;
+  readonly durationMs?: number;
+  readonly nextRunAt?: Date;
+  readonly errorMessage?: string;
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  return 'Unknown polling lease error';
+}
+
+function attachPollingObservability<T extends ProcessDuePollingLeaseResult>(
+  result: T,
+  observability: Omit<ProcessDuePollingLeaseResult, 'resourceType' | 'status' | 'resourceId'>,
+): T {
+  for (const [key, value] of Object.entries(observability)) {
+    if (value === undefined) continue;
+    Object.defineProperty(result, key, {
+      value,
+      enumerable: false,
+      configurable: true,
+    });
+  }
+  return result;
 }
 
 export async function processOneDuePollingLease(
@@ -33,42 +59,71 @@ export async function processOneDuePollingLease(
   options: PollingOrchestrationOptions,
 ): Promise<ProcessDuePollingLeaseResult> {
   assertTopLevelPollingResourceType(resourceType);
-  const now = options.now?.() ?? new Date();
+  const claimedAt = options.now?.() ?? new Date();
   const lease = await options.leaseStore.claimDuePollingLease(
     resourceType,
     options.ownerId,
     options.lockForSeconds,
-    now,
+    claimedAt,
   );
 
   if (!lease) return { resourceType, status: 'idle' };
 
   try {
     await options.handlers[resourceType](lease);
+    const completedAt = options.now?.() ?? new Date();
+    const nextRunAt = computeJitteredNextRun(
+      completedAt,
+      options.intervals[resourceType],
+      options.random,
+    );
     await options.leaseStore.completePollingLease(
       resourceType,
       lease.resourceId,
       options.ownerId,
-      computeJitteredNextRun(
-        options.now?.() ?? new Date(),
-        options.intervals[resourceType],
-        options.random,
-      ),
+      nextRunAt,
     );
-    return { resourceType, status: 'processed', resourceId: lease.resourceId };
+    return attachPollingObservability(
+      {
+        resourceType,
+        status: 'processed',
+        resourceId: lease.resourceId,
+      },
+      {
+        claimedAt,
+        completedAt,
+        durationMs: completedAt.getTime() - claimedAt.getTime(),
+        nextRunAt,
+      },
+    );
   } catch (error) {
+    const completedAt = options.now?.() ?? new Date();
+    const nextRunAt = computeJitteredNextRun(
+      completedAt,
+      options.intervals[resourceType],
+      options.random,
+    );
     await options.leaseStore.failPollingLease(
       resourceType,
       lease.resourceId,
       options.ownerId,
       error,
-      computeJitteredNextRun(
-        options.now?.() ?? new Date(),
-        options.intervals[resourceType],
-        options.random,
-      ),
+      nextRunAt,
     );
-    return { resourceType, status: 'failed', resourceId: lease.resourceId };
+    return attachPollingObservability(
+      {
+        resourceType,
+        status: 'failed',
+        resourceId: lease.resourceId,
+      },
+      {
+        claimedAt,
+        completedAt,
+        durationMs: completedAt.getTime() - claimedAt.getTime(),
+        nextRunAt,
+        errorMessage: getErrorMessage(error),
+      },
+    );
   }
 }
 
