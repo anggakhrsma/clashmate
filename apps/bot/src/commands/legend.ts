@@ -16,9 +16,11 @@ const LEGEND_TROPHY_FLOOR = 5000;
 const NEAR_LEGEND_TROPHY_FLOOR = 4900;
 const LEGEND_SEASON_CHOICE_MONTHS = 18;
 const LEGEND_SNAPSHOT_SOURCE_NOTE =
-  'Backed by persisted current player/member snapshots from linked clans. This is not historical Legend attack/day storage.';
+  'Uses the latest persisted player/member snapshots from clans linked to this server.';
 const LEGEND_HISTORY_UNAVAILABLE_NOTE =
-  'Historical Legend attacks, defenses, day totals, trophies gained/lost by day, and season archives are not persisted yet.';
+  'ClashMate does not yet store a live or historical Legend feed: attacks, defenses, day totals, trophy deltas, season archives, and end-of-day ranks are unavailable.';
+const LEGEND_NO_LIVE_SOURCE_NOTE =
+  'No live Clash API Legend lookup, external feed, export, auto-updating board, or polling enrollment is performed by this command.';
 const MONTH_NAMES = [
   'January',
   'February',
@@ -318,22 +320,28 @@ export function buildLegendLeaderboardEmbed(
 
   embed.addFields({
     name: 'Data source',
-    value: `${LEGEND_SNAPSHOT_SOURCE_NOTE} ${LEGEND_HISTORY_UNAVAILABLE_NOTE} No live Clash API lookups, external feeds, exports, or auto-updating boards are used.`,
+    value: `${LEGEND_SNAPSHOT_SOURCE_NOTE} ${LEGEND_NO_LIVE_SOURCE_NOTE}`,
     inline: false,
   });
 
   if (season)
     embed.addFields({
       name: 'Season',
-      value: `${formatLegendSeasonSelection(season)} (accepted for parity; current snapshots shown)`,
+      value: `${formatLegendSeasonSelection(season)} is accepted for command parity, but ClashMate currently shows the latest stored snapshots instead of a historical season board.`,
       inline: false,
     });
+
+  embed.addFields({
+    name: 'Unavailable history',
+    value: LEGEND_HISTORY_UNAVAILABLE_NOTE,
+    inline: false,
+  });
 
   if (rows.length === 0) {
     return embed.addFields({
       name: 'No data',
       value:
-        'No current linked-clan member snapshots at or near Legend League are available yet. Link/configure clans and wait for clan polling to store member trophies. Historical Legend leaderboards are unavailable until dedicated history is persisted.',
+        'No current linked-clan member snapshots at or near Legend League are available yet. Link/configure clans and wait for clan polling to store member trophies.',
       inline: false,
     });
   }
@@ -379,7 +387,7 @@ export function buildLegendStatsEmbed(
 
   embed.addFields({
     name: 'Data source',
-    value: `${LEGEND_SNAPSHOT_SOURCE_NOTE} Reference dates are accepted for command parity, but current stored member snapshots are used; no live Clash API lookups are made. ${LEGEND_HISTORY_UNAVAILABLE_NOTE}`,
+    value: `${LEGEND_SNAPSHOT_SOURCE_NOTE} ${LEGEND_NO_LIVE_SOURCE_NOTE}`,
     inline: false,
   });
 
@@ -389,11 +397,17 @@ export function buildLegendStatsEmbed(
     inline: false,
   });
 
+  embed.addFields({
+    name: 'Unavailable history',
+    value: LEGEND_HISTORY_UNAVAILABLE_NOTE,
+    inline: false,
+  });
+
   if (rows.length === 0) {
     return embed.addFields({
       name: 'No data',
       value:
-        'No stored member trophy snapshots are available yet. Link/configure clans and wait for clan polling to observe members. Historical Legend stats are unavailable until dedicated history is persisted.',
+        'No stored member trophy snapshots are available yet. Link/configure clans and wait for clan polling to observe members.',
       inline: false,
     });
   }
@@ -436,13 +450,12 @@ export function buildLegendUnsupportedEmbed(
   const embed = new EmbedBuilder()
     .setTitle(title)
     .setDescription(
-      'Historical Legend attack/day data is not persisted in ClashMate yet, so this view cannot show attack logs, defenses, day totals, or trophy deltas.',
+      'This view needs persisted Legend feed history, which ClashMate does not store yet.',
     );
 
   embed.addFields({
     name: 'Data source',
-    value:
-      'Only current linked-clan player/member snapshots are available for resolving filters. This command does not perform live Clash API calls, exports, external feed reads, or polling enrollment.',
+    value: `${LEGEND_SNAPSHOT_SOURCE_NOTE} Current snapshots are only used to resolve clan/player filters. ${LEGEND_NO_LIVE_SOURCE_NOTE}`,
     inline: false,
   });
 
@@ -638,7 +651,8 @@ function parseLegendReferenceDate(rawReferenceDate: string | null): LegendRefere
 }
 
 function formatLegendReferenceDate(referenceDate: LegendReferenceDateSelection): string {
-  const parityNote = 'accepted for parity; current persisted member snapshots are used.';
+  const parityNote =
+    'accepted for command parity; latest persisted member snapshots are used instead of historical end-of-day thresholds.';
   if (!referenceDate.raw) return `Not provided; ${parityNote}`;
   if (!referenceDate.parsed) {
     return `Unparsed label: ${escapeMarkdown(referenceDate.raw)}; ${parityNote}`;
