@@ -10,10 +10,11 @@ import {
 import { canonicalizeTimeZone, filterTimezoneChoices } from './timezone.js';
 
 export const EVENTS_COMMAND_NAME = 'events';
-export const EVENTS_COMMAND_DESCRIPTION = 'Show upcoming Clash of Clans game events.';
+export const EVENTS_COMMAND_DESCRIPTION = 'Shows the next in-game events.';
 export const DEFAULT_EVENTS_EMBED_COLOR = 0x5865f2;
 export const EVENTS_FIRST_PASS_NOTE =
-  'First pass: this calendar uses approximate recurring UTC windows; it is not a live event feed.';
+  'First pass/static schedule: ClashMate estimates recurring Clash of Clans event times from known UTC windows; this is not a live Supercell event feed.';
+const EVENTS_SCHEDULE_SOURCE = 'Source: static ClashMate schedule parity with ClashPerk /events.';
 
 export const eventsCommandData = new SlashCommandBuilder()
   .setName(EVENTS_COMMAND_NAME)
@@ -31,7 +32,7 @@ export interface EventCalendarItem {
   name: string;
   startsAt: Date;
   endsAt?: Date;
-  status: 'Active now' | 'Starts' | 'Next';
+  status: 'Active now' | 'Ends' | 'Starts' | 'Next';
   description: string;
 }
 
@@ -129,24 +130,37 @@ export function collectEventsView(
 }
 
 export function buildEventsEmbed(view: EventsView): EmbedBuilder {
-  return new EmbedBuilder()
+  const embed = new EmbedBuilder()
     .setColor(view.color ?? DEFAULT_EVENTS_EMBED_COLOR)
-    .setTitle('Upcoming Game Events Calendar')
+    .setTitle('Upcoming Events!')
     .setDescription(view.note)
     .setAuthor(
       view.botAvatarUrl
         ? { name: view.botName, iconURL: view.botAvatarUrl }
         : { name: view.botName },
     )
-    .addFields(
-      view.events.map((event) => ({
-        name: event.name,
-        value: formatCalendarItem(event, view.timezone),
-        inline: false,
-      })),
-    )
     .setFooter({ text: `Synced ${formatFooterDateTime(view)}` })
     .setTimestamp(view.generatedAt);
+
+  if (view.events.length === 0) {
+    embed.addFields({
+      name: 'No events found',
+      value:
+        'The static event schedule did not produce upcoming events. Try again later; if this persists, ClashMate needs its static schedule updated.',
+      inline: false,
+    });
+    return embed;
+  }
+
+  embed.addFields(
+    view.events.map((event, index, events) => ({
+      name: event.name,
+      value: `${formatCalendarItem(event, view.timezone)}${index === events.length - 1 ? '' : '\n\u200b'}`,
+      inline: false,
+    })),
+  );
+
+  return embed;
 }
 
 interface EventsResolvedTimezone {
@@ -179,60 +193,86 @@ async function resolveEventsTimezone(input: {
 
 export function buildApproximateEventCalendar(now = new Date()): EventCalendarItem[] {
   return [
-    nextCwlWindow(now),
-    nextClanGamesWindow(now),
-    nextRaidWeekendWindow(now),
+    nextClanGamesEvent(now),
+    nextCwlEvent(now),
     nextSeasonReset(now),
-  ].sort((left, right) => left.startsAt.getTime() - right.startsAt.getTime());
+    nextRaidWeekendEvent(now),
+  ]
+    .filter((event): event is EventCalendarItem => event !== null)
+    .sort((left, right) => left.startsAt.getTime() - right.startsAt.getTime());
 }
 
-function nextClanGamesWindow(now: Date): EventCalendarItem {
-  const current = utcDate(now.getUTCFullYear(), now.getUTCMonth(), 22);
+function nextClanGamesEvent(now: Date): EventCalendarItem {
+  const current = utcDate(now.getUTCFullYear(), now.getUTCMonth(), 22, 8);
   const startsAt = isBeforeWindowEnd(now, current, 6) ? current : addUtcMonths(current, 1);
   const endsAt = addUtcDays(startsAt, 6);
+  const active = now.getTime() >= startsAt.getTime() && now.getTime() < endsAt.getTime();
 
   return {
-    name: 'Clan Games',
-    startsAt,
-    endsAt,
-    status: getWindowStatus(now, startsAt, endsAt),
-    description: 'Approximate monthly Clan Games window around days 22–28 UTC.',
+    name: active ? 'Clan Games (Ending)' : 'Clan Games',
+    startsAt: active ? endsAt : startsAt,
+    status: active ? 'Ends' : 'Starts',
+    description: active
+      ? 'Approximate Clan Games ending time for the current monthly event.'
+      : 'Approximate monthly Clan Games start around day 22 at 08:00 UTC.',
   };
 }
 
-function nextCwlWindow(now: Date): EventCalendarItem {
-  const current = utcDate(now.getUTCFullYear(), now.getUTCMonth(), 1);
+function nextCwlEvent(now: Date): EventCalendarItem {
+  const current = utcDate(now.getUTCFullYear(), now.getUTCMonth(), 1, 8);
   const startsAt = isBeforeWindowEnd(now, current, 10) ? current : addUtcMonths(current, 1);
+  const signupEndsAt = addUtcDays(startsAt, 2);
   const endsAt = addUtcDays(startsAt, 10);
+  const timestamp = now.getTime();
+
+  if (timestamp >= startsAt.getTime() && timestamp < signupEndsAt.getTime()) {
+    return {
+      name: 'CWL Signup (Ending)',
+      startsAt: signupEndsAt,
+      status: 'Ends',
+      description: 'Approximate CWL signup closing time for the current monthly league.',
+    };
+  }
+
+  if (timestamp >= signupEndsAt.getTime() && timestamp < endsAt.getTime()) {
+    return {
+      name: 'CWL (Ending)',
+      startsAt: endsAt,
+      status: 'Ends',
+      description: 'Approximate CWL ending time for the current monthly league.',
+    };
+  }
 
   return {
-    name: 'Clan War Leagues',
+    name: 'CWL',
     startsAt,
-    endsAt,
-    status: getWindowStatus(now, startsAt, endsAt),
-    description: 'Approximate signup and early-month CWL window around days 1–11 UTC.',
+    status: 'Starts',
+    description: 'Approximate monthly CWL start around day 1 at 08:00 UTC.',
   };
 }
 
-function nextRaidWeekendWindow(now: Date): EventCalendarItem {
+function nextRaidWeekendEvent(now: Date): EventCalendarItem {
   const day = now.getUTCDay();
   const daysSinceFriday = (day - 5 + 7) % 7;
   const latestFriday = utcDate(
     now.getUTCFullYear(),
     now.getUTCMonth(),
     now.getUTCDate() - daysSinceFriday,
+    7,
   );
   const latestMonday = addUtcDays(latestFriday, 3);
+  const active = now.getTime() >= latestFriday.getTime() && now.getTime() < latestMonday.getTime();
   const startsAt =
     now.getTime() < latestMonday.getTime() ? latestFriday : addUtcDays(latestFriday, 7);
   const endsAt = addUtcDays(startsAt, 3);
 
   return {
-    name: 'Raid Weekend',
-    startsAt,
-    endsAt,
-    status: getWindowStatus(now, startsAt, endsAt),
-    description: 'Approximate weekly Clan Capital Raid Weekend from Friday to Monday UTC.',
+    name: active ? 'Raid Weekend (Ending)' : 'Raid Weekend',
+    startsAt: active ? endsAt : startsAt,
+    status: active ? 'Ends' : 'Starts',
+    description: active
+      ? 'Approximate Clan Capital Raid Weekend ending time.'
+      : 'Approximate weekly Clan Capital Raid Weekend start on Friday at 07:00 UTC.',
   };
 }
 
@@ -262,12 +302,12 @@ function formatEventTimestamp(date: Date, timezone: string | undefined): string 
 
 function formatEventsNote(timezone: EventsResolvedTimezone): string {
   if (!timezone.timezone)
-    return `${EVENTS_FIRST_PASS_NOTE} Times are shown with Discord timestamps and default to UTC.`;
+    return `${EVENTS_FIRST_PASS_NOTE}\n${EVENTS_SCHEDULE_SOURCE}\nTimes use Discord timestamps and fall back to UTC because no timezone option or saved /timezone preference was available.`;
   const source =
     timezone.source === 'option'
       ? 'the timezone option for this response'
       : 'your saved /timezone preference';
-  return `${EVENTS_FIRST_PASS_NOTE} Local times use ${source} (${timezone.timezone}).`;
+  return `${EVENTS_FIRST_PASS_NOTE}\n${EVENTS_SCHEDULE_SOURCE}\nLocal times use ${source} (${timezone.timezone}); Discord timestamps still render in each viewer's locale.`;
 }
 
 function formatFooterDateTime(
@@ -286,12 +326,6 @@ function formatZonedDateTime(date: Date, timezone: string): string {
   }).format(date);
 }
 
-function getWindowStatus(now: Date, startsAt: Date, endsAt: Date): EventCalendarItem['status'] {
-  return now.getTime() >= startsAt.getTime() && now.getTime() < endsAt.getTime()
-    ? 'Active now'
-    : 'Starts';
-}
-
 function formatTimestamp(date: Date): string {
   const seconds = Math.floor(date.getTime() / 1000);
   return `<t:${seconds}:F> (<t:${seconds}:R>)`;
@@ -308,14 +342,24 @@ function isBeforeWindowEnd(now: Date, startsAt: Date, durationDays: number): boo
   return now.getTime() < addUtcDays(startsAt, durationDays).getTime();
 }
 
-function utcDate(year: number, month: number, day: number): Date {
-  return new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
+function utcDate(year: number, month: number, day: number, hour = 0): Date {
+  return new Date(Date.UTC(year, month, day, hour, 0, 0, 0));
 }
 
 function addUtcDays(date: Date, days: number): Date {
-  return utcDate(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + days);
+  return utcDate(
+    date.getUTCFullYear(),
+    date.getUTCMonth(),
+    date.getUTCDate() + days,
+    date.getUTCHours(),
+  );
 }
 
 function addUtcMonths(date: Date, months: number): Date {
-  return utcDate(date.getUTCFullYear(), date.getUTCMonth() + months, date.getUTCDate());
+  return utcDate(
+    date.getUTCFullYear(),
+    date.getUTCMonth() + months,
+    date.getUTCDate(),
+    date.getUTCHours(),
+  );
 }
