@@ -26,6 +26,10 @@ const EMBED_MAX_FIELDS = 25;
 const EMBED_DESCRIPTION_LIMIT = 4096;
 const RUSHED_CLAN_LOOKUP_LIMIT = 15;
 const RUSHED_CLAN_ROW_LIMIT = 10;
+const RUSHED_HEURISTIC_NOTE =
+  'Heuristic note: ClashMate currently compares public API unit levels to API maxLevel values. This is a conservative incomplete-units view, not the legacy previous-town-hall rushed table yet.';
+const RUSHED_NO_DATA_GUIDANCE =
+  'If this looks empty or outdated, make sure the player is public, the clan is linked in this server, and the clan/player pollers have had time to refresh stored member snapshots.';
 
 export const rushedCommandData = new SlashCommandBuilder()
   .setName(RUSHED_COMMAND_NAME)
@@ -178,7 +182,11 @@ export async function executeRushed(
   }
 
   if (resolution.status === 'no_link') {
-    await interaction.reply({ content: formatNoLinkedPlayerMessage(resolution), ephemeral: true });
+    const target = userOption ? 'That Discord user' : 'You';
+    await interaction.reply({
+      content: `${formatNoLinkedPlayerMessage(resolution)}\n${target} must have a linked Clash account before \`/rushed user:\` can choose an account automatically, or provide the \`player\` tag option directly.`,
+      ephemeral: true,
+    });
     return;
   }
 
@@ -188,7 +196,9 @@ export async function executeRushed(
   try {
     player = await options.coc.getPlayer(resolution.playerTag);
   } catch {
-    await interaction.editReply(PLAYER_NOT_FOUND_MESSAGE);
+    await interaction.editReply(
+      `${PLAYER_NOT_FOUND_MESSAGE}\nCould not fetch live player data for ${resolution.playerTag}. Try again later or use a different linked/player tag.`,
+    );
     return;
   }
 
@@ -217,7 +227,10 @@ async function executeRushedClanMode(
   const clans = await options.clans.listLinkedClans(guildId);
   const clan = resolveRushedClan(clans, clanOption);
   if (!clan) {
-    await interaction.editReply({ content: 'No linked clan was found for that clan option.' });
+    await interaction.editReply({
+      content:
+        "No linked clan was found for that clan option. Choose one of this server's linked clans from autocomplete, or link the clan before using clan mode.",
+    });
     return;
   }
 
@@ -228,30 +241,31 @@ async function executeRushedClanMode(
   if (!snapshots || snapshots.members.length === 0) {
     await interaction.editReply({
       content:
-        'No current member snapshot is available for that linked clan yet. Wait for clan polling to observe members.',
+        "No current member snapshot is available for that linked clan yet. Clan mode uses this server's linked-clan member snapshot, not a free-form search. Wait for clan polling to observe members after the clan is linked.",
     });
     return;
   }
 
   const players: ClashPlayer[] = [];
+  let failedLookups = 0;
   for (const member of snapshots.members.slice(0, RUSHED_CLAN_LOOKUP_LIMIT)) {
     try {
       players.push(await options.coc.getPlayer(member.playerTag));
     } catch {
+      failedLookups += 1;
       // Keep clan mode best-effort and avoid failing the whole summary for one member lookup.
     }
   }
 
   if (players.length === 0) {
     await interaction.editReply({
-      content:
-        'No analyzable player data could be fetched for current members of that linked clan.',
+      content: `No analyzable live player data could be fetched for the first ${Math.min(snapshots.members.length, RUSHED_CLAN_LOOKUP_LIMIT)} stored members of that linked clan. ${RUSHED_NO_DATA_GUIDANCE}`,
     });
     return;
   }
 
   await interaction.editReply({
-    embeds: [buildRushedClanEmbed(clan, snapshots.members.length, players)],
+    embeds: [buildRushedClanEmbed(clan, snapshots.members.length, players, failedLookups)],
   });
 }
 
@@ -259,6 +273,7 @@ export function buildRushedClanEmbed(
   clan: RushedLinkedClan,
   snapshotMemberCount: number,
   players: readonly ClashPlayer[],
+  failedLookups = 0,
 ): EmbedBuilder {
   const rows = players
     .map((player) => ({ player, summary: summarizeRushedGroups(collectRushedUnits(player)) }))
@@ -278,10 +293,10 @@ export function buildRushedClanEmbed(
             .slice(0, RUSHED_CLAN_ROW_LIMIT)
             .map((row, index) => formatRushedClanRow(row, index))
             .join('\n')
-        : 'No incomplete units found in fetched member data.',
+        : `No incomplete units found in fetched member data. ${RUSHED_NO_DATA_GUIDANCE}`,
     )
     .setFooter({
-      text: `Analyzed ${players.length}/${Math.min(snapshotMemberCount, RUSHED_CLAN_LOOKUP_LIMIT)} fetched from ${snapshotMemberCount} stored members`,
+      text: `Source: linked clan member snapshot. Live player lookup cap ${RUSHED_CLAN_LOOKUP_LIMIT}; analyzed ${players.length}/${Math.min(snapshotMemberCount, RUSHED_CLAN_LOOKUP_LIMIT)} fetched from ${snapshotMemberCount} stored members${failedLookups ? `; ${failedLookups} lookup failures` : ''}.`,
     });
 }
 
@@ -342,8 +357,8 @@ export function buildRushedEmbed(player: ClashPlayer): EmbedBuilder {
       truncateEmbedText(
         [
           `Likely rushed or incomplete units${townHall ? ` for TH ${townHall}` : ''}${builderHall ? ` / BH ${builderHall}` : ''}.`,
-          'First pass uses public API `maxLevel` values and does not include ClashPerk static previous-town-hall max tables yet.',
-          'This may include upgrades above the current hall level and should be treated as an incomplete-units summary.',
+          RUSHED_HEURISTIC_NOTE,
+          'This may include upgrades above the current hall level and should be treated as guidance, not a definitive rushed score.',
           `Incomplete: **${summary.incompleteUnits.toLocaleString('en-US')}/${summary.totalUnits.toLocaleString('en-US')}** units • **${incompletePercent}%** of API max levels remaining.`,
         ].join('\n'),
         EMBED_DESCRIPTION_LIMIT,
@@ -355,7 +370,7 @@ export function buildRushedEmbed(player: ClashPlayer): EmbedBuilder {
   if (summary.incompleteUnits === 0) {
     embed.addFields({
       name: 'Rushed Units',
-      value: 'No incomplete units found from API maxLevel values.',
+      value: `No incomplete units found from API maxLevel values. ${RUSHED_NO_DATA_GUIDANCE}`,
       inline: false,
     });
   }
