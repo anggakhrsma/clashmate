@@ -131,8 +131,12 @@ export async function autocompleteCategory(
     return;
   }
 
-  const categories = await options.store.listClanCategories(interaction.guildId);
-  await interaction.respond(filterCategoryChoices(categories, String(focused.value ?? '')));
+  try {
+    const categories = await options.store.listClanCategories(interaction.guildId);
+    await interaction.respond(filterCategoryChoices(categories, String(focused.value ?? '')));
+  } catch {
+    await interaction.respond([]);
+  }
 }
 
 async function executeCategory(
@@ -191,7 +195,8 @@ async function executeCategory(
     const rawDisplayName = interaction.options.getString('category_name');
     if (rawDisplayName === null) {
       await interaction.reply({
-        content: 'No category name was provided. Reorder UI is not available in ClashMate yet.',
+        content:
+          'Choose a new category name to rename this category. Category reordering is not available in ClashMate yet; `/category list` shows the current saved order.',
         ephemeral: true,
       });
       return;
@@ -204,15 +209,19 @@ async function executeCategory(
       });
       return;
     }
-    const category = await resolveCategory(
+    const categoryLookup = await resolveCategoryLookup(
       options.store,
       interaction.guildId,
       interaction.options.getString('category', true),
     );
-    if (!category) {
-      await interaction.reply({ content: 'No category matched that value.', ephemeral: true });
+    if (categoryLookup.status !== 'found') {
+      await interaction.reply({
+        content: formatCategoryLookupFailureMessage(categoryLookup.status),
+        ephemeral: true,
+      });
       return;
     }
+    const { category } = categoryLookup;
     if (
       normalizeCategoryName(category.displayName) === normalizeCategoryName(validation.displayName)
     ) {
@@ -230,15 +239,19 @@ async function executeCategory(
   }
 
   if (subcommand === 'delete') {
-    const category = await resolveCategory(
+    const categoryLookup = await resolveCategoryLookup(
       options.store,
       interaction.guildId,
       interaction.options.getString('category', true),
     );
-    if (!category) {
-      await interaction.reply({ content: 'No category matched that value.', ephemeral: true });
+    if (categoryLookup.status !== 'found') {
+      await interaction.reply({
+        content: formatCategoryLookupFailureMessage(categoryLookup.status),
+        ephemeral: true,
+      });
       return;
     }
+    const { category } = categoryLookup;
     const result = await options.store.deleteClanCategory({
       guildId: interaction.guildId,
       actorDiscordUserId: interaction.user.id,
@@ -286,17 +299,25 @@ export function filterCategoryChoices(
   query: string,
 ): ApplicationCommandOptionChoiceData<string>[] {
   const normalizedQuery = query.trim().toLowerCase();
-  return categories
+  const choices = categories
     .filter((category) => category.displayName.toLowerCase().includes(normalizedQuery))
     .slice(0, 25)
     .map((category) => ({ name: category.displayName, value: category.id }));
+  if (choices.length > 0 || normalizedQuery.length === 0) return choices;
+
+  return [{ name: 'No matching saved category', value: '__no_matching_category__' }];
 }
 
 export function formatCategoryList(categories: readonly CategoryRecord[]): string {
   const note =
-    'Only real stored categories are shown; synthetic General/Uncategorized choices are not listed.';
+    'Categories are saved per server and can be selected when linking clans. Synthetic General/Uncategorized choices are not listed.';
   if (categories.length === 0) {
-    return `Stored clan categories: 0\n${note}\nNo clan categories are configured for this server yet.`;
+    return [
+      'Stored clan categories: 0',
+      note,
+      'No clan categories are configured for this server yet.',
+      'Use `/category create` first, then assign the category when linking or updating a clan.',
+    ].join('\n');
   }
 
   const sortedCategories = [...categories].sort(compareCategoriesForList);
@@ -325,32 +346,63 @@ export async function resolveCategory(
   guildId: string,
   value: string,
 ): Promise<CategoryRecord | undefined> {
+  const result = await resolveCategoryLookup(store, guildId, value);
+  return result.status === 'found' ? result.category : undefined;
+}
+
+type CategoryLookupResult =
+  | { readonly status: 'found'; readonly category: CategoryRecord }
+  | { readonly status: 'no_categories' }
+  | { readonly status: 'not_found' };
+
+async function resolveCategoryLookup(
+  store: Pick<CategoryStore, 'listClanCategories'>,
+  guildId: string,
+  value: string,
+): Promise<CategoryLookupResult> {
   const categories = await store.listClanCategories(guildId);
+  if (categories.length === 0) return { status: 'no_categories' };
+
   const normalizedValue = normalizeCategoryName(value);
-  return categories.find(
+  const category = categories.find(
     (category) =>
       category.id === value || normalizeCategoryName(category.displayName) === normalizedValue,
   );
+  return category ? { status: 'found', category } : { status: 'not_found' };
+}
+
+function formatCategoryLookupFailureMessage(
+  status: Exclude<CategoryLookupResult['status'], 'found'>,
+): string {
+  if (status === 'no_categories') {
+    return 'No saved categories exist for this server yet. Use `/category create` before editing or deleting a category.';
+  }
+
+  return 'No saved category matched that value. Pick a category from autocomplete or run `/category list` to see available categories.';
 }
 
 export function formatCreateCategoryMessage(
   result: Awaited<ReturnType<CategoryStore['createClanCategory']>>,
 ): string {
-  if (result.status === 'duplicate') return 'A category with this name already exists.';
-  return `Category created: ${escapeMarkdown(result.category.displayName)}`;
+  if (result.status === 'duplicate') {
+    return 'A saved category with this name already exists for this server.';
+  }
+  return `Category created: ${escapeMarkdown(result.category.displayName)}. You can now use it when linking clans to this server.`;
 }
 
 export function formatUpdateCategoryMessage(
   result: Awaited<ReturnType<CategoryStore['updateClanCategory']>>,
 ): string {
-  if (result.status === 'duplicate') return 'A category with this name already exists.';
-  if (result.status === 'not_found') return 'No category matched that value.';
-  return `Category name was updated to ${escapeMarkdown(result.category.displayName)}.`;
+  if (result.status === 'duplicate') {
+    return 'A saved category with this name already exists for this server.';
+  }
+  if (result.status === 'not_found') return 'No saved category matched that value.';
+  return `Category name was updated to ${escapeMarkdown(result.category.displayName)}. Linked clans keep using this saved category.`;
 }
 
 export function formatDeleteCategoryMessage(
   result: Awaited<ReturnType<CategoryStore['deleteClanCategory']>>,
 ): string {
-  if (result.status === 'not_found') return 'No category matched that value.';
-  return `Successfully deleted category: ${escapeMarkdown(result.category.displayName)}`;
+  if (result.status === 'not_found') return 'No saved category matched that value.';
+  return `Successfully deleted category: ${escapeMarkdown(result.category.displayName)}. Linked clans assigned to it fall back to Uncategorized.`;
 }
