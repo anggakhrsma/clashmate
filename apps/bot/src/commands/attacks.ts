@@ -18,9 +18,13 @@ export const ATTACKS_NO_DATA_MESSAGE =
   'No attack or defense win data is available from the current public Clash API response for the scanned clan members.';
 
 const ATTACKS_FILTER_HELP_TEXT =
-  "Accepted clan filters: linked clan tag, saved alias, or exact linked clan name. The `user` filter uses one of that Discord user's linked players to pick a linked clan, then falls back to the first linked clan.";
-const ATTACKS_SOURCE_HELP_TEXT =
-  'Source: live public Clash API clan member list plus one player lookup per scanned member. Historical season archives are not available from the public API yet, so season choices currently label the request but still show current attack/defense wins.';
+  "Accepted clan filters: linked clan tag, saved alias, or exact linked clan name from this server's linked clans only. The `user` filter checks that Discord user's linked player tags against those linked clans, then falls back to the first linked clan.";
+const ATTACKS_SOURCE_HELP_TEXT = [
+  'Source: live public Clash API clan member list plus one player lookup per scanned member.',
+  'This is a one-off public API scan for the selected linked clan; it does not persist history or enroll the clan or players into polling.',
+  'Only the first 50 discovered clan members are scanned to limit API usage, and temporary rate limits or unavailable player profiles can produce partial results.',
+  'Historical season archives are not available from the public API yet, and ClashMate has no persisted attack-win history fallback, so season choices currently label the request but still show current attack/defense wins.',
+].join('\n');
 
 const MAX_PLAYER_FETCHES = 50;
 const EMBED_DESCRIPTION_LIMIT = 4096;
