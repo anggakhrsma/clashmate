@@ -8,7 +8,7 @@ import {
 } from 'discord.js';
 
 export const ALIAS_COMMAND_NAME = 'alias';
-export const ALIAS_COMMAND_DESCRIPTION = 'Manage aliases for linked clans.';
+export const ALIAS_COMMAND_DESCRIPTION = 'Create, delete or view clan aliases.';
 const MAX_ALIAS_LENGTH = 15;
 const MAX_ALIAS_LIST_LENGTH = 1900;
 
@@ -20,7 +20,7 @@ export const aliasCommandData = new SlashCommandBuilder()
   .addSubcommand((subcommand) =>
     subcommand
       .setName('create')
-      .setDescription('Create or update a linked clan alias.')
+      .setDescription('Creates a clan alias (short code or abbreviation) or clan nickname.')
       .addStringOption((option) =>
         option
           .setName('clan')
@@ -29,7 +29,10 @@ export const aliasCommandData = new SlashCommandBuilder()
           .setAutocomplete(true),
       )
       .addStringOption((option) =>
-        option.setName('alias_name').setDescription('Alias name.').setMaxLength(MAX_ALIAS_LENGTH),
+        option
+          .setName('alias_name')
+          .setDescription('Name of the alias.')
+          .setMaxLength(MAX_ALIAS_LENGTH),
       )
       .addStringOption((option) =>
         option
@@ -39,16 +42,16 @@ export const aliasCommandData = new SlashCommandBuilder()
       ),
   )
   .addSubcommand((subcommand) =>
-    subcommand.setName('list').setDescription('List linked clans with aliases.'),
+    subcommand.setName('list').setDescription('List all clan aliases.'),
   )
   .addSubcommand((subcommand) =>
     subcommand
       .setName('delete')
-      .setDescription('Delete a linked clan alias.')
+      .setDescription('Deletes a clan alias.')
       .addStringOption((option) =>
         option
           .setName('alias')
-          .setDescription('Alias, clan tag, or clan name.')
+          .setDescription('Tag of a clan or name of an alias')
           .setRequired(true)
           .setAutocomplete(true),
       ),
@@ -145,6 +148,11 @@ async function executeAlias(
 
   const clans = await options.store.listLinkedClans(interaction.guildId);
   if (subcommand === 'create') {
+    if (clans.length === 0) {
+      await interaction.reply({ content: formatNoLinkedClansMessage('create'), ephemeral: true });
+      return;
+    }
+
     const aliasInput =
       interaction.options.getString('alias_name') ?? interaction.options.getString('clan_nickname');
     const alias = parseAliasValue(aliasInput);
@@ -159,8 +167,29 @@ async function executeAlias(
     const clan = resolveAliasClan(clans, interaction.options.getString('clan', true));
     if (!clan) {
       await interaction.reply({
-        content:
-          'No linked clan matched that value. Aliases can only be created for clans already linked to this server.',
+        content: formatAliasLookupFailureMessage(
+          interaction.options.getString('clan', true),
+          'create',
+        ),
+        ephemeral: true,
+      });
+      return;
+    }
+
+    if (/^none$/i.test(alias.value)) {
+      const result = await options.store.clearAlias({
+        guildId: interaction.guildId,
+        actorDiscordUserId: interaction.user.id,
+        clanTag: clan.clanTag,
+      });
+      await interaction.reply({ content: formatClearAliasMessage(result), ephemeral: true });
+      return;
+    }
+
+    const duplicate = findDuplicateAlias(clans, clan.clanTag, alias.value);
+    if (duplicate) {
+      await interaction.reply({
+        content: `An alias with the name ${inlineCode(alias.value)} already exists for **${escapeDiscordText(duplicate.name)}** (${inlineCode(duplicate.clanTag)}). Delete or change that alias first.`,
         ephemeral: true,
       });
       return;
@@ -180,10 +209,18 @@ async function executeAlias(
   }
 
   if (subcommand === 'delete') {
+    if (clans.length === 0) {
+      await interaction.reply({ content: formatNoLinkedClansMessage('delete'), ephemeral: true });
+      return;
+    }
+
     const clan = resolveAliasClan(clans, interaction.options.getString('alias', true));
     if (!clan) {
       await interaction.reply({
-        content: 'No linked clan matched that alias, clan tag, or clan name.',
+        content: formatAliasLookupFailureMessage(
+          interaction.options.getString('alias', true),
+          'delete',
+        ),
         ephemeral: true,
       });
       return;
@@ -207,11 +244,15 @@ async function executeAlias(
 export type ParsedAliasValue =
   | { readonly status: 'valid'; readonly value: string }
   | { readonly status: 'blank' }
+  | { readonly status: 'hash_prefix' }
+  | { readonly status: 'whitespace' }
   | { readonly status: 'overlong'; readonly length: number; readonly maxLength: number };
 
 export function parseAliasValue(value: string | null): ParsedAliasValue {
   const trimmed = value?.trim();
   if (!trimmed) return { status: 'blank' };
+  if (trimmed.startsWith('#')) return { status: 'hash_prefix' };
+  if (/\s/u.test(trimmed)) return { status: 'whitespace' };
   if (trimmed.length > MAX_ALIAS_LENGTH) {
     return { status: 'overlong', length: trimmed.length, maxLength: MAX_ALIAS_LENGTH };
   }
@@ -279,10 +320,21 @@ export function formatAliasList(clans: readonly AliasTrackedClan[]): string {
   const header = [
     '**Clan Aliases**',
     `Linked clans: **${clans.length}** • Aliases: **${aliasedClans.length}**`,
-    'Aliases are stored only for clans linked to this server.',
+    'Aliases are saved to this server’s linked-clan configuration and audited with the user who changed them.',
   ];
+  if (clans.length === 0) {
+    return [
+      ...header,
+      '',
+      'No clans are linked to this server yet. Link a clan before creating aliases.',
+    ].join('\n');
+  }
   if (aliasedClans.length === 0) {
-    return [...header, '', 'No linked clan aliases are configured yet.'].join('\n');
+    return [
+      ...header,
+      '',
+      'No linked clan aliases are configured yet. Use `/alias create` with a linked clan to add one.',
+    ].join('\n');
   }
 
   const rows = aliasedClans.map(
@@ -298,6 +350,12 @@ export function formatInvalidAliasMessage(
   if (result.status === 'blank') {
     return 'Provide `alias_name` or `clan_nickname` with a non-blank alias.';
   }
+  if (result.status === 'hash_prefix') {
+    return 'A clan alias must not start with `#`. Use the clan option for clan tags and enter only the short alias name.';
+  }
+  if (result.status === 'whitespace') {
+    return 'A clan alias must not contain whitespace. Use a short code such as `main`, `mini`, or `war`.';
+  }
   return `Alias names can be at most ${result.maxLength} characters; your alias is ${result.length} characters.`;
 }
 
@@ -306,14 +364,38 @@ export function formatSetAliasMessage(
   alias: string,
 ): string {
   if (result.status === 'not_found') return 'That clan is no longer linked to this server.';
-  return `Set alias ${inlineCode(alias)} for **${escapeDiscordText(result.clan.name)}** (${inlineCode(result.clan.clanTag)}).`;
+  return `Clan alias or nickname updated: ${inlineCode(alias)} now points to **${escapeDiscordText(result.clan.name)}** (${inlineCode(result.clan.clanTag)}). This server configuration change was saved and audited.`;
 }
 
 export function formatClearAliasMessage(
   result: Awaited<ReturnType<AliasStore['clearAlias']>>,
 ): string {
   if (result.status === 'not_found') return 'That clan is no longer linked to this server.';
-  return `Cleared alias for **${escapeDiscordText(result.clan.name)}** (${inlineCode(result.clan.clanTag)}).`;
+  return `Successfully deleted the clan alias for **${escapeDiscordText(result.clan.name)}** (${inlineCode(result.clan.clanTag)}). This server configuration change was saved and audited.`;
+}
+
+function formatNoLinkedClansMessage(action: 'create' | 'delete'): string {
+  const verb = action === 'create' ? 'create aliases for' : 'delete aliases from';
+  return `No clans are linked to this server yet. Link a clan before using \`/alias ${action}\`; aliases can only ${verb} linked clans.`;
+}
+
+function formatAliasLookupFailureMessage(query: string, action: 'create' | 'delete'): string {
+  const value = inlineCode(query.trim() || query);
+  if (action === 'create') {
+    return `No linked clan matched ${value}. Aliases can only be created for clans already linked to this server; choose a linked clan from autocomplete or enter its exact tag.`;
+  }
+  return `No linked clan alias matched ${value}. Choose an existing alias from autocomplete, or enter the exact linked clan tag that currently has an alias.`;
+}
+
+function findDuplicateAlias(
+  clans: readonly AliasTrackedClan[],
+  clanTag: string,
+  alias: string,
+): AliasTrackedClan | undefined {
+  const normalizedAlias = alias.trim().toLowerCase();
+  return clans.find(
+    (clan) => clan.clanTag !== clanTag && clan.alias?.trim().toLowerCase() === normalizedAlias,
+  );
 }
 
 function formatAliasChoiceName(clan: AliasTrackedClan): string {
