@@ -52,16 +52,24 @@ export const summaryCommandData = new SlashCommandBuilder()
     addClansOption(subcommand.setName('clans').setDescription('Summarize linked clan snapshots.')),
   )
   .addSubcommand((subcommand) =>
-    addClansOption(subcommand.setName('donations').setDescription('Summarize donation snapshots.')),
-  )
-  .addSubcommand((subcommand) =>
-    addClansOption(
-      subcommand.setName('activity').setDescription('Summarize member activity snapshots.'),
+    addSeasonOption(
+      addClansOption(
+        subcommand.setName('donations').setDescription('Summarize donation snapshots.'),
+      ),
     ),
   )
   .addSubcommand((subcommand) =>
-    addClansOption(
-      subcommand.setName('attacks').setDescription('Summarize stored war attack history.'),
+    addSeasonOption(
+      addClansOption(
+        subcommand.setName('activity').setDescription('Summarize member activity snapshots.'),
+      ),
+    ),
+  )
+  .addSubcommand((subcommand) =>
+    addSeasonOption(
+      addClansOption(
+        subcommand.setName('attacks').setDescription('Summarize stored war attack history.'),
+      ),
     ),
   )
   .addSubcommand((subcommand) =>
@@ -123,7 +131,7 @@ function addClansOption(builder: SlashCommandSubcommandBuilder): SlashCommandSub
   return builder.addStringOption((option) =>
     option
       .setName('clans')
-      .setDescription('Linked clan tag, name, or alias.')
+      .setDescription('Clan tag or name or alias.')
       .setAutocomplete(true)
       .setRequired(false),
   );
@@ -567,6 +575,7 @@ export function buildSummaryClansPayload(
             value: `${clans.length} linked clans · ${totalMembers} observed members`,
             inline: false,
           },
+          sourceField('Current linked-clan rows with their latest persisted clan snapshots.'),
           coverageField(coverage),
         ),
     ],
@@ -598,7 +607,12 @@ export function buildSummaryBestPayload(
       new EmbedBuilder()
         .setTitle(order === 'asc' ? 'Lowest Donation Summary' : 'Best Donation Summary')
         .setDescription(truncate(formatDonationRows(sorted, clampSummaryLimit(limit))))
-        .addFields(coverageField(coverage))
+        .addFields(
+          sourceField(
+            'Current persisted member donation snapshots; season is accepted for parity but historical season donation snapshots are not stored yet.',
+          ),
+          coverageField(coverage),
+        )
         .setFooter({
           text: `Showing ${Math.min(sorted.length, clampSummaryLimit(limit))}/${sorted.length} members`,
         }),
@@ -638,6 +652,9 @@ export function buildSummaryDonationsPayload(
             value: `${donated} donated · ${received} received · ${members.length} members`,
             inline: false,
           },
+          sourceField(
+            'Current persisted member donation snapshots; season is accepted for parity but historical season donation snapshots are not stored yet.',
+          ),
           coverageField(coverage),
         ),
     ],
@@ -672,6 +689,9 @@ export function buildSummaryActivityPayload(
             value: `${members.length} observed members across ${snapshots.length} clans`,
             inline: false,
           },
+          sourceField(
+            'Current persisted member activity snapshots; season is accepted for parity but per-season activity history is not stored yet.',
+          ),
           coverageField(coverage),
         ),
     ],
@@ -711,6 +731,9 @@ export function buildSummaryAttacksPayload(
             value: `${totals.attacks} attacks · ${totals.stars} stars · ${totals.fresh} fresh hits · ${rows.length} attackers`,
             inline: false,
           },
+          sourceField(
+            'Persisted war attack history rows from tracked linked clans; season is accepted for parity and coverage but not used unless the stored history source is already season-scoped.',
+          ),
           coverageField(coverage),
         ),
     ],
@@ -970,6 +993,7 @@ export function buildSummaryCompoPayload(
             value: `${total} members · ${average.toFixed(2)} average TH`,
             inline: false,
           },
+          sourceField('Town hall levels from current persisted clan memberList snapshots.'),
           coverageField(coverage),
         ),
     ],
@@ -1073,6 +1097,10 @@ function coverageField(coverage: SummaryCoverageContext | undefined): {
     'persisted snapshots only; no live Clash API lookup',
   ];
   return { name: 'Coverage', value: parts.join(' · '), inline: false };
+}
+
+function sourceField(value: string): { name: string; value: string; inline: false } {
+  return { name: 'Source', value, inline: false };
 }
 
 function noDataMessage(subject: string, coverage: SummaryCoverageContext | undefined): string {
