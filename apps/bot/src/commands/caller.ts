@@ -5,6 +5,10 @@ export const CALLER_COMMAND_NAME = 'caller';
 export const CALLER_COMMAND_DESCRIPTION =
   'Assign or clear persisted war base calls from latest snapshots.';
 const MAX_CALLER_EXPIRY_HOURS = 720;
+const CALLER_PARITY_CONTEXT =
+  'Supported subcommands: `assign` and `clear`; accepted targets come from the latest persisted current-war roster snapshot for linked clans. Calls are saved by war/base until cleared or expired; `/caller` never performs live Clash API lookups.';
+const CALLER_POLLING_PREREQUISITE =
+  'Link a clan and let the war poller store a current-war snapshot before using `/caller`.';
 
 export interface CallerWarSnapshotRecord {
   readonly clanTag: string;
@@ -140,8 +144,7 @@ export function createCallerSlashCommand(options: CallerCommandOptions): SlashCo
       const entry = snapshots.map(toWarEntry).find((item): item is WarEntry => item !== null);
       if (!entry) {
         await interaction.reply({
-          content:
-            'No linked clan with a persisted current-war snapshot was found. `/caller` uses stored polling snapshots only; it does not perform a live lookup.',
+          content: formatNoWarSnapshotFeedback(snapshots),
           ephemeral: true,
         });
         return;
@@ -152,7 +155,7 @@ export function createCallerSlashCommand(options: CallerCommandOptions): SlashCo
       const defense = memberAt(entry.defenseMembers, defenseMapPosition);
       if (!defense) {
         await interaction.reply({
-          content: `Invalid defensive target #${defenseMapPosition}. Accepted defensive targets from the persisted snapshot: ${formatAcceptedTargets(entry.defenseMembers)}.`,
+          content: `Invalid defensive target #${defenseMapPosition}. Accepted defensive targets from the persisted current-war snapshot: ${formatAcceptedTargets(entry.defenseMembers)}. ${formatWarContext(entry)}`,
           ephemeral: true,
         });
         return;
@@ -169,8 +172,8 @@ export function createCallerSlashCommand(options: CallerCommandOptions): SlashCo
         });
         await interaction.reply({
           content: cleared
-            ? `Cleared call for **#${defenseMapPosition} ${formatName(defense)}**. ${formatWarContext(entry)}`
-            : `No persisted call existed for **#${defenseMapPosition} ${formatName(defense)}**. ${formatWarContext(entry)}`,
+            ? `Cleared persisted caller base for **#${defenseMapPosition} ${formatName(defense)}**. ${formatWarContext(entry)}`
+            : `No persisted caller base existed for **#${defenseMapPosition} ${formatName(defense)}**. ${formatWarContext(entry)}`,
           ephemeral: true,
         });
         return;
@@ -180,7 +183,7 @@ export function createCallerSlashCommand(options: CallerCommandOptions): SlashCo
       const offense = memberAt(entry.offenseMembers, offenseMapPosition);
       if (!offense) {
         await interaction.reply({
-          content: `Invalid offensive target #${offenseMapPosition}. Accepted offensive targets from the persisted snapshot: ${formatAcceptedTargets(entry.offenseMembers)}.`,
+          content: `Invalid offensive target #${offenseMapPosition}. Accepted offensive targets from the persisted current-war snapshot: ${formatAcceptedTargets(entry.offenseMembers)}. ${formatWarContext(entry)}`,
           ephemeral: true,
         });
         return;
@@ -214,7 +217,7 @@ export function createCallerSlashCommand(options: CallerCommandOptions): SlashCo
         actorDiscordUserId: interaction.user.id,
       });
       await interaction.reply({
-        content: `Assigned **#${offenseMapPosition} ${formatName(offense)}** to **#${defenseMapPosition} ${formatName(defense)}**. ${formatExpiryFeedback(expiresAt)} ${formatWarContext(entry)}`,
+        content: `Persisted caller base: **#${offenseMapPosition} ${formatName(offense)}** to **#${defenseMapPosition} ${formatName(defense)}**. ${formatExpiryFeedback(expiresAt)} ${formatWarContext(entry)}`,
         ephemeral: true,
       });
     },
@@ -296,9 +299,42 @@ function formatAcceptedTargets(members: readonly WarMember[]): string {
     : positions.map((position) => `#${position}`).join(', ');
 }
 
+function formatNoWarSnapshotFeedback(snapshots: readonly CallerWarSnapshotRecord[]): string {
+  if (!snapshots.length) {
+    return [
+      'No linked clan current-war snapshots were found for this server.',
+      CALLER_POLLING_PREREQUISITE,
+      CALLER_PARITY_CONTEXT,
+    ].join(' ');
+  }
+
+  const coverage = snapshots.slice(0, 5).map(formatSnapshotCoverage).join('; ');
+  const suffix = snapshots.length > 5 ? `; +${snapshots.length - 5} more` : '';
+  return [
+    'Linked clan snapshots exist, but none contain an active current-war roster that `/caller` can use.',
+    `Snapshot coverage: ${coverage}${suffix}.`,
+    'Ended wars, not-in-war states, and snapshots without both friendly and opponent map positions are ignored.',
+    CALLER_POLLING_PREREQUISITE,
+    CALLER_PARITY_CONTEXT,
+  ].join(' ');
+}
+
+function formatSnapshotCoverage(snapshot: CallerWarSnapshotRecord): string {
+  const clan = snapshot.trackedClan?.alias ?? snapshot.trackedClan?.name ?? snapshot.clanTag;
+  const war = readWar(snapshot.snapshot);
+  const state = war.state ?? snapshot.state;
+  const offenseCount = war.clan?.members?.length ?? 0;
+  const defenseCount = war.opponent?.members?.length ?? 0;
+  const fetched =
+    snapshot.fetchedAt instanceof Date
+      ? `, fetched ${time(snapshot.fetchedAt, TimestampStyles.RelativeTime)}`
+      : '';
+  return `${escapeMarkdown(clan)} (${escapeMarkdown(snapshot.clanTag)}): ${escapeMarkdown(state)}, ${offenseCount}/${defenseCount} roster${fetched}`;
+}
+
 function formatWarContext(entry: WarEntry): string {
   const fetched = entry.fetchedAt
     ? ` Snapshot fetched ${time(entry.fetchedAt, TimestampStyles.RelativeTime)}.`
     : '';
-  return `Context: ${escapeMarkdown(entry.clanLabel)}; war ${escapeMarkdown(entry.warKey)} (${escapeMarkdown(entry.state)}); roster ${entry.offenseMembers.length} offense / ${entry.defenseMembers.length} defense.${fetched} Persisted snapshots only.`;
+  return `Context: ${escapeMarkdown(entry.clanLabel)}; source latest persisted current-war snapshot; war ${escapeMarkdown(entry.warKey)} (${escapeMarkdown(entry.state)}); roster ${entry.offenseMembers.length} offense / ${entry.defenseMembers.length} defense; accepted defense ${formatAcceptedTargets(entry.defenseMembers)}, offense ${formatAcceptedTargets(entry.offenseMembers)}.${fetched} ${CALLER_PARITY_CONTEXT}`;
 }
