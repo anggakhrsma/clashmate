@@ -15,11 +15,11 @@ export const COMPO_COMMAND_DESCRIPTION = 'Show town hall composition for a linke
 export const COMPO_NO_LINKED_CLANS_MESSAGE =
   'No clans are linked to this server yet. Use `/setup clan` to link one.';
 export const COMPO_NO_DATA_MESSAGE =
-  'The current Clash API clan response does not include member town hall levels for this clan.';
+  'The current Clash API clan response does not include member town hall levels for this clan. Make sure the clan is linked with `/setup clan`, has visible members, and try again after Clash API data updates.';
 export const COMPO_NO_LINKED_PLAYERS_MESSAGE =
-  'That Discord user does not have any linked Clash accounts in this server.';
+  'That Discord user does not have any linked Clash accounts in this server. `/compo user:` only filters by Clash accounts linked in this server; use `/link create` first.';
 export const COMPO_NO_MATCHING_LINKED_CLAN_MESSAGE =
-  "None of that Discord user's linked Clash accounts were found in this server's linked clans.";
+  "None of that Discord user's linked Clash accounts were found in this server's linked clans. User filtering checks linked player tags against the selected server's linked-clan member lists and does not enroll new clans for polling.";
 
 export const compoCommandData = new SlashCommandBuilder()
   .setName(COMPO_COMMAND_NAME)
@@ -142,7 +142,10 @@ export async function executeCompo(
   }
 
   if (clanOption) {
-    await interaction.editReply({ content: 'No linked clan was found for that clan option.' });
+    await interaction.editReply({
+      content:
+        'No linked clan was found for that clan option. `/compo` only searches clans already linked to this server; use `/setup clan` before requesting composition.',
+    });
     return;
   }
 
@@ -162,7 +165,11 @@ export async function executeCompo(
       return;
     }
 
-    await replyWithCompo(interaction, userClan.clashClan);
+    await replyWithCompo(interaction, userClan.clashClan, {
+      source:
+        'Matched from this server’s linked Discord user accounts and linked-clan member lists, then read from the current Clash API clan response.',
+      filter: `${userOption.toString()} (${linkedPlayerTags.length} linked tag${linkedPlayerTags.length === 1 ? '' : 's'})`,
+    });
     return;
   }
 
@@ -194,6 +201,7 @@ async function replyWithSelectedClan(
 async function replyWithCompo(
   interaction: ChatInputCommandInteraction,
   clashClan: ClashClan,
+  context?: { readonly source?: string; readonly filter?: string },
 ): Promise<void> {
   const composition = collectTownHallComposition(clashClan.data);
   if (composition.length === 0) {
@@ -201,7 +209,7 @@ async function replyWithCompo(
     return;
   }
 
-  await interaction.editReply({ embeds: [buildCompoEmbed(clashClan, composition)] });
+  await interaction.editReply({ embeds: [buildCompoEmbed(clashClan, composition, context)] });
 }
 
 async function findClanForLinkedPlayerTags(
@@ -258,6 +266,7 @@ export function collectTownHallComposition(data: unknown): TownHallCompositionRo
 export function buildCompoEmbed(
   clan: Pick<ClashClan, 'name' | 'tag' | 'data'>,
   composition: readonly TownHallCompositionRow[],
+  context?: { readonly source?: string; readonly filter?: string },
 ): EmbedBuilder {
   const totalMembers = composition.reduce((total, row) => total + row.count, 0);
   const averageTownHall = totalMembers
@@ -269,11 +278,22 @@ export function buildCompoEmbed(
     .setAuthor({ name: `${clan.name} (${clan.tag})`, ...(badgeUrl ? { iconURL: badgeUrl } : {}) })
     .setTitle('Town Hall Composition')
     .setDescription(
-      composition
-        .map((row) => `**TH${row.townHallLevel}** — ${row.count.toLocaleString('en-US')}`)
-        .join('\n'),
+      [
+        '**Source**',
+        context?.source ??
+          'Selected from this server’s linked clans and read from the current Clash API clan response.',
+        'No persistent polling snapshot or manual refresh is created by `/compo`.',
+        `User filter: ${context?.filter ?? 'Not applied'}.`,
+        '',
+        '**Composition**',
+        ...composition.map(
+          (row) => `**TH${row.townHallLevel}** — ${row.count.toLocaleString('en-US')}`,
+        ),
+      ].join('\n'),
     )
-    .setFooter({ text: `Avg: ${averageTownHall.toFixed(2)} • Total: ${totalMembers}` });
+    .setFooter({
+      text: `Avg: ${averageTownHall.toFixed(2)} • Total: ${totalMembers} • Link clans with /setup clan`,
+    });
 
   if (badgeUrl) embed.setThumbnail(badgeUrl);
   return embed;

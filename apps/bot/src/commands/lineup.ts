@@ -181,7 +181,7 @@ async function executeLineup(
   const snapshots = await loadLineupSnapshots(interaction.guildId, options.store, clan);
   if (snapshots.length === 0) {
     await interaction.editReply(
-      `No persisted current-war snapshot is available${clan ? ` for ${formatTrackedClanName(clan)}` : ' for this server'}. Link/configure a clan and wait for war polling to store a snapshot; ${formatCode('/lineup')} does not perform a live Clash API lookup.`,
+      `No persisted current-war snapshot is available${clan ? ` for ${formatTrackedClanName(clan)}` : ' for this server'}. Link/configure a clan with ${formatCode('/setup clan')} and wait for the war poller to store a current-war snapshot; ${formatCode('/lineup')} does not perform a live Clash API lookup or refresh.`,
     );
     return;
   }
@@ -193,7 +193,7 @@ async function executeLineup(
 
   if (user && entries.length === 0) {
     await interaction.editReply(
-      `No readable persisted war snapshot includes linked player tags for ${user.toString()}${clan ? ` in ${formatTrackedClanName(clan)}` : ''}. User filtering checks stored war members only and does not refresh data live.`,
+      `No readable persisted current-war snapshot includes linked player tags for ${user.toString()}${clan ? ` in ${formatTrackedClanName(clan)}` : ''}. User filtering checks this server's linked player tags against stored war members only and does not refresh data live.`,
     );
     return;
   }
@@ -201,7 +201,7 @@ async function executeLineup(
   const entry = chooseLineupEntry(entries);
   if (!entry) {
     await interaction.editReply(
-      `No readable persisted war snapshot is available${clan ? ` for ${formatTrackedClanName(clan)}` : ' for this server'} yet. Please try again after the next war poll; no live Clash API lookup is performed.`,
+      `No readable persisted current-war snapshot is available${clan ? ` for ${formatTrackedClanName(clan)}` : ' for this server'} yet. Please try again after the next war poll; no live Clash API lookup or refresh is performed.`,
     );
     return;
   }
@@ -215,7 +215,7 @@ async function executeLineup(
     rows.length === 0
   ) {
     await interaction.editReply(
-      `No member lineup is available in the latest persisted war snapshot${clan ? ` for ${formatTrackedClanName(clan)}` : ''}. War state: ${formatWarState(normalizeWarState(entry.war.state ?? entry.snapshot.state))}.`,
+      `No member lineup is available in the latest persisted current-war snapshot${clan ? ` for ${formatTrackedClanName(clan)}` : ''}. War state: ${formatWarState(normalizeWarState(entry.war.state ?? entry.snapshot.state))}. Make sure war polling is enabled for a linked clan and wait for the next poll if war just started.`,
     );
     return;
   }
@@ -367,10 +367,26 @@ function readWarMembers(value: unknown): readonly WarMember[] {
 }
 
 function warIncludesPlayer(war: WarData, playerTags: readonly string[]): boolean {
-  const tags = new Set(playerTags.map((tag) => tag.trim().toUpperCase()));
-  return [war.clan, war.opponent].some((clan) =>
-    clan?.members?.some((member) => member.tag && tags.has(member.tag.trim().toUpperCase())),
+  const tags = new Set(
+    playerTags
+      .map((tag) => safeNormalizeClashTag(tag))
+      .filter((tag): tag is string => tag !== null),
   );
+  return [war.clan, war.opponent].some((clan) =>
+    clan?.members?.some((member) => {
+      if (!member.tag) return false;
+      const normalizedTag = safeNormalizeClashTag(member.tag);
+      return normalizedTag ? tags.has(normalizedTag) : false;
+    }),
+  );
+}
+
+function safeNormalizeClashTag(tag: string): string | null {
+  try {
+    return normalizeClashTag(tag);
+  } catch {
+    return null;
+  }
 }
 
 export function buildLineupRows(war: WarData, perspectiveClanTag: string): LineupRow[] {
@@ -410,8 +426,9 @@ export function buildLineupEmbed(
     `**${opponent?.name ?? 'Unknown Clan'} (${opponent?.tag ?? 'unknown'})**`,
     '',
     '**Source**',
-    `Persisted war snapshot fetched ${formatDiscordTimestamp(entry.snapshot.fetchedAt)}.`,
-    'No live Clash API lookup is performed by `/lineup`.',
+    `Persisted current-war snapshot for ${formatCode(trackedTag)} fetched ${formatDiscordTimestamp(entry.snapshot.fetchedAt)}.`,
+    'Snapshots are produced by the war poller for clans linked/configured in this server.',
+    'No live Clash API lookup or manual refresh is performed by `/lineup`.',
     '',
     '**War State**',
     formatWarState(warState),
