@@ -375,7 +375,8 @@ async function executeSetupList(
 
   if (!interaction.memberPermissions.has(PermissionFlagsBits.ManageGuild)) {
     await interaction.reply({
-      content: 'You need the Manage Server permission to use `/setup list`.',
+      content:
+        "You need the Discord Manage Server permission to use `/setup list` because it shows this server's saved ClashMate setup.",
       ephemeral: true,
     });
     return;
@@ -417,7 +418,8 @@ async function executeSetupClanLogs(
 
   if (!interaction.memberPermissions.has(PermissionFlagsBits.ManageGuild)) {
     await interaction.reply({
-      content: 'You need the Manage Server permission to use `/setup clan-logs`.',
+      content:
+        'You need the Discord Manage Server permission to use `/setup clan-logs` because it changes persisted log configuration for this server.',
       ephemeral: true,
     });
     return;
@@ -425,7 +427,8 @@ async function executeSetupClanLogs(
 
   if (!options.memberNotifications) {
     await interaction.reply({
-      content: 'Clan Join/Leave Log configuration is not available yet.',
+      content:
+        'Clan log configuration is not available in this ClashMate instance yet. Link clans with `/setup clan` now, then configure logs after the backing store is enabled.',
       ephemeral: true,
     });
     return;
@@ -449,7 +452,7 @@ async function executeSetupClanLogs(
     const disableLogHandler = getDisableLogHandler(options.memberNotifications, logType);
     if (!disableLogHandler) {
       await interaction.reply({
-        content: `${getClanLogLabel(logType)} configuration is not available yet.`,
+        content: formatUnavailableClanLogMessage(logType),
         ephemeral: true,
       });
       return;
@@ -470,7 +473,7 @@ async function executeSetupClanLogs(
   const channel = interaction.options.getChannel('channel') ?? interaction.channel;
   if (!channel) {
     await interaction.reply({
-      content: `Please choose a channel for the ${getClanLogLabel(logType)}.`,
+      content: `Please choose a channel for the ${getClanLogLabel(logType)}. ClashMate saves the selected channel as the delivery target for this server/clan log.`,
       ephemeral: true,
     });
     return;
@@ -479,7 +482,7 @@ async function executeSetupClanLogs(
   const configureLogHandler = getConfigureLogHandler(options.memberNotifications, logType);
   if (!configureLogHandler) {
     await interaction.reply({
-      content: `${getClanLogLabel(logType)} configuration is not available yet.`,
+      content: formatUnavailableClanLogMessage(logType),
       ephemeral: true,
     });
     return;
@@ -548,7 +551,8 @@ async function executeSetupClan(
 
   if (!interaction.memberPermissions.has(PermissionFlagsBits.ManageGuild)) {
     await interaction.reply({
-      content: 'You need the Manage Server permission to use `/setup clan`.',
+      content:
+        'You need the Discord Manage Server permission to use `/setup clan` because it changes linked clans, channel mappings, audit history, and polling enrollment for this server.',
       ephemeral: true,
     });
     return;
@@ -633,12 +637,12 @@ export function formatUnlinkChannelMessage(
   includeAcceptedFilterDetails = false,
 ): string {
   if (result.status === 'unlinked') {
-    return `Successfully unlinked **${result.clanName}** from <#${channelId}>.`;
+    return `Successfully unlinked **${result.clanName}** from <#${channelId}>. The clan remains linked to this server; only this channel mapping was removed.`;
   }
   if (includeAcceptedFilterDetails) {
-    return `No linked clan/channel matched the accepted channel filter <#${channelId}>.`;
+    return `No linked clan/channel matched the accepted channel filter <#${channelId}>. Choose a channel currently shown in \`/setup list\` or link one with \`/setup clan\`.`;
   }
-  return `No clans were found that are linked to <#${channelId}>.`;
+  return `No clans were found that are linked to <#${channelId}>. Choose a linked clan channel or add one with \`/setup clan\`.`;
 }
 
 export function formatUnlinkClanMessage(
@@ -646,12 +650,12 @@ export function formatUnlinkClanMessage(
   includeAcceptedFilterDetails = false,
 ): string {
   if (result.status === 'unlinked') {
-    return `Successfully unlinked **${result.clan.name} (${result.clan.clanTag})**.`;
+    return `Successfully unlinked **${result.clan.name} (${result.clan.clanTag})**. Saved channel/log configuration for this linked clan is removed with it, and polling enrollment will stop for this server if no other configuration needs it.`;
   }
   if (includeAcceptedFilterDetails) {
-    return 'No linked clan matched the accepted clan tag filter.';
+    return 'No linked clan matched the accepted clan tag filter. Use `/setup list` to review linked clans or `/setup clan` with a valid clan tag to link one.';
   }
-  return 'No clans were found on the server for the specified tag.';
+  return 'No clans were found on the server for the specified tag. Use `/setup list` to review linked clans or `/setup clan` to link this clan first.';
 }
 
 export function formatLinkClanMessage(
@@ -660,12 +664,12 @@ export function formatLinkClanMessage(
   channelId?: string,
 ): string {
   if (result.status === 'channel_conflict') {
-    return `<#${channelId}> is already linked to ${result.conflict.clanName} (${result.conflict.clanTag})`;
+    return `<#${channelId}> is already linked to ${result.conflict.clanName} (${result.conflict.clanTag}). The clan link/update was saved, but this channel mapping was not changed.`;
   }
 
   const channelText = result.channelLinked && channelId ? ` <#${channelId}>` : '';
   const categoryText = result.category ? ` with category **${result.category.displayName}**` : '';
-  return `Successfully linked **${result.clanName} (${result.clanTag})** to **${guildName}**${channelText}${categoryText}.`;
+  return `Successfully linked **${result.clanName} (${result.clanTag})** to **${guildName}**${channelText}${categoryText}. ClashMate will track only linked/configured resources for this server, and the change is recorded in audit/config storage.`;
 }
 
 export function formatSetupListMessage(
@@ -676,12 +680,12 @@ export function formatSetupListMessage(
   const filteredClans = filter ? filterSetupClans(clans, filter) : clans;
   if (clans.length === 0) {
     return [
-      'No clans are linked to this server. Use `/setup clan` to link a clan.',
-      'Polling note: only linked/configured resources are tracked.',
+      'No clans are linked to this server. Use `/setup clan` with a clan tag to link a clan before configuring logs or channels.',
+      'Source: saved ClashMate setup for this Discord server. Polling note: only linked/configured resources are tracked.',
     ].join('\n');
   }
   if (filteredClans.length === 0) {
-    return `No linked clans matched the accepted \`clans\` filter${filter ? ` \`${filter}\`` : ''}.`;
+    return `No linked clans matched the accepted \`clans\` filter${filter ? ` \`${filter}\`` : ''}. Try a clan tag, name, alias, or clear the filter to list all saved clans.`;
   }
 
   const categoryNames = new Map(categories.map((category) => [category.id, category.displayName]));
@@ -721,9 +725,9 @@ export function formatSetupListMessage(
       : 'no visible channel links';
   return [
     `Linked clans${suffix}: ${filteredClans.length}/${clans.length}`,
-    `Summary: ${categorySummary}; ${channelSummary}.`,
+    `Source: saved ClashMate setup for this Discord server. Summary: ${categorySummary}; ${channelSummary}.`,
     ...lines,
-    'Polling note: only linked/configured resources are tracked.',
+    'Polling note: only linked/configured resources are tracked; search-only lookups are not enrolled.',
   ].join('\n');
 }
 
@@ -750,48 +754,48 @@ export function formatConfigureJoinLeaveMessage(
   result: ConfigureClanMemberNotificationsResult,
 ): string {
   if (result.status === 'clan_not_linked') {
-    return 'That clan is not linked to this server. Use `/setup clan` first.';
+    return formatClanNotLinkedForLogsMessage();
   }
 
-  return `Enabled Join/Leave Log for **${result.clanName} (${result.clanTag})** in <#${result.discordChannelId}>.`;
+  return `Enabled Join/Leave Log for **${result.clanName} (${result.clanTag})** in <#${result.discordChannelId}>. This saves the log target for the linked clan; Discord delivery is produced by the worker when join/leave events are derived.`;
 }
 
 export function formatDisableJoinLeaveMessage(
   result: DisableClanMemberNotificationsResult,
 ): string {
   if (result.status === 'clan_not_linked') {
-    return 'That clan is not linked to this server. Use `/setup clan` first.';
+    return formatClanNotLinkedForLogsMessage();
   }
 
   if (result.status === 'not_configured') {
-    return `No Join/Leave Log is enabled for **${result.clanName} (${result.clanTag})**.`;
+    return `No Join/Leave Log is enabled for **${result.clanName} (${result.clanTag})**. Use \`/setup clan-logs\` with an action of Enable and a channel to turn it on.`;
   }
 
-  return `Disabled Join/Leave Log for **${result.clanName} (${result.clanTag})**.`;
+  return `Disabled Join/Leave Log for **${result.clanName} (${result.clanTag})**. The saved log target was removed for this linked clan.`;
 }
 
 export function formatConfigureWarAttackMessage(
   result: ConfigureClanMemberNotificationsResult,
 ): string {
   if (result.status === 'clan_not_linked') {
-    return 'That clan is not linked to this server. Use `/setup clan` first.';
+    return formatClanNotLinkedForLogsMessage();
   }
 
-  return `Enabled War Attack Log for **${result.clanName} (${result.clanTag})** in <#${result.discordChannelId}>.`;
+  return `Enabled War Attack Log for **${result.clanName} (${result.clanTag})** in <#${result.discordChannelId}>. This saves the log target for the linked clan; Discord delivery is produced by the worker when war attack events are derived.`;
 }
 
 export function formatDisableWarAttackMessage(
   result: DisableClanMemberNotificationsResult,
 ): string {
   if (result.status === 'clan_not_linked') {
-    return 'That clan is not linked to this server. Use `/setup clan` first.';
+    return formatClanNotLinkedForLogsMessage();
   }
 
   if (result.status === 'not_configured') {
-    return `No War Attack Log is enabled for **${result.clanName} (${result.clanTag})**.`;
+    return `No War Attack Log is enabled for **${result.clanName} (${result.clanTag})**. Use \`/setup clan-logs\` with an action of Enable and a channel to turn it on.`;
   }
 
-  return `Disabled War Attack Log for **${result.clanName} (${result.clanTag})**.`;
+  return `Disabled War Attack Log for **${result.clanName} (${result.clanTag})**. The saved log target was removed for this linked clan.`;
 }
 
 export function formatConfigureWarStateMessage(
@@ -975,4 +979,12 @@ function getClanLogLabel(logType: string): string {
   if (logType === 'role_change_log') return 'Role Change Log';
   if (logType === 'clan_games_log') return 'Clan Games Log';
   return 'Clan Log';
+}
+
+function formatClanNotLinkedForLogsMessage(): string {
+  return 'That clan is not linked to this server. Use `/setup clan` first so ClashMate can save guild-scoped config and enroll only linked/configured resources for polling.';
+}
+
+function formatUnavailableClanLogMessage(logType: string): string {
+  return `${getClanLogLabel(logType)} configuration is not available in this ClashMate instance yet. Use \`/setup list\` to review currently saved clans/channels and configure an available clan log type when its backing store is enabled.`;
 }
