@@ -11,10 +11,15 @@ import {
 
 export const ARMY_COMMAND_NAME = 'army';
 export const ARMY_COMMAND_DESCRIPTION = 'Share a Clash of Clans army copy link.';
-export const INVALID_ARMY_LINK_MESSAGE =
-  'Please provide a valid public Clash of Clans Copy Army link.';
+export const INVALID_ARMY_LINK_MESSAGE = [
+  'Please provide a valid public Clash of Clans Copy Army link.',
+  'Accepted format: `https://link.clashofclans.com/en?action=CopyArmy&army=...`',
+  'Open an army in Clash of Clans, use **Copy Link**, then paste that full link into `/army link:`.',
+].join('\n');
 
 const COPY_ARMY_HOST = 'link.clashofclans.com';
+const COPY_ARMY_PATH_REGEX = /^\/[a-z]{1,2}\/?$/i;
+const URL_IN_TEXT_REGEX = /https?:\/\/\S+/i;
 const MAX_FIELD_VALUE_LENGTH = 1024;
 const MAX_LIST_LINES = 20;
 const MAX_OVERVIEW_LINES = 8;
@@ -92,15 +97,19 @@ export async function executeArmy(
 }
 
 export function parseArmyLink(input: string): ParsedArmyLink | null {
+  const candidate = extractArmyUrlCandidate(input);
+  if (!candidate) return null;
+
   let url: URL;
   try {
-    url = new URL(input.trim());
+    url = new URL(candidate);
   } catch {
     return null;
   }
 
   if (!['https:', 'http:'].includes(url.protocol)) return null;
   if (url.hostname.toLowerCase() !== COPY_ARMY_HOST) return null;
+  if (!COPY_ARMY_PATH_REGEX.test(url.pathname)) return null;
   if (url.searchParams.get('action') !== 'CopyArmy') return null;
 
   const payload = url.searchParams.get('army');
@@ -110,6 +119,16 @@ export function parseArmyLink(input: string): ParsedArmyLink | null {
   if (!parsed) return null;
 
   return { url: url.toString(), ...parsed };
+}
+
+function extractArmyUrlCandidate(input: string): string | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+
+  const unwrapped =
+    trimmed.startsWith('<') && trimmed.endsWith('>') ? trimmed.slice(1, -1) : trimmed;
+  const match = URL_IN_TEXT_REGEX.exec(unwrapped);
+  return match?.[0]?.replace(/[)>.,!?]+$/, '') ?? null;
 }
 
 export function parseArmyPayload(payload: string): Omit<ParsedArmyLink, 'url'> | null {
@@ -180,6 +199,7 @@ export function buildArmyEmbed(input: {
         `Troops **${totals.troops}**`,
         `Spells **${totals.spells}**`,
         `Heroes **${totals.heroes}**`,
+        `Clan Castle **${totals.clanCastleTroops + totals.clanCastleSpells}**`,
       ].join(' • '),
     );
 
@@ -189,6 +209,11 @@ export function buildArmyEmbed(input: {
   addListField(embed, 'Heroes', formatHeroes(input.army.heroes));
   addListField(embed, 'Clan Castle Troops', formatUnits(input.army.clanCastleTroops));
   addListField(embed, 'Clan Castle Spells', formatUnits(input.army.clanCastleSpells));
+
+  addListField(embed, 'Limitations', [
+    'Parsed offline from the public Copy Army link; no Clash API lookup, storage, or polling enrollment is performed.',
+    'Unit names, Town Hall estimates, levels, and capacity validation are not available in this static view.',
+  ]);
 
   const tips = input.tips?.trim();
   if (tips) addListField(embed, 'Tips', [escapeMarkdown(tips)]);
