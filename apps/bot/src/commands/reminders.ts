@@ -24,11 +24,13 @@ const MAX_REMINDER_DURATION_MINUTES = 30 * 24 * 60;
 const MAX_MENTIONS = 40;
 const MAX_MESSAGE_LENGTH = 1_800;
 const STORAGE_ONLY_NOTE =
-  'Schedules use linked clans and polling snapshots only; there is no live Clash API fallback from this command.';
+  'Uses linked clans and persisted polling snapshots only; no live Clash API fallback or on-demand polling is started by this command.';
 const REMINDER_WORKER_NOTE =
   'The worker must be running with clan/player/war polling enabled for scheduled reminders and member mentions to stay current.';
 const SUPPORTED_REMINDER_TYPES_NOTE =
   'Supported schedule types: Clan Wars, Capital Raids, and Clan Games.';
+const MENTION_RESOLUTION_NOTE =
+  'Mentions resolve only for snapshot members linked to Discord users and are capped at 40 users.';
 
 const allowedReminderChannelTypes = [
   ChannelType.GuildText,
@@ -178,6 +180,7 @@ export interface RemindersLinkedClan {
 export interface RemindersMemberSnapshot {
   readonly playerTag: string;
   readonly name: string;
+  readonly lastFetchedAt?: Date | string;
 }
 
 export interface RemindersClanMemberSnapshots {
@@ -396,8 +399,9 @@ export async function executeReminders(
     await interaction.editReply({
       content:
         `No persisted member snapshot is available for ${formatClanLabel(clan)} yet. ` +
-        'Link/configure the clan, make sure polling is running, and wait for clan polling to store member snapshots. ' +
-        STORAGE_ONLY_NOTE,
+        `Schedule type: ${formatReminderType(interaction.options.getString('type', true))}. ` +
+        'Prerequisites: link/configure this clan and wait for clan polling to store member snapshots. ' +
+        `${formatSnapshotContext(snapshot ? [snapshot] : [])} ${MENTION_RESOLUTION_NOTE} ${STORAGE_ONLY_NOTE}`,
     });
     return;
   }
@@ -433,6 +437,7 @@ async function handleCreateReminder(
   const clanInputs = splitClanInputs(interaction.options.getString('clans', true));
   const scheduleClans = clanInputs.map((input) => toScheduleClan(input, clans));
   const unmatchedClanInputs = clanInputs.filter((input) => !resolveReminderClan(clans, input));
+  const snapshots = await listReminderSnapshotsForSchedule(interaction, options, scheduleClans);
   const schedule = await options.store.createReminderSchedule({
     guildId: interaction.guildId,
     guildName: interaction.guild.name,
@@ -466,7 +471,10 @@ async function handleCreateReminder(
       '. ' +
       formatUnmatchedClanWarning(unmatchedClanInputs) +
       `Exclude participant list: ${schedule.excludeParticipantList ? 'yes' : 'no'}. ` +
+      `${formatReminderPrerequisiteContext({ type: schedule.type, snapshots })} ` +
       STORAGE_ONLY_NOTE +
+      ' ' +
+      MENTION_RESOLUTION_NOTE +
       ' ' +
       REMINDER_WORKER_NOTE,
     ephemeral: true,
@@ -491,12 +499,13 @@ async function handleListReminders(
       (!clanFilter || schedule.clans.some((clan) => scheduleClanMatches(clan, clanFilter))),
   );
   const totalForType = settings.schedules.filter((schedule) => schedule.type === type).length;
+  const snapshots = await listReminderSnapshotsForSchedules(interaction, options, schedules);
 
   await interaction.reply({
     content:
       schedules.length === 0
-        ? `${formatReminderNoDataContext({ type, clanFilter, channelId, reminderId, totalForType })} ${STORAGE_ONLY_NOTE}`
-        : `${formatReminderList(schedules, compact)}\n\n${SUPPORTED_REMINDER_TYPES_NOTE} ${STORAGE_ONLY_NOTE} ${REMINDER_WORKER_NOTE}`,
+        ? `${formatReminderNoDataContext({ type, clanFilter, channelId, reminderId, totalForType })} ${formatReminderPrerequisiteContext({ type, snapshots })} ${STORAGE_ONLY_NOTE}`
+        : `${formatReminderList(schedules, compact)}\n\n${SUPPORTED_REMINDER_TYPES_NOTE} ${formatReminderPrerequisiteContext({ type, snapshots })} ${STORAGE_ONLY_NOTE} ${MENTION_RESOLUTION_NOTE} ${REMINDER_WORKER_NOTE}`,
     ephemeral: true,
   });
 }
@@ -790,6 +799,67 @@ function formatUnmatchedClanWarning(unmatchedClanInputs: readonly string[]): str
     unmatchedClanInputs.map(inlineCode).join(', ') +
     '. They were stored without Clash API lookup; link the clan or use an existing alias/tag for snapshot-backed delivery. '
   );
+}
+
+async function listReminderSnapshotsForSchedule(
+  interaction: ChatInputCommandInteraction<'cached'>,
+  options: RemindersCommandOptions,
+  clans: readonly ReminderScheduleClan[],
+): Promise<RemindersClanMemberSnapshots[]> {
+  const clanTags = Array.from(
+    new Set(clans.map((clan) => clan.clanTag).filter((tag): tag is string => Boolean(tag))),
+  );
+  if (clanTags.length === 0) return [];
+  const snapshots = await Promise.all(
+    clanTags.map((clanTag) =>
+      options.store.listClanMemberSnapshotsForGuild({ guildId: interaction.guildId, clanTag }),
+    ),
+  );
+  return snapshots.flat();
+}
+
+async function listReminderSnapshotsForSchedules(
+  interaction: ChatInputCommandInteraction<'cached'>,
+  options: RemindersCommandOptions,
+  schedules: readonly ReminderSchedule[],
+): Promise<RemindersClanMemberSnapshots[]> {
+  return listReminderSnapshotsForSchedule(
+    interaction,
+    options,
+    schedules.flatMap((schedule) => schedule.clans),
+  );
+}
+
+function formatReminderPrerequisiteContext(input: {
+  type: ReminderScheduleType;
+  snapshots: readonly RemindersClanMemberSnapshots[];
+}): string {
+  return (
+    `Prerequisites for ${formatReminderType(input.type)}: linked clan config plus current member snapshots from polling. ` +
+    formatSnapshotContext(input.snapshots)
+  );
+}
+
+function formatSnapshotContext(snapshots: readonly RemindersClanMemberSnapshots[]): string {
+  if (snapshots.length === 0) return 'Snapshot context: none available yet.';
+  const lines = snapshots.slice(0, 3).map((snapshot) => {
+    const latestFetchedAt = latestSnapshotFetchedAt(snapshot.members);
+    const latest = latestFetchedAt
+      ? formatDiscordTimestamp(latestFetchedAt.getTime(), 'R')
+      : 'unknown age';
+    return `${snapshot.clan.clanTag}: ${snapshot.members.length} members, latest ${latest}`;
+  });
+  const extra = snapshots.length > 3 ? `; +${snapshots.length - 3} clans` : '';
+  return `Snapshot context: ${lines.join('; ')}${extra}.`;
+}
+
+function latestSnapshotFetchedAt(members: readonly RemindersMemberSnapshot[]): Date | null {
+  const latestMs = members.reduce((latest, member) => {
+    if (!member.lastFetchedAt) return latest;
+    const timeMs = new Date(member.lastFetchedAt).getTime();
+    return Number.isNaN(timeMs) ? latest : Math.max(latest, timeMs);
+  }, 0);
+  return latestMs > 0 ? new Date(latestMs) : null;
 }
 
 function formatReminderNoDataContext(input: {
