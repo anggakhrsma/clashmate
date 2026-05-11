@@ -308,7 +308,7 @@ async function replyWithMembers(
     return;
   }
   await interaction.editReply({
-    embeds: [buildMembersEmbed(snapshots, filters.option, filters.user, filters.linkedClanCount)],
+    embeds: [buildMembersEmbed(snapshots, filters.option, filters.user, filters)],
   });
 }
 
@@ -364,12 +364,22 @@ export function buildMembersEmbed(
   snapshots: MembersClanSnapshots,
   option: MembersOption,
   user: User | null,
-  linkedClanCount = 1,
+  coverage?: MembersFilterContext,
 ): EmbedBuilder {
   const members = sortMembers(snapshots.members, option).slice(0, MAX_MEMBER_ROWS);
   const clanName = snapshots.clan.alias ?? snapshots.clan.name ?? 'Linked Clan';
   const limitation = formatMembersOptionLimitation(option);
   const latestFetchedAt = getLatestMemberSnapshotTime(snapshots.members);
+  const coverageContext =
+    coverage ??
+    ({
+      clan: snapshots.clan,
+      linkedClanCount: 1,
+      latestSnapshotAt: latestFetchedAt,
+      storedMemberRowCount: snapshots.members.length,
+      user,
+      option,
+    } satisfies MembersFilterContext);
   const embed = new EmbedBuilder()
     .setTitle(`${clanName} Members`)
     .setDescription(truncateEmbedDescription(formatMembersDescription(members, option)))
@@ -387,12 +397,13 @@ export function buildMembersEmbed(
     name: 'Coverage',
     value: [
       `View: ${formatMembersOptionLabel(option)}`,
-      `Linked clans in server: ${linkedClanCount}`,
-      `Rows considered: ${snapshots.members.length}`,
+      `Linked clans considered: ${coverageContext.linkedClanCount}`,
+      `Stored member rows considered: ${coverageContext.storedMemberRowCount}`,
       `Visible rows: ${members.length}`,
-      `Latest snapshot: ${formatLatestMemberSnapshot(latestFetchedAt)}`,
-      'Source: persisted clan-poller member snapshots only; no live Clash API lookup.',
+      `Latest snapshot: ${formatLatestMemberSnapshot(coverageContext.latestSnapshotAt)}`,
+      formatMembersClanFilterSummary(coverageContext.clan),
       formatMembersUserFilterSummary(user),
+      'Source: persisted clan-poller member snapshots only; no live Clash API lookup.',
     ].join('\n'),
     inline: false,
   });
@@ -410,6 +421,12 @@ function formatLatestMemberSnapshot(latestFetchedAt: Date | null): string {
 function formatMembersUserFilterSummary(user: User | null): string {
   if (!user) return 'User filter: not applied.';
   return `User filter: selected the first stored clan containing a linked tag for ${escapeMarkdown(user.displayName)}; rows remain clan-wide.`;
+}
+
+function formatMembersClanFilterSummary(clan: MembersLinkedClan | undefined): string {
+  if (!clan) return 'Clan filter: first linked clan with stored rows.';
+  const clanName = clan.alias ?? clan.name ?? clan.clanTag;
+  return `Clan filter: ${escapeMarkdown(clanName)} (${clan.clanTag}).`;
 }
 
 function formatMembersPollingPrerequisite(linkedClanCount: number): string {
