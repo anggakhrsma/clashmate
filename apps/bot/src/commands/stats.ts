@@ -353,6 +353,7 @@ export async function executeStats(
         days,
         season: seasonSince,
         parityFilters,
+        latestAttackAt: getLatestAttackAt(rows),
       }),
     });
     return;
@@ -385,7 +386,9 @@ async function replyWithStatsDefenseUnavailableEmbed(
   const starsOption = readStarsOption(interaction.options.getString('stars'));
   const attemptOption = readAttemptOption(interaction.options.getString('attempt'));
   const parityFilters = readStatsParityFilters(interaction);
+  const seasonSince = parseSeasonSince(parityFilters.season);
 
+  let clanTags: string[] | undefined;
   let clanLabel: string | undefined;
   if (clanOption) {
     const clan = resolveStatsClan(clans, clanOption);
@@ -393,6 +396,7 @@ async function replyWithStatsDefenseUnavailableEmbed(
       await interaction.editReply({ content: 'No linked clan was found for that clan option.' });
       return;
     }
+    clanTags = [clan.clanTag];
     clanLabel = `${clan.alias ?? clan.name ?? 'Linked Clan'} (${clan.clanTag})`;
   }
 
@@ -405,6 +409,13 @@ async function replyWithStatsDefenseUnavailableEmbed(
     }
   }
 
+  const attackRows = await options.store.listWarAttackHistoryForGuild({
+    guildId: interaction.guildId,
+    ...(clanTags ? { clanTags } : {}),
+    ...(playerTags ? { attackerTags: playerTags } : {}),
+    ...(seasonSince ? { since: seasonSince } : {}),
+  });
+
   await interaction.editReply({
     embeds: [
       buildStatsDefenseUnavailableEmbed({
@@ -414,6 +425,8 @@ async function replyWithStatsDefenseUnavailableEmbed(
         starsOption,
         attemptOption,
         parityFilters,
+        attackRowsConsidered: attackRows.length,
+        latestAttackAt: getLatestAttackAt(attackRows),
       }),
     ],
   });
@@ -554,6 +567,8 @@ function buildStatsDefenseUnavailableEmbed(input: {
   readonly starsOption: StarsOption | null;
   readonly attemptOption: AttemptOption | null;
   readonly parityFilters: StatsParityFilters;
+  readonly attackRowsConsidered: number;
+  readonly latestAttackAt: Date | null;
 }): EmbedBuilder {
   const filterLabels = formatStatsDefenseFilterLabels(input);
   const embed = new EmbedBuilder()
@@ -562,14 +577,13 @@ function buildStatsDefenseUnavailableEmbed(input: {
     .addFields(
       {
         name: 'Source & coverage',
-        value:
-          'This response does not query the Clash API or live war state. Persisted defense history is not stored yet, so 0 defense rows are available/visible for rankings or totals. Clan and user filters are validated against linked ClashMate configuration only.',
+        value: `This response does not query the Clash API or live war state. Persisted defense events are not stored yet, so 0 defense rows are available/visible for rankings or totals. Stored attack rows matching validated clan/user/season context: ${input.attackRowsConsidered}; latest stored attack: ${formatLatestAttackAge(input.latestAttackAt)}.`,
         inline: false,
       },
       {
         name: 'Limitations',
         value:
-          'Accepted filters are echoed for parity and troubleshooting only; they cannot produce defense stats until defense events are persisted.',
+          'Accepted stars/type/attempt/day-style parity filters are echoed for troubleshooting only; they cannot produce defense stats until defense events are persisted. `/stats defense` has no live fallback, historical backfill, or on-demand polling.',
         inline: false,
       },
       {
@@ -713,6 +727,7 @@ function buildStatsNoAttackEventsMessage(input: {
   readonly days: number | null;
   readonly season: Date | null;
   readonly parityFilters: StatsParityFilters;
+  readonly latestAttackAt: Date | null;
 }): string {
   const filters = [
     ...formatStatsAppliedFilterLabels(input),
@@ -724,7 +739,18 @@ function buildStatsNoAttackEventsMessage(input: {
     input.rowsConsidered > 0
       ? 'Try removing the user/clan/time/attempt filters or choose a wider season/days window; some accepted parity labels are echoed but cannot narrow aggregate rows yet.'
       : 'Link/configure a clan in this server, make sure the user has linked players when using the user filter, let the war poller observe wars for the linked clan, and wait for war attack events to be persisted.';
-  return `${STATS_NO_ATTACK_EVENTS_MESSAGE} Source: persisted war attack events for linked/configured clans only; no live Clash API lookup, search, or historical backfill is performed. Rows considered: ${input.rowsConsidered}.${filterText} ${nextHint}`;
+  return `${STATS_NO_ATTACK_EVENTS_MESSAGE} Source: persisted war attack events for linked/configured clans only; no live Clash API lookup, search, historical backfill, or on-demand polling is performed. Rows considered: ${input.rowsConsidered}; latest stored attack: ${formatLatestAttackAge(input.latestAttackAt)}.${filterText} ${nextHint}`;
+}
+
+function getLatestAttackAt(rows: readonly StatsWarAttackHistoryRow[]): Date | null {
+  return rows.reduce<Date | null>((latest, row) => {
+    if (!latest || row.lastAttackedAt.getTime() > latest.getTime()) return row.lastAttackedAt;
+    return latest;
+  }, null);
+}
+
+function formatLatestAttackAge(value: Date | null): string {
+  return value ? time(value, 'R') : 'none available';
 }
 
 function buildStatsFooter(
