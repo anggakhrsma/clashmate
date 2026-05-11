@@ -77,6 +77,8 @@ const MAX_WAR_ATTACK_STARS = 3;
 const MAX_DESTRUCTION_PERCENTAGE = 100;
 const MAX_WAR_ATTACK_DURATION_SECONDS = 3600;
 const MAX_MISSED_WAR_ATTACKS_AVAILABLE = 10;
+const CLAN_GAMES_NOTIFICATION_EVENT_TYPES = ['progress_delta', 'completed'] as const;
+const REMINDER_NOTIFICATION_TYPES = ['clan-wars', 'capital-raids', 'clan-games'] as const;
 
 interface ResolvedNotificationDeliveryIterationOptions {
   readonly batchSize: number;
@@ -676,7 +678,7 @@ function parseClanGamesNotificationPayload(payload: unknown): {
   const record = payload as Record<string, unknown>;
   const clanTag = readPayloadString(record, 'clanTag');
   const seasonId = readPayloadString(record, 'seasonId');
-  const eventType = readPayloadString(record, 'eventType');
+  const eventType = readPayloadEnum(record, 'eventType', CLAN_GAMES_NOTIFICATION_EVENT_TYPES);
   const playerTag = readPayloadString(record, 'playerTag');
   const playerName = readPayloadString(record, 'playerName');
   const previousPoints = readNullablePayloadIntegerInRange(
@@ -873,13 +875,10 @@ function parseReminderNotificationPayload(payload: unknown): {
     throw new Error('Notification payload must be an object.');
   }
   const record = payload as Record<string, unknown>;
-  const { mentionUserIds: rawMentionUserIds } = record;
-  const mentionUserIds = Array.isArray(rawMentionUserIds)
-    ? rawMentionUserIds.filter((value): value is string => typeof value === 'string')
-    : [];
+  const mentionUserIds = readPayloadStringArray(record, 'mentionUserIds');
   return {
     scheduleId: readPayloadString(record, 'scheduleId'),
-    type: readPayloadString(record, 'type'),
+    type: readPayloadEnum(record, 'type', REMINDER_NOTIFICATION_TYPES),
     duration: readPayloadString(record, 'duration'),
     content: readPayloadString(record, 'content'),
     mentionUserIds,
@@ -914,6 +913,34 @@ function readPayloadString(record: Record<string, unknown>, key: string): string
     throw new Error(`Notification payload requires ${key}.`);
   }
   return value.trim();
+}
+
+function readPayloadEnum<const TValue extends string>(
+  record: Record<string, unknown>,
+  key: string,
+  allowedValues: readonly TValue[],
+): TValue {
+  const value = readPayloadString(record, key);
+  if (!allowedValues.includes(value as TValue)) {
+    throw new Error(
+      `Notification payload requires ${key} to be one of: ${allowedValues.join(', ')}.`,
+    );
+  }
+  return value as TValue;
+}
+
+function readPayloadStringArray(record: Record<string, unknown>, key: string): readonly string[] {
+  const value = record[key];
+  if (!Array.isArray(value)) {
+    throw new Error(`Notification payload requires ${key} to be an array of strings.`);
+  }
+
+  return value.map((item, index) => {
+    if (typeof item !== 'string' || !item.trim()) {
+      throw new Error(`Notification payload requires ${key}[${index}] to be a non-empty string.`);
+    }
+    return item.trim();
+  });
 }
 
 function readOptionalPayloadString(record: Record<string, unknown>, key: string): string | null {

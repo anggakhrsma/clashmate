@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   computeNotificationDeliveryLoopDelayMs,
   computeNotificationRetryAt,
+  formatDiscordNotificationMessage,
   formatNotificationOutboxMessage,
   runNotificationDeliveryIteration,
 } from './notification-delivery-loop.js';
@@ -118,6 +119,160 @@ describe('notification delivery loop', () => {
       }),
     ).toBe(
       '🎁 **Chief (#PLAYER)** donated **10** troops and received **6** troops in clan **#ABC123**.',
+    );
+  });
+
+  it('formats role change rich notifications without undefined text', () => {
+    const message = formatDiscordNotificationMessage({
+      sourceType: 'clan_role_change_event',
+      payload: {
+        clanTag: '#ABC123',
+        playerTag: '#PLAYER',
+        playerName: 'Chief',
+        previousRole: null,
+        currentRole: 'leader',
+      },
+    });
+
+    expect(message.content).toBe('👑 Role Change');
+    expect(JSON.stringify(message)).not.toContain('undefined');
+    expect(message.embeds?.[0]?.description).toBe('Chief (#PLAYER)');
+    expect(message.embeds?.[0]?.fields).toContainEqual({
+      name: 'Previous Role',
+      value: 'none',
+      inline: true,
+    });
+  });
+
+  it('formats clan games rich notifications without undefined text', () => {
+    const message = formatDiscordNotificationMessage({
+      sourceType: 'clan_games_event',
+      payload: {
+        clanTag: '#ABC123',
+        seasonId: '2026-05',
+        eventType: 'progress_delta',
+        playerTag: '#PLAYER',
+        playerName: 'Chief',
+        previousPoints: 1000,
+        currentPoints: 1500,
+        pointsDelta: 500,
+        eventMaxPoints: 4000,
+      },
+    });
+
+    expect(message.content).toBe('🎯 Clan Games Update');
+    expect(JSON.stringify(message)).not.toContain('undefined');
+    expect(message.embeds?.[0]?.description).toBe('Chief Clan Games progress_delta');
+    expect(message.embeds?.[0]?.fields).toContainEqual({
+      name: 'Progress',
+      value: '1,500/4,000',
+      inline: true,
+    });
+  });
+
+  it('formats reminder rich notifications with strict mention ids', () => {
+    const message = formatDiscordNotificationMessage({
+      sourceType: 'reminder_schedule',
+      payload: {
+        scheduleId: 'schedule-1',
+        type: 'clan-games',
+        duration: '1h',
+        content: 'Clan Games reminder',
+        mentionUserIds: ['123', '456'],
+      },
+    });
+
+    expect(message).toEqual({
+      content: 'Clan Games reminder',
+      allowedUserIds: ['123', '456'],
+    });
+    expect(JSON.stringify(message)).not.toContain('undefined');
+  });
+
+  it('fails before sending malformed role, clan games, and reminder payloads', async () => {
+    const deliveryStore = createDeliveryStore();
+    vi.mocked(deliveryStore.claimDueNotificationOutboxEntries).mockResolvedValue([
+      {
+        id: 'role-outbox',
+        guildId: 'guild-1',
+        sourceType: 'clan_role_change_event',
+        sourceId: 'event-1',
+        targetType: 'discord_channel',
+        targetId: 'channel-1',
+        attempts: 0,
+        payload: {
+          clanTag: '#ABC123',
+          playerTag: '#PLAYER',
+          playerName: 'Chief',
+          previousRole: 'member',
+          currentRole: 'member',
+        },
+      },
+      {
+        id: 'games-outbox',
+        guildId: 'guild-1',
+        sourceType: 'clan_games_event',
+        sourceId: 'event-2',
+        targetType: 'discord_channel',
+        targetId: 'channel-1',
+        attempts: 0,
+        payload: {
+          clanTag: '#ABC123',
+          seasonId: '2026-05',
+          eventType: 'unknown',
+          playerTag: '#PLAYER',
+          playerName: 'Chief',
+          previousPoints: 0,
+          currentPoints: 100,
+          pointsDelta: 100,
+          eventMaxPoints: 4000,
+        },
+      },
+      {
+        id: 'reminder-outbox',
+        guildId: 'guild-1',
+        sourceType: 'reminder_schedule',
+        sourceId: 'event-3',
+        targetType: 'discord_channel',
+        targetId: 'channel-1',
+        attempts: 0,
+        payload: {
+          scheduleId: 'schedule-1',
+          type: 'clan-games',
+          duration: '1h',
+          content: 'Reminder',
+          mentionUserIds: ['123', undefined],
+        },
+      },
+    ]);
+    const sender = {
+      sendChannelMessage: vi.fn().mockResolvedValue(undefined),
+      sendDiscordNotificationMessage: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const result = await runNotificationDeliveryIteration({
+      deliveryStore,
+      sender,
+      ownerId: 'worker-1',
+      interval: { baseSeconds: 1, jitterSeconds: 0 },
+    });
+
+    expect(result).toMatchObject({ claimed: 3, sent: 0, failed: 3 });
+    expect(sender.sendDiscordNotificationMessage).not.toHaveBeenCalled();
+    expect(sender.sendChannelMessage).not.toHaveBeenCalled();
+    expect(deliveryStore.markNotificationOutboxFailed).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(deliveryStore.markNotificationOutboxFailed).mock.calls[0]?.[0].error).toEqual(
+      expect.objectContaining({ message: 'Clan role change notification requires different roles.' }),
+    );
+    expect(vi.mocked(deliveryStore.markNotificationOutboxFailed).mock.calls[1]?.[0].error).toEqual(
+      expect.objectContaining({
+        message: 'Notification payload requires eventType to be one of: progress_delta, completed.',
+      }),
+    );
+    expect(vi.mocked(deliveryStore.markNotificationOutboxFailed).mock.calls[2]?.[0].error).toEqual(
+      expect.objectContaining({
+        message: 'Notification payload requires mentionUserIds[1] to be a non-empty string.',
+      }),
     );
   });
 
