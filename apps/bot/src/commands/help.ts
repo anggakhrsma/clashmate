@@ -87,8 +87,9 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     details: [
       'Requires Manage Server permission or a configured bot manager role for configuration changes.',
       'Stores role IDs and behavior flags in guild settings with audit logs.',
-      '`/autorole refresh` returns an ephemeral snapshot-backed dry-run preview with candidate actions where stored mappings and linked-clan member snapshots allow it.',
-      'Does not mutate Discord roles or nicknames, call the Clash API, or enroll polling; full Discord role reconciliation remains future work.',
+      '`/autorole refresh` returns an ephemeral snapshot-backed dry-run preview unless explicitly run with `is_test_run:false`.',
+      'Explicit non-test refreshes can apply manageable configured Discord roles from stored snapshots; nickname changes are not part of autorole, and unsafe role targets are skipped.',
+      'Does not call the Clash API or enroll polling during command execution.',
     ],
   },
   {
@@ -359,7 +360,7 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
       'Reads persisted donation delta, war attack, clan member join/leave, and Clan Games snapshot history for linked clans without querying the Clash API.',
       'CWL attacks reuse stored war attack history with approximate CWL-only classification until separate CWL metadata is stored.',
       'Unsupported filters return honest no-data embeds that echo accepted clan, player, user, season, and date context where applicable.',
-      'Capital raids, capital contribution, loot, Legend attacks, EOS trophies, and multiplayer attacks remain unavailable until those snapshots are stored.',
+      'Capital contribution, loot, Legend attacks, EOS trophies, and multiplayer attacks are stored snapshot-backed views when linked-clan member snapshots exist; raid-week logs, Legend day timelines, and true EOS trophy time series remain limited.',
     ],
   },
   {
@@ -426,7 +427,7 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     details: [
       'Requires Manage Server permission.',
       'Supported placeholders: `{NAME}`, `{CLAN}`, `{ALIAS}`, `{TH}`, and `{ROLE}`.',
-      'Stores preferences only; Discord nickname mutation and autorole refresh are not implemented yet.',
+      'Stores preferences and previews reconciliation; this command can change only the invoking member when explicitly requested and every Discord safety check passes. Broad/background nickname mutation remains safety-gated.',
     ],
   },
   {

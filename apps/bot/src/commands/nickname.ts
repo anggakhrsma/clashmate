@@ -12,7 +12,7 @@ export const NICKNAME_COMMAND_DESCRIPTION = 'Manage automatic nickname settings.
 export const NICKNAME_FIRST_PASS_NOTE =
   'ClashMate stores these server nickname preferences and previews nickname reconciliation for the invoking member only. It changes your nickname only when `change_nicknames` is set to `Yes` in this invocation and every safety check passes.';
 export const NICKNAME_REFRESH_NOTE =
-  'Automatic nickname refresh is not enabled yet because ClashMate does not currently run the member refresh job that safely applies stored preferences to Discord members.';
+  'Stored nickname preferences can be planned for background reconciliation, but broad Discord nickname mutation remains safety-gated; this command only changes the invoking member when explicitly requested and all checks pass.';
 export const DISCORD_NICKNAME_MAX_LENGTH = 32;
 export const SUPPORTED_NICKNAME_PLACEHOLDERS = [
   '{NAME}',
@@ -248,8 +248,8 @@ export function buildNicknameConfigEmbed(
           view.changeNicknames === null
             ? 'Not set'
             : view.changeNicknames === 'true'
-              ? 'Yes — stored preference only; no Discord nickname update is run yet.'
-              : 'No — stored preference only.',
+              ? 'Yes — stored preference saved; this invocation can update only the invoking member when all safety checks pass.'
+              : 'No — stored preference saved; nickname updates stay disabled.',
         inline: true,
       },
       {
@@ -479,8 +479,8 @@ function formatNicknamePreview(view: NicknameConfigView): string {
   ].filter((line) => line !== null);
 
   return previews.length > 0
-    ? `${previews.join('\n')}\nPreview only: no Discord nicknames are changed, and no live Clash API lookup is made.`
-    : 'Set a nickname format to see an example. Preview only: no Discord nicknames are changed, and no live Clash API lookup is made.';
+    ? `${previews.join('\n')}\nPreview source only: no live Clash API lookup is made. Nickname mutation is limited to explicit safe invocations.`
+    : 'Set a nickname format to see an example. Preview source only: no live Clash API lookup is made; nickname mutation is limited to explicit safe invocations.';
 }
 
 function formatPreviewLine(label: string, format: string | null): string | null {

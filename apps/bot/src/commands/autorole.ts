@@ -14,13 +14,13 @@ import {
 export const AUTOROLE_COMMAND_NAME = 'autorole';
 export const AUTOROLE_COMMAND_DESCRIPTION = 'Configure automatic role mappings.';
 export const AUTOROLE_FIRST_PASS_NOTE =
-  'ClashMate stores autorole configuration only. Automated Discord role assignment and refresh are not implemented yet.';
+  'ClashMate stores autorole configuration and can plan snapshot-backed reconciliation. Discord role mutation is safety-gated to explicit refresh runs and permission/hierarchy checks.';
 const AUTOROLE_INCLUDED_GROUPS_NOTE =
   'Included groups: clan roles, Town Hall, leagues/trophy ranges, and family/guest/verified roles.';
 const AUTOROLE_EXCLUDED_GROUPS_NOTE =
   'Excluded groups: builder hall, builder leagues, wars, and EOS push roles are intentionally not supported in ClashMate.';
 const AUTOROLE_DATA_SOURCE_NOTE =
-  'Future refreshes will use linked Discord accounts, linked clans, and persisted clan/member snapshots from polling. This command does not call the live Clash API as a fallback.';
+  'Refresh planning uses linked Discord accounts, linked clans, and persisted clan/member snapshots from polling. This command does not call the live Clash API as a fallback.';
 
 const TOWN_HALL_LEVELS = Array.from({ length: 17 }, (_, index) => index + 1);
 const PLAYER_LEAGUES = [
@@ -759,7 +759,7 @@ export function buildAutoroleSettingsEmbed(
           `Town Hall roles: ${counts.townHallRoles}`,
           `League/trophy roles: ${counts.leagueRoles}`,
           `Family roles: ${counts.familyRoles}`,
-          'No Discord role or nickname changes are made by this first-pass preview.',
+          'Discord role changes require an explicit non-test refresh and still skip unsafe or unmanageable targets; nickname changes are not part of autorole refresh.',
         ].join('\n'),
         inline: false,
       },
@@ -804,7 +804,7 @@ export function buildAutoroleRefreshPreviewEmbed(
     .setColor(0x5865f2)
     .setTitle('Autorole Refresh Preview')
     .setDescription(
-      'Dry run only: ClashMate did not change Discord roles or nicknames. Autorole mutation is not implemented yet.',
+      'Dry run only: ClashMate did not change Discord roles or nicknames. Role mutation is safety-gated to explicit non-test refresh runs.',
     )
     .addFields(
       {
@@ -999,7 +999,7 @@ export function buildAutoroleRefreshPlan(
       'Stored clan and member snapshots already collected by polling.',
       'Saved clan, Town Hall, league/trophy, and family role mappings above.',
       'No live Clash API fallback is used by this preview.',
-      'Discord member fetching and current-role reconciliation are not implemented yet.',
+      'Discord member fetching and current-role reconciliation run only for explicit non-test refreshes and still honor permission/hierarchy safety checks.',
     ],
     actionabilityNotes: formatRefreshActionability(counts, snapshotCoverage),
   };
@@ -1233,7 +1233,7 @@ function formatRefreshActionability(
     notes.push('Linked clan snapshots exist, but they do not contain members yet.');
   } else {
     notes.push(
-      `Refresh planning can evaluate ${coverage.distinctPlayerCount} distinct player snapshot${coverage.distinctPlayerCount === 1 ? '' : 's'} once role mutation is implemented.`,
+      `Refresh planning can evaluate ${coverage.distinctPlayerCount} distinct player snapshot${coverage.distinctPlayerCount === 1 ? '' : 's'}; actual Discord role mutation remains gated by explicit non-test refresh and safety checks.`,
     );
   }
   return notes;

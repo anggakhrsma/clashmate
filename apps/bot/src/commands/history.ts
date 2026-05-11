@@ -22,17 +22,17 @@ export const HISTORY_NO_JOIN_LEAVE_EVENTS_MESSAGE =
 export const HISTORY_NO_CLAN_GAMES_EVENTS_MESSAGE =
   'No persisted Clan Games snapshots match the selected filters yet. Link/configure the clan for this server and wait for Clan Games polling snapshots before retrying.';
 export const HISTORY_NO_CAPITAL_RAIDS_EVENTS_MESSAGE =
-  'Capital raid-week attack logs are not persisted yet. Showing current linked-clan capital snapshot rankings only when stored clan snapshots are available.';
+  'Capital raid-week attack logs are still limited because raid-week time-series logs are not persisted. `/history capital-raids` shows current linked-clan capital snapshot rankings when stored clan snapshots are available.';
 export const HISTORY_NO_CAPITAL_CONTRIBUTION_EVENTS_MESSAGE =
-  'Capital contribution history is not available yet because contribution time-series snapshots are not persisted. For current snapshot-backed Capital views, use `/capital` or `/summary capital-contribution`.';
+  'Capital contribution uses linked-clan member snapshots when available; raid-week contribution time series remain limited. Link/configure the clan and wait for member snapshots, or use `/capital` for current Capital views.';
 export const HISTORY_NO_ATTACKS_EVENTS_MESSAGE =
-  'Multiplayer attack/defense history is not available yet because seasonal attack-win snapshots are not persisted. Use `war-attacks` for stored war attack history.';
+  'Multiplayer attacks uses linked-clan member snapshots when available; true seasonal attack/defense time series remain limited. Use `war-attacks` for stored war attack history.';
 export const HISTORY_NO_LOOT_EVENTS_MESSAGE =
-  'Loot history is not available yet because loot snapshots are not persisted. This command only reads stored history and does not query the Clash API live.';
+  'Loot uses linked-clan member snapshots when available; true loot time series remain limited. This command only reads stored history and does not query the Clash API live.';
 export const HISTORY_NO_LEGEND_ATTACKS_EVENTS_MESSAGE =
-  'Legend attack history is not available yet because Legend attack/day time-series data is not persisted. For current snapshot-backed Legend views, use `/legend`.';
+  'Legend attacks uses linked-clan member snapshots when available; Legend day attack timelines remain limited. For current snapshot-backed Legend views, use `/legend`.';
 export const HISTORY_NO_EOS_TROPHIES_EVENTS_MESSAGE =
-  'End-of-season trophy history is not available yet because EOS trophy time-series snapshots are not persisted. For current snapshot-backed trophy views, use `/legend` or `/summary`.';
+  'EOS trophies uses linked-clan member snapshots when available; true end-of-season trophy time series remain limited. For current snapshot-backed trophy views, use `/legend` or `/summary`.';
 
 const HISTORY_FILTER_HELP =
   'Accepted filters: `clans` (linked clan tag/name/alias), `player` (player tag), and `user` (linked Discord user). Date and season filters are not exposed on `/history` yet; use command-specific history views where available for date/season filtering.';
@@ -420,7 +420,8 @@ export async function executeHistory(
         embeds: [
           buildUnavailableHistoryEmbed(
             option,
-            getUnavailableHistoryMessage(option) ?? 'Snapshot-backed history is unavailable.',
+            getUnavailableHistoryMessage(option) ??
+              'Snapshot-backed history requires stored linked-clan member snapshots.',
             filterContext,
           ),
         ],
@@ -915,7 +916,7 @@ export function buildUnavailableHistoryEmbed(
       {
         name: 'Available stored-history categories',
         value:
-          '`donations` (donation deltas), `war-attacks`/`cwl-attacks` (stored war attack events), `join-leave` (clan member events), `clan-games` (Clan Games snapshots), and `capital-raids` (linked-clan capital snapshots).',
+          '`donations` (donation deltas), `war-attacks`/`cwl-attacks` (stored war attack events), `join-leave` (clan member events), `clan-games` (Clan Games snapshots), `capital-raids` (linked-clan capital snapshots), and snapshot-backed `capital-contribution`, `attacks`, `loot`, `legend-attacks`, and `eos-trophies` when linked-clan member snapshots exist. Raid-week logs, Legend day timelines, and true EOS time series remain limited.',
         inline: false,
       },
     );
