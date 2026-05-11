@@ -41,6 +41,7 @@ export interface WarSnapshotRecord {
   readonly state: string;
   readonly snapshot: unknown;
   readonly fetchedAt: Date;
+  readonly updatedAt?: Date | null;
   readonly trackedClan?: WarTrackedClan;
   readonly warKey?: string;
 }
@@ -317,6 +318,7 @@ async function executeWar(
           clan: clanOption,
           userMention: user.toString(),
           warKey,
+          ...optionalCoverage(snapshots),
           action:
             "The user filter keeps only persisted snapshots where one of the user's linked player tags appears on either war roster. Verify links and wait for a fresh war poll if the snapshot is stale.",
         },
@@ -334,6 +336,7 @@ async function executeWar(
           clan: clanOption,
           userMention: user?.toString(),
           warKey,
+          ...optionalCoverage(snapshots),
           action:
             'The stored snapshot is missing required war fields. Wait for the next war poll or choose another retained war_id from autocomplete; no live Clash API fallback is used.',
         },
@@ -543,15 +546,22 @@ function buildWarContextRows(entry: WarEntry, normalizedState: string, war: WarD
   const coverage = formatWarCoverage(war);
   return [
     '**Snapshot Context**',
-    `Source: ${entry.source === 'historical' ? 'Historical retained snapshot' : 'Current latest snapshot'} (${entry.source === 'historical' ? 'war_id retained history' : 'latest persisted current view'})`,
-    `Fetched: ${time(entry.snapshot.fetchedAt, 'R')} (refreshes only when the worker war poller stores a newer snapshot)`,
+    `Source: ${entry.source === 'historical' ? 'Historical retained snapshot' : 'Current latest snapshot'}`,
+    formatSnapshotAge(entry.snapshot),
     `Stored State: ${formatWarState(normalizeWarState(entry.snapshot.state))}`,
     `War State: ${formatWarState(normalizedState)}`,
     `Coverage: ${coverage}`,
     `Filters: ${formatWarSnapshotFilters(entry)}`,
-    'Note: persisted snapshot only; no live Clash API lookup or command-time polling is performed by `/war`.',
-    'If this looks stale or incomplete, verify the clan is linked/configured and that war polling is running.',
+    'Persisted only: no live Clash API fallback and no on-demand polling.',
+    'If stale/incomplete, verify the clan is linked/configured and the worker war poller is running.',
   ];
+}
+
+function formatSnapshotAge(snapshot: WarSnapshotRecord): string {
+  const updated = snapshot.updatedAt ?? null;
+  return updated
+    ? `Fetched: ${time(snapshot.fetchedAt, 'R')} • Updated: ${time(updated, 'R')}`
+    : `Fetched: ${time(snapshot.fetchedAt, 'R')}`;
 }
 
 function formatWarSnapshotFilters(entry: WarEntry): string {
@@ -577,14 +587,16 @@ function formatAttackCoverage(war: WarData): string {
   const clanAttacks = war.clan?.attacks;
   const opponentAttacks = war.opponent?.attacks;
   if (typeof clanAttacks !== 'number' && typeof opponentAttacks !== 'number') return '?';
-  return `attacks ${formatNumber(clanAttacks)} / ${formatNumber(opponentAttacks)} of ${formatTotalAttacks(war)}`;
+  const perClanTotal = formatPerClanTotalAttacks(war);
+  return `attacks ${formatNumber(clanAttacks)}/${perClanTotal} vs ${formatNumber(opponentAttacks)}/${perClanTotal}`;
 }
 
 function formatMemberCoverage(war: WarData): string {
   const clanMembers = war.clan?.members?.length;
   const opponentMembers = war.opponent?.members?.length;
   if (!clanMembers && !opponentMembers) return '?';
-  return `members ${formatNumber(clanMembers)} / ${formatNumber(opponentMembers)}`;
+  const total = formatNumber(war.teamSize);
+  return `rosters ${formatNumber(clanMembers)}/${total} vs ${formatNumber(opponentMembers)}/${total}`;
 }
 
 function buildWarNoDataMessage(
@@ -593,6 +605,7 @@ function buildWarNoDataMessage(
     clan: string | null;
     userMention: string | undefined;
     warKey: string | null;
+    coverage?: string;
     action?: string;
   },
 ): string {
@@ -600,8 +613,9 @@ function buildWarNoDataMessage(
   rows.push(`- clan: ${filters.clan ? `\`${filters.clan}\`` : 'not provided'}`);
   rows.push(`- user: ${filters.userMention ?? 'not provided'}`);
   rows.push(`- war_id: ${filters.warKey ? `\`${filters.warKey}\`` : 'not provided'}`);
+  if (filters.coverage) rows.push(`Persisted snapshot coverage checked: ${filters.coverage}`);
   rows.push(
-    '`/war` reads persisted current/latest and retained historical war snapshots only; it does not perform live Clash API lookups or start polling for filters.',
+    '`/war` reads persisted current/latest and retained historical war snapshots only; no live Clash API fallback or on-demand polling is performed.',
   );
   rows.push(
     `Action: ${
@@ -610,6 +624,30 @@ function buildWarNoDataMessage(
     }`,
   );
   return rows.join('\n');
+}
+
+function summarizeSnapshotCoverage(snapshots: readonly WarSnapshotRecord[]): string | null {
+  const rows = snapshots
+    .slice(0, 3)
+    .map((snapshot) => {
+      const war = extractWarData(snapshot.snapshot);
+      const warId = snapshot.warKey ?? (war ? deriveWarKey(snapshot.clanTag, war) : null);
+      return [
+        snapshot.trackedClan?.clanTag ?? snapshot.clanTag,
+        warId ? `war_id ${warId}` : 'war_id unknown',
+        war ? formatWarCoverage(war) : 'unreadable war payload',
+        formatSnapshotAge(snapshot).toLowerCase(),
+      ].join(' • ');
+    })
+    .filter((row) => row.length > 0);
+  if (rows.length === 0) return null;
+  const suffix = snapshots.length > rows.length ? `; +${snapshots.length - rows.length} more` : '';
+  return `${rows.join('; ')}${suffix}`;
+}
+
+function optionalCoverage(snapshots: readonly WarSnapshotRecord[]): { coverage: string } | object {
+  const coverage = summarizeSnapshotCoverage(snapshots);
+  return coverage ? { coverage } : {};
 }
 
 function choosePerspectiveClan(war: WarData, clanTag: string): WarClan | undefined {
@@ -655,6 +693,11 @@ function formatWarState(state: string): string {
 }
 
 function formatTotalAttacks(war: WarData): string {
+  if (typeof war.teamSize !== 'number') return '?';
+  return String(war.teamSize * (war.attacksPerMember ?? 2));
+}
+
+function formatPerClanTotalAttacks(war: WarData): string {
   if (typeof war.teamSize !== 'number') return '?';
   return String(war.teamSize * (war.attacksPerMember ?? 2));
 }
