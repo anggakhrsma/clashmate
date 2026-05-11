@@ -14,9 +14,9 @@ import {
 export const DONATIONS_COMMAND_NAME = 'donations';
 export const DONATIONS_COMMAND_DESCRIPTION = 'Show donation totals from tracked clan snapshots.';
 export const DONATIONS_NO_SNAPSHOT_MESSAGE =
-  'No latest donation snapshot is available for those filters. Link/configure the clan, make sure clan polling is running, and wait for the next clan poll to capture current member donations.';
+  'No rows found from latest snapshot. Link/configure the clan, make sure clan polling is running, and wait for the next clan poll to capture current member donations.';
 export const DONATIONS_NO_HISTORY_MESSAGE =
-  'No persisted donation history was found for those filters. Donation history is based on previously detected polling events and does not fall back to latest snapshots for date or season filters.';
+  'No rows found from derived history. Donation history is based on previously detected polling events and does not fall back to latest snapshots for date or season filters.';
 
 const DONATION_SORTS = ['donated', 'received', 'difference', 'ratio'] as const;
 export type DonationSort = (typeof DONATION_SORTS)[number];
@@ -504,7 +504,7 @@ export function buildDonationsEmbed(
       },
       {
         name: 'Data source',
-        value: formatDonationSourceContext(snapshots.source ?? 'snapshot', filters),
+        value: formatDonationSourceContext(snapshots, filters),
         inline: false,
       },
     )
@@ -529,12 +529,12 @@ export function buildDonationsEmbed(
 function formatNoDonationSnapshotMessage(context: DonationsReplyContext): string {
   const scope = formatDonationScope(context.clanLabel, context.user);
   const filterSummary = formatDonationActiveFilters(context.filters, context.sort, context.user);
-  return `${DONATIONS_NO_SNAPSHOT_MESSAGE}${scope} Active filters: ${filterSummary}. Latest snapshots are used only when no date or season filters are supplied; ClashMate does not make a live Clash API fallback for this leaderboard.`;
+  return `${DONATIONS_NO_SNAPSHOT_MESSAGE} Source: latest snapshot · rows: 0.${scope} Active filters: ${filterSummary}. No live fallback: ClashMate does not call the Clash API from this leaderboard; wait for clan polling or adjust the clan/user filters.`;
 }
 
 function formatNoDonationHistoryMessage(context: DonationsReplyContext): string {
   const filterSummary = formatDonationActiveFilters(context.filters, context.sort, context.user);
-  return `${DONATIONS_NO_HISTORY_MESSAGE}${formatDonationScope(context.clanLabel, context.user)} Active filters: ${filterSummary}. Check that the clan was linked before the requested date/season and that the donation poller has recorded changes during that period.`;
+  return `${DONATIONS_NO_HISTORY_MESSAGE} Source: derived history · rows: 0.${formatDonationScope(context.clanLabel, context.user)} Active filters: ${filterSummary}. No live fallback or automatic backfill: link the clan before the requested date/season, keep polling enabled, or choose a period with recorded donation changes.`;
 }
 
 function formatDonationScope(clanLabel: string | null, user: User | null): string {
@@ -562,22 +562,32 @@ function formatDonationCoverage(
     `Source: ${source}`,
     `Rows considered: ${snapshots.members.length}`,
     `Visible rows: ${visibleRows.length}`,
-    `${fetchedLabel}: ${latest ? time(latest, 'f') : 'unknown'}`,
+    `${fetchedLabel}: ${formatDonationTimestampContext(latest)}`,
     `Active filters: ${formatDonationActiveFilters(filters, sort, user)}`,
   ].join('\n');
 }
 
 function formatDonationSourceContext(
-  source: NonNullable<DonationsClanSnapshots['source']>,
+  snapshots: DonationsClanSnapshots,
   filters: DonationsParityFilters,
 ): string {
+  const source = snapshots.source ?? 'snapshot';
+  const latest = getLatestDonationTimestamp(snapshots.members);
+  const prefix =
+    source === 'history'
+      ? `Selected source: derived history · rows: ${snapshots.members.length} · latest event: ${formatDonationTimestampContext(latest)}.`
+      : `Selected source: latest snapshot · rows: ${snapshots.members.length} · latest snapshot: ${formatDonationTimestampContext(latest)}.`;
   if (source === 'history') {
-    return 'Using persisted donation history events derived from prior clan polling. Date and season filters never fall back to latest snapshots or live Clash API lookups, so results depend on history already captured by the poller.';
+    return `${prefix} Date and season filters use persisted donation events only; no live fallback or automatic backfill is attempted.`;
   }
   const filterNote = formatDonationParityFilters(filters)
-    ? ' Date/season filters would switch this command to persisted history instead.'
+    ? ' Date/season filters would switch this command to derived history instead.'
     : '';
-  return `Using the latest persisted clan member snapshot from clan polling, not a live Clash API lookup.${filterNote}`;
+  return `${prefix} Values come from clan polling, not a live Clash API lookup.${filterNote}`;
+}
+
+function formatDonationTimestampContext(date: Date | null): string {
+  return date ? `${time(date, 'f')} (${time(date, 'R')})` : 'unknown';
 }
 
 function getLatestDonationTimestamp(members: readonly DonationSnapshotRow[]): Date | null {
