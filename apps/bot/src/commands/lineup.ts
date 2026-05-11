@@ -119,8 +119,12 @@ async function autocompleteLineup(
     await interaction.respond([]);
     return;
   }
-  const clans = await options.store.listLinkedClans(interaction.guildId);
-  await interaction.respond(filterLineupClanChoices(clans, String(focused.value ?? '')));
+  try {
+    const clans = await options.store.listLinkedClans(interaction.guildId);
+    await interaction.respond(filterLineupClanChoices(clans, String(focused.value ?? '')));
+  } catch {
+    await interaction.respond([]);
+  }
 }
 
 export function filterLineupClanChoices(
@@ -128,18 +132,58 @@ export function filterLineupClanChoices(
   query: string,
 ): ApplicationCommandOptionChoiceData<string>[] {
   const normalized = query.trim().toLowerCase();
-  return clans
+  const choices = clans
     .filter((clan) => {
       if (!normalized) return true;
       return [clan.clanTag, clan.name, clan.alias]
         .filter((value): value is string => Boolean(value))
         .some((value) => value.toLowerCase().includes(normalized));
     })
-    .slice(0, 25)
-    .map((clan) => ({
-      name: `${clan.name ?? clan.clanTag} (${clan.clanTag})`,
-      value: clan.clanTag,
-    }));
+    .map((clan) => ({ clan, valueKey: normalizeLineupChoiceValue(clan.clanTag) }))
+    .sort((a, b) => compareLineupChoiceClans(a.clan, b.clan));
+
+  const seen = new Set<string>();
+  const deduplicated: ApplicationCommandOptionChoiceData<string>[] = [];
+  for (const choice of choices) {
+    if (seen.has(choice.valueKey)) continue;
+    seen.add(choice.valueKey);
+    deduplicated.push({
+      name: formatLineupChoiceName(choice.clan),
+      value: choice.clan.clanTag,
+    });
+    if (deduplicated.length >= 25) break;
+  }
+  return deduplicated;
+}
+
+function compareLineupChoiceClans(a: LineupTrackedClan, b: LineupTrackedClan): number {
+  return (
+    compareNullableText(a.alias, b.alias) ||
+    compareNullableText(a.name, b.name) ||
+    a.clanTag.localeCompare(b.clanTag)
+  );
+}
+
+function compareNullableText(a: string | null, b: string | null): number {
+  return (a ?? '').localeCompare(b ?? '', undefined, { sensitivity: 'base' });
+}
+
+function normalizeLineupChoiceValue(value: string): string {
+  return safeNormalizeClashTag(value) ?? value.trim().toUpperCase();
+}
+
+function formatLineupChoiceName(clan: LineupTrackedClan): string {
+  const parts = [clan.alias, clan.name]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .filter(
+      (value, index, values) => values.findIndex((other) => sameText(other, value)) === index,
+    );
+  const label = parts.length > 0 ? `${parts.join(' — ')} (${clan.clanTag})` : clan.clanTag;
+  return label.length <= 100 ? label : `${label.slice(0, 99)}…`;
+}
+
+function sameText(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
 async function executeLineup(
