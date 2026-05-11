@@ -276,7 +276,13 @@ async function autocompleteCwl(
     await interaction.respond([]);
     return;
   }
-  const clans = await options.store.listLinkedClans(interaction.guildId);
+  let clans: CwlLinkedClan[];
+  try {
+    clans = await options.store.listLinkedClans(interaction.guildId);
+  } catch {
+    await interaction.respond([]);
+    return;
+  }
   await interaction.respond(
     filterCwlClanChoices(clans, String(interaction.options.getFocused(true).value ?? '')),
   );
@@ -295,9 +301,10 @@ export function filterCwlClanChoices(
           .filter((value): value is string => Boolean(value))
           .some((value) => value.toLowerCase().includes(normalized)),
     )
+    .sort(compareCwlLinkedClans)
     .slice(0, 25)
     .map((clan) => ({
-      name: `${clan.alias ?? clan.name ?? clan.clanTag} (${clan.clanTag})`,
+      name: formatCwlClanChoiceName(clan),
       value: clan.clanTag,
     }));
 }
@@ -495,6 +502,23 @@ function resolveCwlClan(clans: readonly CwlLinkedClan[], query: string): CwlLink
         clan.name?.toLowerCase() === normalized,
     ) ?? null
   );
+}
+function compareCwlLinkedClans(a: CwlLinkedClan, b: CwlLinkedClan): number {
+  return (
+    cwlClanSortKey(a).localeCompare(cwlClanSortKey(b), 'en') ||
+    a.clanTag.localeCompare(b.clanTag, 'en')
+  );
+}
+function cwlClanSortKey(clan: CwlLinkedClan): string {
+  return (clan.alias ?? clan.name ?? clan.clanTag).toLowerCase();
+}
+function formatCwlClanChoiceName(clan: CwlLinkedClan): string {
+  return truncateDiscordChoiceName(`${clan.alias ?? clan.name ?? clan.clanTag} (${clan.clanTag})`);
+}
+function truncateDiscordChoiceName(value: string): string {
+  const maxLength = 100;
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength - 1)}…`;
 }
 function chooseCwlEntry(entries: readonly CwlEntry[]): CwlEntry | null {
   return (
