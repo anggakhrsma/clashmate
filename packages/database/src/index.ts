@@ -1442,10 +1442,26 @@ export interface MissedWarAttackRecord {
   attacksAvailable: number;
 }
 
+export interface MissedWarAttackSummaryRow {
+  playerTag: string;
+  playerName: string;
+  clanTag: string;
+  clanName: string | null;
+  clanAlias: string | null;
+  eventCount: number;
+  warCount: number;
+  missedAttackCount: number;
+  latestOccurredAt: Date;
+}
+
 export interface MissedWarAttackEventStore {
   insertMissedWarAttackEvents: (
     input: readonly MissedWarAttackEventInput[],
   ) => Promise<InsertMissedWarAttackEventsResult>;
+  listMissedWarAttackSummaryForGuild: (input: {
+    guildId: string;
+    clanTags?: readonly string[];
+  }) => Promise<MissedWarAttackSummaryRow[]>;
   listMissedWarAttacksForWar?: (
     guildId: string,
     clanTag: string,
@@ -7295,6 +7311,56 @@ export function createWarStateEventStore(database: Database): WarStateEventStore
 
 export function createMissedWarAttackEventStore(database: Database): MissedWarAttackEventStore {
   return {
+    listMissedWarAttackSummaryForGuild: async (input) => {
+      const filters = [
+        eq(schema.missedWarAttackEvents.guildId, input.guildId),
+        eq(schema.trackedClans.guildId, input.guildId),
+        eq(schema.trackedClans.isActive, true),
+      ];
+
+      if (input.clanTags?.length) {
+        filters.push(inArray(schema.missedWarAttackEvents.clanTag, [...input.clanTags]));
+      }
+
+      const rows = await database
+        .select({
+          playerTag: schema.missedWarAttackEvents.playerTag,
+          playerName: sql<string>`max(${schema.missedWarAttackEvents.playerName})`,
+          clanTag: schema.missedWarAttackEvents.clanTag,
+          clanName: sql<string | null>`max(${schema.trackedClans.name})`,
+          clanAlias: sql<string | null>`max(${schema.trackedClans.alias})`,
+          eventCount: count(schema.missedWarAttackEvents.id),
+          warCount: sql<number>`count(distinct ${schema.missedWarAttackEvents.warKey})`,
+          missedAttackCount: sql<number>`coalesce(sum(${schema.missedWarAttackEvents.attacksAvailable} - ${schema.missedWarAttackEvents.attacksUsed}), 0)`,
+          latestOccurredAt: sql<Date>`max(${schema.missedWarAttackEvents.occurredAt})`,
+        })
+        .from(schema.missedWarAttackEvents)
+        .innerJoin(
+          schema.trackedClans,
+          eq(schema.trackedClans.id, schema.missedWarAttackEvents.trackedClanId),
+        )
+        .where(and(...filters))
+        .groupBy(schema.missedWarAttackEvents.playerTag, schema.missedWarAttackEvents.clanTag)
+        .orderBy(
+          desc(
+            sql<number>`coalesce(sum(${schema.missedWarAttackEvents.attacksAvailable} - ${schema.missedWarAttackEvents.attacksUsed}), 0)`,
+          ),
+          desc(count(schema.missedWarAttackEvents.id)),
+          asc(schema.missedWarAttackEvents.playerTag),
+        );
+
+      return rows.map((row) => ({
+        playerTag: row.playerTag,
+        playerName: row.playerName,
+        clanTag: row.clanTag,
+        clanName: row.clanName,
+        clanAlias: row.clanAlias,
+        eventCount: Number(row.eventCount),
+        warCount: Number(row.warCount),
+        missedAttackCount: Number(row.missedAttackCount),
+        latestOccurredAt: row.latestOccurredAt,
+      }));
+    },
     listMissedWarAttacksForWar: async (guildId, clanTagInput, warKey) => {
       const clanTag = clanTagInput.trim().toUpperCase();
       const rows = await database

@@ -296,6 +296,18 @@ export interface SummaryWarAttackHistoryRow {
   readonly lastAttackedAt: Date;
 }
 
+export interface SummaryMissedWarAttackRow {
+  readonly playerTag: string;
+  readonly playerName: string;
+  readonly clanTag: string;
+  readonly clanName: string | null;
+  readonly clanAlias: string | null;
+  readonly eventCount: number;
+  readonly warCount: number;
+  readonly missedAttackCount: number;
+  readonly latestOccurredAt: Date;
+}
+
 export interface SummaryStore {
   readonly listLinkedClans: (guildId: string) => Promise<SummaryLinkedClan[]>;
   readonly listClansForGuild: (guildId: string) => Promise<SummaryClanListRow[]>;
@@ -311,6 +323,10 @@ export interface SummaryStore {
     guildId: string;
     clanTags?: readonly string[];
   }) => Promise<SummaryWarAttackHistoryRow[]>;
+  readonly listMissedWarAttackSummaryForGuild: (input: {
+    guildId: string;
+    clanTags?: readonly string[];
+  }) => Promise<SummaryMissedWarAttackRow[]>;
 }
 
 export interface SummaryCommandOptions {
@@ -467,6 +483,25 @@ export async function executeSummary(
     );
     return;
   }
+  if (subcommand === 'missed-wars') {
+    const rows = await options.store.listMissedWarAttackSummaryForGuild({
+      guildId: interaction.guildId,
+      ...(clanTag ? { clanTags: [clanTag] } : {}),
+    });
+    await interaction.editReply(
+      buildSummaryMissedWarsPayload(
+        rows,
+        buildRowsCoverage(
+          clans.length,
+          clanTag ? 1 : clans.length,
+          rows.length,
+          latestMissedWarAttackAt(rows),
+          baseFilters,
+        ),
+      ),
+    );
+    return;
+  }
   if (subcommand === 'compo') {
     const rows = await options.store.listClansForGuild(interaction.guildId);
     await interaction.editReply(
@@ -540,6 +575,51 @@ export async function executeSummary(
   }
 
   await interaction.editReply({ content: unavailableSummaryMessage(subcommand, baseFilters) });
+}
+
+export function buildSummaryMissedWarsPayload(
+  rows: readonly SummaryMissedWarAttackRow[],
+  coverage?: SummaryCoverageContext,
+): { content?: string; embeds?: EmbedBuilder[] } {
+  if (rows.length === 0)
+    return {
+      content: noDataMessage('missed war attack events', coverage),
+    };
+  const sorted = [...rows].sort(
+    (a, b) =>
+      b.missedAttackCount - a.missedAttackCount ||
+      b.eventCount - a.eventCount ||
+      a.playerName.localeCompare(b.playerName),
+  );
+  const totals = rows.reduce(
+    (acc, row) => ({
+      missed: acc.missed + row.missedAttackCount,
+      events: acc.events + row.eventCount,
+      wars: acc.wars + row.warCount,
+    }),
+    { missed: 0, events: 0, wars: 0 },
+  );
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setTitle('Missed War Summary')
+        .setDescription(truncate(formatMissedWarRows(sorted)))
+        .addFields(
+          {
+            name: 'Totals',
+            value: `${totals.missed} missed attacks · ${totals.events} missed-player events · ${totals.wars} player-war records · ${rows.length} player/clan rows`,
+            inline: false,
+          },
+          sourceField(
+            'Persisted missed war attack events only. Season and war_type are accepted for parity but are not filtered because missed_war_attack_events are not season- or type-scoped.',
+          ),
+          coverageField(coverage),
+        )
+        .setFooter({
+          text: `Showing ${Math.min(rows.length, SUMMARY_ROW_LIMIT)}/${rows.length} player/clan rows`,
+        }),
+    ],
+  };
 }
 
 export function buildSummaryClansPayload(
@@ -1140,6 +1220,10 @@ function latestWarAttackAt(rows: readonly SummaryWarAttackHistoryRow[]): Date | 
   return latestDate(rows.map((row) => row.lastAttackedAt));
 }
 
+function latestMissedWarAttackAt(rows: readonly SummaryMissedWarAttackRow[]): Date | undefined {
+  return latestDate(rows.map((row) => row.latestOccurredAt));
+}
+
 function latestClanSnapshotAt(clans: readonly SummaryClanListRow[]): Date | undefined {
   return latestDate(clans.flatMap((clan) => datesFromUnknown(clan.snapshot)));
 }
@@ -1184,6 +1268,16 @@ function formatAttackRows(rows: readonly SummaryWarAttackHistoryRow[]): string {
     .map(
       (row, index) =>
         `${index + 1}. **${escapeMarkdown(row.attackerName ?? row.attackerTag)}** · ${row.attackCount} attacks · ${row.averageStars.toFixed(2)} avg ⭐ · ${row.averageDestruction.toFixed(2)}% avg`,
+    )
+    .join('\n');
+}
+
+function formatMissedWarRows(rows: readonly SummaryMissedWarAttackRow[]): string {
+  return rows
+    .slice(0, SUMMARY_ROW_LIMIT)
+    .map(
+      (row, index) =>
+        `${index + 1}. **${escapeMarkdown(row.playerName)}** · ${row.missedAttackCount} missed attacks · ${row.warCount} wars · ${escapeMarkdown(row.clanAlias ?? row.clanName ?? row.clanTag)} · latest ${time(row.latestOccurredAt, 'R')}`,
     )
     .join('\n');
 }
