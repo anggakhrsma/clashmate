@@ -123,14 +123,22 @@ async function autocompleteWar(
   }
   const focused = interaction.options.getFocused(true);
   if (focused.name === 'clan') {
-    const clans = await options.store.listLinkedClans(interaction.guildId);
-    await interaction.respond(filterWarClanChoices(clans, String(focused.value ?? '')));
+    try {
+      const clans = await options.store.listLinkedClans(interaction.guildId);
+      await interaction.respond(filterWarClanChoices(clans, String(focused.value ?? '')));
+    } catch {
+      await interaction.respond([]);
+    }
     return;
   }
   if (focused.name === 'war_id') {
-    await interaction.respond(
-      await buildWarIdChoices(interaction, options.store, String(focused.value ?? '')),
-    );
+    try {
+      await interaction.respond(
+        await buildWarIdChoices(interaction, options.store, String(focused.value ?? '')),
+      );
+    } catch {
+      await interaction.respond([]);
+    }
     return;
   }
   await interaction.respond([]);
@@ -141,7 +149,13 @@ export function filterWarClanChoices(
   query: string,
 ): ApplicationCommandOptionChoiceData<string>[] {
   const normalized = query.trim().toLowerCase();
-  return clans
+  const uniqueClans = new Map<string, WarTrackedClan>();
+  for (const clan of [...clans].sort(compareWarClanChoices)) {
+    const key = clan.clanTag.trim().toUpperCase();
+    if (!uniqueClans.has(key)) uniqueClans.set(key, clan);
+  }
+
+  return [...uniqueClans.values()]
     .filter((clan) => {
       if (!normalized) return true;
       return [clan.clanTag, clan.name, clan.alias]
@@ -150,9 +164,26 @@ export function filterWarClanChoices(
     })
     .slice(0, 25)
     .map((clan) => ({
-      name: `${clan.name ?? clan.clanTag} (${clan.clanTag})`,
+      name: buildWarClanChoiceName(clan),
       value: clan.clanTag,
     }));
+}
+
+function compareWarClanChoices(left: WarTrackedClan, right: WarTrackedClan): number {
+  return (
+    compareChoiceText(left.name, right.name) ||
+    compareChoiceText(left.alias, right.alias) ||
+    compareChoiceText(left.clanTag, right.clanTag) ||
+    compareChoiceText(left.id, right.id)
+  );
+}
+
+function compareChoiceText(left: string | null, right: string | null): number {
+  return (left ?? '').localeCompare(right ?? '', 'en-US', { sensitivity: 'base' });
+}
+
+function buildWarClanChoiceName(clan: WarTrackedClan): string {
+  return truncateChoiceName(`${clan.name ?? clan.clanTag} (${clan.clanTag})`);
 }
 
 async function buildWarIdChoices(
