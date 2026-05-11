@@ -2,6 +2,7 @@ import type {
   ClanMemberSnapshotReader,
   DatabaseAutoroleSettingsStore,
   DatabaseNicknameConfigStore,
+  DatabaseReconciliationPlanningOutcomeStore,
   GuildAutoroleSettingsRecord,
   GuildNicknameConfigRecord,
 } from '@clashmate/database';
@@ -16,6 +17,10 @@ export interface ReconciliationPlanningLoopOptions {
   readonly autoroles: Pick<DatabaseAutoroleSettingsStore, 'listAutoroleSettings'>;
   readonly nicknames: Pick<DatabaseNicknameConfigStore, 'listNicknameConfigs'>;
   readonly snapshots: ClanMemberSnapshotReader;
+  readonly outcomes?: Pick<
+    DatabaseReconciliationPlanningOutcomeStore,
+    'insertReconciliationPlanningOutcome'
+  >;
   readonly interval: {
     readonly baseSeconds: number;
     readonly jitterSeconds: number;
@@ -74,8 +79,20 @@ export async function runReconciliationPlanningIteration(
     outcomes.push(planNickname(config, snapshots));
   }
 
+  const plannedAt = new Date();
   for (const outcome of outcomes) {
     options.logger?.info?.(outcome, 'Background reconciliation planning outcome');
+    await options.outcomes?.insertReconciliationPlanningOutcome({
+      guildId: outcome.guildId,
+      feature: outcome.feature,
+      enabled: outcome.enabled,
+      shouldRun: outcome.shouldRun,
+      reason: outcome.reason,
+      snapshotClanCount: outcome.snapshotClanCount,
+      snapshotMemberCount: outcome.snapshotMemberCount,
+      candidateActionCount: outcome.candidateActions,
+      plannedAt,
+    });
   }
 
   const autoroleRunsPlanned = outcomes.filter(

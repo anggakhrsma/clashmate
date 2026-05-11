@@ -170,6 +170,33 @@ export const auditLogs = pgTable(
   }),
 );
 
+export const reconciliationPlanningOutcomes = pgTable(
+  'reconciliation_planning_outcomes',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    guildId: text('guild_id')
+      .notNull()
+      .references(() => guilds.id, { onDelete: 'cascade' }),
+    feature: text('feature').notNull().$type<'autorole' | 'nickname'>(),
+    enabled: boolean('enabled').notNull(),
+    shouldRun: boolean('should_run').notNull(),
+    reason: text('reason').notNull(),
+    snapshotClanCount: integer('snapshot_clan_count').notNull(),
+    snapshotMemberCount: integer('snapshot_member_count').notNull(),
+    candidateActionCount: integer('candidate_action_count').notNull(),
+    plannedAt: timestamp('planned_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    reconciliationPlanningGuildPlannedIndex: index(
+      'reconciliation_planning_outcomes_guild_planned_idx',
+    ).on(table.guildId, table.plannedAt),
+    reconciliationPlanningFeaturePlannedIndex: index(
+      'reconciliation_planning_outcomes_feature_planned_idx',
+    ).on(table.feature, table.plannedAt),
+  }),
+);
+
 export const globalAccessBlocks = pgTable(
   'global_access_blocks',
   {
@@ -1078,6 +1105,7 @@ export const guildRelations = relations(guilds, ({ many }) => ({
   clanRoleChangeNotificationConfigs: many(clanRoleChangeNotificationConfigs),
   clanGamesNotificationConfigs: many(clanGamesNotificationConfigs),
   notificationOutbox: many(notificationOutbox),
+  reconciliationPlanningOutcomes: many(reconciliationPlanningOutcomes),
 }));
 
 export const guildSettingsRelations = relations(guildSettings, ({ one }) => ({
@@ -1086,6 +1114,16 @@ export const guildSettingsRelations = relations(guildSettings, ({ one }) => ({
     references: [guilds.id],
   }),
 }));
+
+export const reconciliationPlanningOutcomeRelations = relations(
+  reconciliationPlanningOutcomes,
+  ({ one }) => ({
+    guild: one(guilds, {
+      fields: [reconciliationPlanningOutcomes.guildId],
+      references: [guilds.id],
+    }),
+  }),
+);
 
 export const clanCategoryRelations = relations(clanCategories, ({ one, many }) => ({
   guild: one(guilds, {

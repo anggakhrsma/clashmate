@@ -9,6 +9,7 @@ import {
   createDatabaseAutoroleSettingsStore,
   createDatabaseNicknameConfigStore,
   createDatabasePlayerLinkStore,
+  createDatabaseReconciliationPlanningOutcomeStore,
   createDatabaseReminderDeliveryStore,
   createMissedWarAttackEventStore,
   createNotificationFanOutStore,
@@ -95,6 +96,7 @@ const reminderDelivery = createDatabaseReminderDeliveryStore(database);
 const playerLinks = createDatabasePlayerLinkStore(database);
 const autoroleSettings = createDatabaseAutoroleSettingsStore(database);
 const nicknameConfigs = createDatabaseNicknameConfigStore(database);
+const reconciliationPlanningOutcomes = createDatabaseReconciliationPlanningOutcomeStore(database);
 const notificationSender = createDiscordRestNotificationSender(config.DISCORD_TOKEN);
 const coc = new ClashMateCocClient({ token: config.CLASH_OF_CLANS_API_TOKEN });
 const clanPollerHandler = createClanPollerHandler({
@@ -175,6 +177,7 @@ const reconciliationPlanningLoop = startReconciliationPlanningLoop({
   autoroles: autoroleSettings,
   nicknames: nicknameConfigs,
   snapshots: clanMemberSnapshots,
+  outcomes: reconciliationPlanningOutcomes,
   interval: {
     baseSeconds: config.RECONCILIATION_PLANNING_SECONDS,
     jitterSeconds: config.RECONCILIATION_PLANNING_JITTER_SECONDS,
@@ -233,7 +236,9 @@ logger.info(
     notificationFanOutReady: Boolean(notificationFanOut),
     notificationDeliveryReady: Boolean(notificationDelivery),
     reminderSchedulerReady: Boolean(reminderDelivery),
-    reconciliationPlanningReady: Boolean(autoroleSettings && nicknameConfigs),
+    reconciliationPlanningReady: Boolean(
+      autoroleSettings && nicknameConfigs && reconciliationPlanningOutcomes,
+    ),
     reconciliationPlanningIntervalSeconds: config.RECONCILIATION_PLANNING_SECONDS,
     reconciliationPlanningJitterSeconds: config.RECONCILIATION_PLANNING_JITTER_SECONDS,
     notificationFanOutIntervalSeconds: config.NOTIFICATION_FANOUT_SECONDS,

@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 
+import type { SQL } from 'drizzle-orm';
 import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lte, ne, or, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
@@ -191,6 +192,37 @@ export interface DatabaseAutoroleSettingsStore {
   getAutoroleSettings: (guildId: string) => Promise<AutoroleSettingsRecord>;
   listAutoroleSettings: () => Promise<GuildAutoroleSettingsRecord[]>;
   updateAutoroleSettings: (input: UpdateAutoroleSettingsInput) => Promise<AutoroleSettingsRecord>;
+}
+
+export type ReconciliationPlanningFeatureRecord = 'autorole' | 'nickname';
+
+export interface ReconciliationPlanningOutcomeInput {
+  guildId: string;
+  feature: ReconciliationPlanningFeatureRecord;
+  enabled: boolean;
+  shouldRun: boolean;
+  reason: string;
+  snapshotClanCount: number;
+  snapshotMemberCount: number;
+  candidateActionCount: number;
+  plannedAt?: Date;
+}
+
+export interface ReconciliationPlanningOutcomeRecord
+  extends Required<ReconciliationPlanningOutcomeInput> {
+  id: string;
+  createdAt: Date;
+}
+
+export interface DatabaseReconciliationPlanningOutcomeStore {
+  insertReconciliationPlanningOutcome: (
+    input: ReconciliationPlanningOutcomeInput,
+  ) => Promise<ReconciliationPlanningOutcomeRecord>;
+  listRecentReconciliationPlanningOutcomes: (input: {
+    guildId?: string;
+    feature?: ReconciliationPlanningFeatureRecord;
+    limit?: number;
+  }) => Promise<ReconciliationPlanningOutcomeRecord[]>;
 }
 
 export interface LayoutConfigRecord {
@@ -2899,6 +2931,70 @@ export function createDatabaseNicknameConfigStore(database: Database): DatabaseN
 
         return readNicknameConfig(tx, input.guildId);
       }),
+  };
+}
+
+export function createDatabaseReconciliationPlanningOutcomeStore(
+  database: Database,
+): DatabaseReconciliationPlanningOutcomeStore {
+  return {
+    insertReconciliationPlanningOutcome: async (input) => {
+      const plannedAt = input.plannedAt ?? new Date();
+      const rows = await database
+        .insert(schema.reconciliationPlanningOutcomes)
+        .values({
+          guildId: input.guildId,
+          feature: input.feature,
+          enabled: input.enabled,
+          shouldRun: input.shouldRun,
+          reason: input.reason,
+          snapshotClanCount: input.snapshotClanCount,
+          snapshotMemberCount: input.snapshotMemberCount,
+          candidateActionCount: input.candidateActionCount,
+          plannedAt,
+        })
+        .returning();
+
+      const row = rows[0];
+      if (!row) throw new Error('Failed to insert reconciliation planning outcome.');
+      return mapReconciliationPlanningOutcome(row);
+    },
+    listRecentReconciliationPlanningOutcomes: async (input) => {
+      const filters: SQL[] = [];
+      if (input.guildId) {
+        filters.push(eq(schema.reconciliationPlanningOutcomes.guildId, input.guildId));
+      }
+      if (input.feature) {
+        filters.push(eq(schema.reconciliationPlanningOutcomes.feature, input.feature));
+      }
+      const limit = Math.max(1, Math.min(500, Math.trunc(input.limit ?? 50)));
+      const rows = await database
+        .select()
+        .from(schema.reconciliationPlanningOutcomes)
+        .where(filters.length > 0 ? and(...filters) : undefined)
+        .orderBy(desc(schema.reconciliationPlanningOutcomes.plannedAt))
+        .limit(limit);
+
+      return rows.map(mapReconciliationPlanningOutcome);
+    },
+  };
+}
+
+function mapReconciliationPlanningOutcome(
+  row: typeof schema.reconciliationPlanningOutcomes.$inferSelect,
+): ReconciliationPlanningOutcomeRecord {
+  return {
+    id: row.id,
+    guildId: row.guildId,
+    feature: row.feature,
+    enabled: row.enabled,
+    shouldRun: row.shouldRun,
+    reason: row.reason,
+    snapshotClanCount: row.snapshotClanCount,
+    snapshotMemberCount: row.snapshotMemberCount,
+    candidateActionCount: row.candidateActionCount,
+    plannedAt: row.plannedAt,
+    createdAt: row.createdAt,
   };
 }
 
