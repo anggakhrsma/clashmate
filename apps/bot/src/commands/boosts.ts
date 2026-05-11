@@ -134,10 +134,22 @@ export function filterBoostsClanChoices(
   query: string,
 ): ApplicationCommandOptionChoiceData<string>[] {
   const normalizedQuery = query.trim().toLowerCase();
-  return clans
-    .filter((clan) => clanMatchesQuery(clan, normalizedQuery))
-    .slice(0, 25)
-    .map((clan) => ({ name: formatClanChoiceName(clan), value: clan.alias ?? clan.clanTag }));
+  const seen = new Set<string>();
+  const choices: ApplicationCommandOptionChoiceData<string>[] = [];
+
+  for (const clan of [...clans]
+    .filter((linkedClan) => clanMatchesQuery(linkedClan, normalizedQuery))
+    .sort(compareBoostsLinkedClans)) {
+    const value = clan.alias ?? clan.clanTag;
+    const dedupeKeys = [normalizeChoiceValue(value), normalizeChoiceValue(clan.clanTag)];
+    if (dedupeKeys.some((key) => seen.has(key))) continue;
+
+    for (const key of dedupeKeys) seen.add(key);
+    choices.push({ name: formatClanChoiceName(clan), value });
+    if (choices.length >= 25) break;
+  }
+
+  return choices;
 }
 
 export async function executeBoosts(
@@ -390,8 +402,39 @@ function clanMatchesQuery(clan: BoostsLinkedClan, normalizedQuery: string): bool
 }
 
 function formatClanChoiceName(clan: BoostsLinkedClan): string {
-  const label = clan.alias?.trim() || clan.name?.trim() || clan.clanTag;
-  return `${label} (${clan.clanTag})`.slice(0, 100);
+  const tag = clan.clanTag.trim();
+  const alias = clan.alias?.trim();
+  const name = clan.name?.trim();
+  const labelParts: string[] = [];
+  for (const part of [alias, name]) {
+    if (!part) continue;
+    if (labelParts.some((existing) => existing.toLowerCase() === part.toLowerCase())) continue;
+    labelParts.push(part);
+  }
+  const label = labelParts.length > 0 ? `${labelParts.join(' · ')} (${tag})` : tag;
+  return label.slice(0, 100);
+}
+
+function compareBoostsLinkedClans(a: BoostsLinkedClan, b: BoostsLinkedClan): number {
+  return (
+    compareNullableText(a.alias, b.alias) ||
+    compareNullableText(a.name, b.name) ||
+    a.clanTag.localeCompare(b.clanTag) ||
+    a.id.localeCompare(b.id)
+  );
+}
+
+function compareNullableText(a: string | null, b: string | null): number {
+  const left = a?.trim().toLowerCase() ?? '';
+  const right = b?.trim().toLowerCase() ?? '';
+  if (left && right) return left.localeCompare(right);
+  if (left) return -1;
+  if (right) return 1;
+  return 0;
+}
+
+function normalizeChoiceValue(value: string): string {
+  return value.trim().toLowerCase();
 }
 
 function truncateFieldValue(value: string): string {
