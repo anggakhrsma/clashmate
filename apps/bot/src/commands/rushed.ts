@@ -8,6 +8,7 @@ import {
   EmbedBuilder,
   escapeMarkdown,
   SlashCommandBuilder,
+  time,
 } from 'discord.js';
 import {
   filterPlayerTagAutocompleteChoices,
@@ -55,6 +56,7 @@ export interface RushedLinkedClan {
 export interface RushedSnapshotRow {
   readonly playerTag: string;
   readonly name: string;
+  readonly lastFetchedAt?: Date;
 }
 
 export interface RushedClanSnapshots {
@@ -202,7 +204,7 @@ export async function executeRushed(
     return;
   }
 
-  await interaction.editReply({ embeds: [buildRushedEmbed(player)] });
+  await interaction.editReply({ embeds: [buildRushedEmbed(player, resolution.source)] });
 }
 
 export function filterRushedClanChoices(
@@ -240,8 +242,7 @@ async function executeRushedClanMode(
   });
   if (!snapshots || snapshots.members.length === 0) {
     await interaction.editReply({
-      content:
-        "No current member snapshot is available for that linked clan yet. Clan mode uses this server's linked-clan member snapshot, not a free-form search. Wait for clan polling to observe members after the clan is linked.",
+      content: formatRushedNoSnapshotMessage(clan, snapshots),
     });
     return;
   }
@@ -259,22 +260,32 @@ async function executeRushedClanMode(
 
   if (players.length === 0) {
     await interaction.editReply({
-      content: `No analyzable live player data could be fetched for the first ${Math.min(snapshots.members.length, RUSHED_CLAN_LOOKUP_LIMIT)} stored members of that linked clan. ${RUSHED_NO_DATA_GUIDANCE}`,
+      content: `No analyzable live player data could be fetched for the selected clan snapshot (${clan.clanTag}). Analyzed 0/${Math.min(snapshots.members.length, RUSHED_CLAN_LOOKUP_LIMIT)} current members; skipped ${countSkippedRushedMembers(snapshots.members.length)} over the live lookup cap; failed ${failedLookups}. Latest snapshot: ${formatLatestRushedSnapshotLabel(snapshots.members)}. ${RUSHED_NO_DATA_GUIDANCE}`,
     });
     return;
   }
 
   await interaction.editReply({
-    embeds: [buildRushedClanEmbed(clan, snapshots.members.length, players, failedLookups)],
+    embeds: [buildRushedClanEmbed(clan, snapshots.members, players, failedLookups)],
   });
 }
 
 export function buildRushedClanEmbed(
   clan: RushedLinkedClan,
-  snapshotMemberCount: number,
+  snapshotMembersOrCount: readonly RushedSnapshotRow[] | number,
   players: readonly ClashPlayer[],
   failedLookups = 0,
 ): EmbedBuilder {
+  const snapshotMemberCount =
+    typeof snapshotMembersOrCount === 'number'
+      ? snapshotMembersOrCount
+      : snapshotMembersOrCount.length;
+  const latestSnapshotLabel =
+    typeof snapshotMembersOrCount === 'number'
+      ? 'unavailable'
+      : formatLatestRushedSnapshotLabel(snapshotMembersOrCount);
+  const analyzedCap = Math.min(snapshotMemberCount, RUSHED_CLAN_LOOKUP_LIMIT);
+  const skippedLookups = countSkippedRushedMembers(snapshotMemberCount);
   const rows = players
     .map((player) => ({ player, summary: summarizeRushedGroups(collectRushedUnits(player)) }))
     .filter((row) => row.summary.totalUnits > 0)
@@ -293,10 +304,10 @@ export function buildRushedClanEmbed(
             .slice(0, RUSHED_CLAN_ROW_LIMIT)
             .map((row, index) => formatRushedClanRow(row, index))
             .join('\n')
-        : `No incomplete units found in fetched member data. ${RUSHED_NO_DATA_GUIDANCE}`,
+        : `No incomplete units found in fetched member data. Analyzed ${players.length}/${analyzedCap} current members; skipped ${skippedLookups}; failed ${failedLookups}. ${RUSHED_NO_DATA_GUIDANCE}`,
     )
     .setFooter({
-      text: `Source: linked clan member snapshot. Live player lookup cap ${RUSHED_CLAN_LOOKUP_LIMIT}; analyzed ${players.length}/${Math.min(snapshotMemberCount, RUSHED_CLAN_LOOKUP_LIMIT)} fetched from ${snapshotMemberCount} stored members${failedLookups ? `; ${failedLookups} lookup failures` : ''}.`,
+      text: `Source: clan snapshot + current live player lookups; analyzed ${players.length}/${analyzedCap}; skipped ${skippedLookups}; failed ${failedLookups}; stored members ${snapshotMemberCount}; latest snapshot ${latestSnapshotLabel}. No polling enrollment or persisted rushed history.`,
     });
 }
 
@@ -306,6 +317,52 @@ function formatRushedClanRow(
 ): string {
   const percent = calculateIncompletePercent(row.summary);
   return `${index + 1}. **${escapeMarkdown(row.player.name)}** (${row.player.tag}) · ${row.summary.incompleteUnits}/${row.summary.totalUnits} incomplete · ${percent}% short`;
+}
+
+function formatRushedNoSnapshotMessage(
+  clan: RushedLinkedClan,
+  snapshots: RushedClanSnapshots | undefined,
+): string {
+  const storedMembers = snapshots?.members.length ?? 0;
+  return [
+    `No current member snapshot is available for the selected linked clan (${clan.clanTag}).`,
+    `Source: clan snapshot; analyzed 0 current members; skipped 0; failed 0; stored members ${storedMembers}; latest snapshot ${formatLatestRushedSnapshotLabel(snapshots?.members ?? [])}.`,
+    "Clan mode uses this server's linked-clan member snapshot plus current live player lookups, not a free-form clan search.",
+    'Action: verify the clan is linked in this server, keep the worker running, and wait for clan polling to observe members. Search-only lookups do not enroll polling, and /rushed does not persist history.',
+  ].join('\n');
+}
+
+function countSkippedRushedMembers(snapshotMemberCount: number): number {
+  return Math.max(0, snapshotMemberCount - RUSHED_CLAN_LOOKUP_LIMIT);
+}
+
+function formatLatestRushedSnapshotLabel(members: readonly RushedSnapshotRow[]): string {
+  const latestFetchedAt = members
+    .flatMap((member) => (member.lastFetchedAt ? [member.lastFetchedAt] : []))
+    .sort((left, right) => right.getTime() - left.getTime())[0];
+  if (!latestFetchedAt) return 'none available';
+  return `${time(latestFetchedAt, 'R')} (${formatRushedSnapshotAge(latestFetchedAt, new Date())} old)`;
+}
+
+function formatRushedSnapshotAge(snapshotAt: Date, now: Date): string {
+  const ageMs = Math.max(0, now.getTime() - snapshotAt.getTime());
+  const totalMinutes = Math.floor(ageMs / 60_000);
+  if (totalMinutes < 1) return 'less than 1m';
+  const days = Math.floor(totalMinutes / 1_440);
+  const hours = Math.floor((totalMinutes % 1_440) / 60);
+  const minutes = totalMinutes % 60;
+  const parts = [
+    ...(days > 0 ? [`${days}d`] : []),
+    ...(hours > 0 ? [`${hours}h`] : []),
+    ...(days === 0 && minutes > 0 ? [`${minutes}m`] : []),
+  ];
+  return parts.join(' ');
+}
+
+function formatRushedPlayerSource(source: 'explicit_tag' | 'stored_user_link'): string {
+  return source === 'stored_user_link'
+    ? 'stored player link live lookup'
+    : 'selected player tag live lookup';
 }
 
 export function resolveRushedClan(
@@ -340,7 +397,10 @@ function formatClanChoiceName(clan: RushedLinkedClan): string {
   return `${label} (${clan.clanTag})`.slice(0, 100);
 }
 
-export function buildRushedEmbed(player: ClashPlayer): EmbedBuilder {
+export function buildRushedEmbed(
+  player: ClashPlayer,
+  source: 'explicit_tag' | 'stored_user_link' = 'explicit_tag',
+): EmbedBuilder {
   const groups = collectRushedUnits(player);
   const summary = summarizeRushedGroups(groups);
   const data = readRecord(player.data) ?? {};
@@ -370,10 +430,14 @@ export function buildRushedEmbed(player: ClashPlayer): EmbedBuilder {
   if (summary.incompleteUnits === 0) {
     embed.addFields({
       name: 'Rushed Units',
-      value: `No incomplete units found from API maxLevel values. ${RUSHED_NO_DATA_GUIDANCE}`,
+      value: `No incomplete units found from API maxLevel values. Source: ${formatRushedPlayerSource(source)}; analyzed 1 player; failed 0. Current-only live lookup; no polling enrollment or persisted rushed history.`,
       inline: false,
     });
   }
+
+  embed.setFooter({
+    text: `Source: ${formatRushedPlayerSource(source)}; analyzed 1 player; failed 0. Current-only live lookup; no polling enrollment or persisted rushed history.`,
+  });
 
   return embed;
 }
