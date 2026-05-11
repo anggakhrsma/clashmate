@@ -157,6 +157,28 @@ export interface ClanGamesHistoryRow {
   readonly latestUpdatedAt: Date;
 }
 
+export interface SnapshotHistoryClanMember {
+  readonly playerTag: string;
+  readonly name: string;
+  readonly role: string | null;
+  readonly leagueName?: string | null;
+  readonly trophies: number | null;
+  readonly donations: number | null;
+  readonly donationsReceived: number | null;
+  readonly capitalContribution?: number | null;
+  readonly capitalGold?: number | null;
+  readonly lastFetchedAt: Date;
+}
+
+export interface SnapshotHistoryClan {
+  readonly clan: {
+    readonly clanTag: string;
+    readonly name: string | null;
+    readonly alias: string | null;
+  };
+  readonly members: readonly SnapshotHistoryClanMember[];
+}
+
 export interface HistoryStore {
   readonly listLinkedClans: (guildId: string) => Promise<HistoryLinkedClan[]>;
   readonly listPlayerTagsForUser: (guildId: string, discordUserId: string) => Promise<string[]>;
@@ -184,6 +206,10 @@ export interface HistoryStore {
     playerTags?: readonly string[];
     since?: Date;
   }) => Promise<ClanGamesHistoryRow[]>;
+  readonly listClanMemberSnapshotsForGuild?: (input: {
+    guildId: string;
+    clanTag?: string;
+  }) => Promise<SnapshotHistoryClan[]>;
 }
 
 export interface HistoryCommandOptions {
@@ -327,10 +353,38 @@ export async function executeHistory(
     return;
   }
 
-  const unavailableMessage = getUnavailableHistoryMessage(option);
-  if (unavailableMessage) {
+  if (isSnapshotBackedHistoryOption(option)) {
+    if (!options.store.listClanMemberSnapshotsForGuild) {
+      await interaction.editReply({
+        embeds: [
+          buildUnavailableHistoryEmbed(
+            option,
+            getUnavailableHistoryMessage(option) ?? 'Snapshot-backed history is unavailable.',
+            filterContext,
+          ),
+        ],
+      });
+      return;
+    }
+
+    const snapshots = await listFilteredSnapshotHistory(
+      options.store.listClanMemberSnapshotsForGuild,
+      {
+        guildId: interaction.guildId,
+        ...(clanTags ? { clanTags } : {}),
+        ...(playerTags ? { playerTags } : {}),
+      },
+    );
+
+    if (snapshots.length === 0) {
+      await interaction.editReply({
+        embeds: [buildNoSnapshotHistoryEmbed(option, filterContext)],
+      });
+      return;
+    }
+
     await interaction.editReply({
-      embeds: [buildUnavailableHistoryEmbed(option, unavailableMessage, filterContext)],
+      embeds: [buildSnapshotBackedHistoryEmbed(option, snapshots, filterContext)],
     });
     return;
   }
@@ -583,6 +637,129 @@ function getUnavailableHistoryMessage(option: HistoryOption): string | undefined
     default:
       return undefined;
   }
+}
+
+function isSnapshotBackedHistoryOption(
+  option: HistoryOption,
+): option is 'capital-contribution' | 'attacks' | 'loot' | 'legend-attacks' | 'eos-trophies' {
+  return (
+    option === 'capital-contribution' ||
+    option === 'attacks' ||
+    option === 'loot' ||
+    option === 'legend-attacks' ||
+    option === 'eos-trophies'
+  );
+}
+
+async function listFilteredSnapshotHistory(
+  reader: NonNullable<HistoryStore['listClanMemberSnapshotsForGuild']>,
+  input: { guildId: string; clanTags?: readonly string[]; playerTags?: readonly string[] },
+): Promise<SnapshotHistoryClan[]> {
+  const clanTags = input.clanTags?.length ? input.clanTags : [undefined];
+  const rows = (
+    await Promise.all(
+      clanTags.map((clanTag) =>
+        reader({ guildId: input.guildId, ...(clanTag ? { clanTag } : {}) }),
+      ),
+    )
+  ).flat();
+  const playerTags = input.playerTags
+    ? new Set(input.playerTags.map((tag) => tag.toUpperCase()))
+    : null;
+  return rows
+    .map((clan) => ({
+      ...clan,
+      members: playerTags
+        ? clan.members.filter((member) => playerTags.has(member.playerTag.toUpperCase()))
+        : clan.members,
+    }))
+    .filter((clan) => clan.members.length > 0);
+}
+
+export function buildSnapshotBackedHistoryEmbed(
+  option: 'capital-contribution' | 'attacks' | 'loot' | 'legend-attacks' | 'eos-trophies',
+  snapshots: readonly SnapshotHistoryClan[],
+  filters: HistoryFilterContext,
+): EmbedBuilder {
+  const members = snapshots.flatMap((snapshot) =>
+    snapshot.members.map((member) => ({ member, clan: snapshot.clan })),
+  );
+  const sorted = [...members].sort(
+    (a, b) =>
+      scoreSnapshotHistoryMember(option, b.member) - scoreSnapshotHistoryMember(option, a.member),
+  );
+  const selected = sorted.slice(0, MAX_HISTORY_ROWS);
+  const latestAt = getLatestDate(members, (row) => row.member.lastFetchedAt);
+  const embed = new EmbedBuilder()
+    .setTitle(`${formatHistoryOptionTitle(option)} History`)
+    .setDescription(truncateEmbedDescription(formatSnapshotHistoryRows(option, selected)))
+    .addFields({
+      name: 'Source',
+      value: formatHistorySourceContext({
+        rowsConsidered: members.length,
+        rowsVisible: selected.length,
+        latestLabel: 'Latest snapshot',
+        latestAt,
+        filters,
+        note: 'Persisted linked-clan member snapshots only. This is snapshot-backed history, not a live Clash API lookup, backfill, or search-only polling enrollment.',
+      }),
+      inline: false,
+    })
+    .setFooter({
+      text: `Showing ${selected.length}/${members.length} players from stored snapshots`,
+    });
+  if (filters.user)
+    embed.setAuthor({ name: filters.user.displayName, iconURL: filters.user.displayAvatarURL() });
+  return embed;
+}
+
+function buildNoSnapshotHistoryEmbed(
+  option: HistoryOption,
+  filters: HistoryFilterContext,
+): EmbedBuilder {
+  return buildUnavailableHistoryEmbed(
+    option,
+    `No persisted linked-clan member snapshots match the selected filters for ${formatHistoryOptionTitle(option)} yet. Link/configure the clan for this server and wait for clan polling snapshots before retrying.`,
+    filters,
+  );
+}
+
+function scoreSnapshotHistoryMember(
+  option: HistoryOption,
+  member: SnapshotHistoryClanMember,
+): number {
+  if (option === 'capital-contribution')
+    return member.capitalContribution ?? member.capitalGold ?? 0;
+  if (option === 'loot') return (member.donations ?? 0) + (member.donationsReceived ?? 0);
+  return member.trophies ?? 0;
+}
+
+function formatSnapshotHistoryRows(
+  option: HistoryOption,
+  rows: readonly { member: SnapshotHistoryClanMember; clan: SnapshotHistoryClan['clan'] }[],
+): string {
+  return rows
+    .map(({ member, clan }, index) => {
+      const clanLabel = clan.alias ?? clan.name ?? clan.clanTag;
+      const metric = formatSnapshotHistoryMetric(option, member);
+      return `${index + 1}. **${escapeMarkdown(member.name)}** (\`${member.playerTag}\`) · ${metric} · ${escapeMarkdown(clanLabel)} (\`${clan.clanTag}\`) · ${time(member.lastFetchedAt, 'R')}`;
+    })
+    .join('\n');
+}
+
+function formatSnapshotHistoryMetric(
+  option: HistoryOption,
+  member: SnapshotHistoryClanMember,
+): string {
+  if (option === 'capital-contribution')
+    return `${(member.capitalContribution ?? 0).toLocaleString()} capital contributed · ${(member.capitalGold ?? 0).toLocaleString()} capital gold`;
+  if (option === 'loot')
+    return `${(member.donations ?? 0).toLocaleString()} donated · ${(member.donationsReceived ?? 0).toLocaleString()} received`;
+  if (option === 'legend-attacks')
+    return `${member.leagueName ?? 'Unknown league'} · ${(member.trophies ?? 0).toLocaleString()} trophies`;
+  if (option === 'eos-trophies')
+    return `${(member.trophies ?? 0).toLocaleString()} current trophies`;
+  return `${(member.trophies ?? 0).toLocaleString()} trophies · ${member.leagueName ?? 'Unknown league'}`;
 }
 
 export function buildUnavailableHistoryEmbed(

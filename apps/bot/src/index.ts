@@ -252,6 +252,7 @@ const commandRegistry = createBotCommandRegistry({
       listClanMemberJoinLeaveHistoryForGuild:
         databaseClanMemberJoinLeaveHistory.listClanMemberJoinLeaveHistoryForGuild,
       listClanGamesHistoryForGuild: databaseClanGamesHistory.listClanGamesHistoryForGuild,
+      listClanMemberSnapshotsForGuild: databaseClanMemberSnapshots.listClanMemberSnapshotsForGuild,
     },
   },
   link: {
