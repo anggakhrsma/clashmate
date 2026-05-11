@@ -171,8 +171,12 @@ export async function autocompleteLeaderboard(
     return;
   }
 
-  const clans = await options.store.listClansForGuild(interaction.guildId);
-  await interaction.respond(buildLocationChoices(clans, String(focused.value ?? '')));
+  try {
+    const clans = await options.store.listClansForGuild(interaction.guildId);
+    await interaction.respond(buildLocationChoices(clans, String(focused.value ?? '')));
+  } catch {
+    await interaction.respond([]);
+  }
 }
 
 export async function executeLeaderboard(
@@ -457,39 +461,68 @@ export function buildLocationChoices(
   query: string,
 ): ApplicationCommandOptionChoiceData<string>[] {
   const normalizedQuery = query.trim().toLowerCase();
-  const locations = new Map<string, { name: string; value: string; count: number }>();
+  const locations = new Map<
+    string,
+    { names: Set<string>; values: Set<string>; countryCodes: Set<string>; count: number }
+  >();
 
   for (const clan of clans) {
     const location = readSnapshotLocation(clan.snapshot);
     if (!location) continue;
-    const value = location.id ?? location.countryCode ?? location.name;
-    const key = value.toLowerCase();
+    const key = location.name.toLowerCase();
     const existing = locations.get(key);
     if (existing) {
+      existing.names.add(location.name);
+      if (location.id) existing.values.add(location.id);
+      if (location.countryCode) {
+        existing.values.add(location.countryCode);
+        existing.countryCodes.add(location.countryCode);
+      }
+      existing.values.add(location.name);
       existing.count += 1;
       continue;
     }
-    const suffix =
-      location.countryCode && location.countryCode !== location.name
-        ? ` (${location.countryCode})`
-        : '';
-    locations.set(key, { name: `${location.name}${suffix}`, value, count: 1 });
+    locations.set(key, {
+      names: new Set([location.name]),
+      values: new Set([location.id, location.countryCode, location.name].filter(isNonEmptyString)),
+      countryCodes: new Set(location.countryCode ? [location.countryCode] : []),
+      count: 1,
+    });
   }
 
   const choices = [...locations.values()]
-    .map((location) => ({
-      name: `${location.name} · ${location.count} linked clan${location.count === 1 ? '' : 's'}`,
-      value: location.value,
-    }))
+    .map((location) => {
+      const name = [...location.names].sort(compareCaseInsensitive)[0] ?? 'Unknown';
+      const countryCode = [...location.countryCodes].sort(compareCaseInsensitive)[0];
+      const searchText = [name, ...location.values].join(' ').toLowerCase();
+      const suffix =
+        countryCode && countryCode.toLowerCase() !== name.toLowerCase() ? ` (${countryCode})` : '';
+      return {
+        name: `${name}${suffix} · ${location.count} linked clan${location.count === 1 ? '' : 's'}`,
+        value: name,
+        searchText,
+      };
+    })
     .filter(
       (choice) =>
         choice.name.toLowerCase().includes(normalizedQuery) ||
-        choice.value.toLowerCase().includes(normalizedQuery),
+        choice.searchText.includes(normalizedQuery),
     )
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort(
+      (a, b) => compareCaseInsensitive(a.name, b.name) || compareCaseInsensitive(a.value, b.value),
+    )
+    .map(({ name, value }) => ({ name, value }));
 
   const allChoice = { name: 'All linked clans', value: 'all' };
   return [allChoice, ...choices].slice(0, 25);
+}
+
+function compareCaseInsensitive(a: string, b: string): number {
+  return a.localeCompare(b, 'en-US', { sensitivity: 'base' }) || a.localeCompare(b, 'en-US');
+}
+
+function isNonEmptyString(value: string | undefined): value is string {
+  return Boolean(value?.trim());
 }
 
 export function buildLeaderboardSeasonChoices(
