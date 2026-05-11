@@ -22,17 +22,17 @@ export const HISTORY_NO_JOIN_LEAVE_EVENTS_MESSAGE =
 export const HISTORY_NO_CLAN_GAMES_EVENTS_MESSAGE =
   'No persisted Clan Games snapshots match the selected filters yet. Link/configure the clan for this server and wait for Clan Games polling snapshots before retrying.';
 export const HISTORY_NO_CAPITAL_RAIDS_EVENTS_MESSAGE =
-  'Capital raid history is not available yet because raid-week attack logs are not persisted. This command only reads stored history and does not query the Clash API live.';
+  'Capital raid history is not available yet because raid-week time-series logs are not persisted. For current snapshot-backed Capital views, use `/capital` or `/summary capital-raids`.';
 export const HISTORY_NO_CAPITAL_CONTRIBUTION_EVENTS_MESSAGE =
-  'Capital contribution history is not available yet because contribution snapshots are not persisted. This command only reads stored history and does not query the Clash API live.';
+  'Capital contribution history is not available yet because contribution time-series snapshots are not persisted. For current snapshot-backed Capital views, use `/capital` or `/summary capital-contribution`.';
 export const HISTORY_NO_ATTACKS_EVENTS_MESSAGE =
   'Multiplayer attack/defense history is not available yet because seasonal attack-win snapshots are not persisted. Use `war-attacks` for stored war attack history.';
 export const HISTORY_NO_LOOT_EVENTS_MESSAGE =
   'Loot history is not available yet because loot snapshots are not persisted. This command only reads stored history and does not query the Clash API live.';
 export const HISTORY_NO_LEGEND_ATTACKS_EVENTS_MESSAGE =
-  'Legend attack history is not available yet because Legend attack/day data is not persisted. This command only reads stored history and does not query the Clash API live.';
+  'Legend attack history is not available yet because Legend attack/day time-series data is not persisted. For current snapshot-backed Legend views, use `/legend`.';
 export const HISTORY_NO_EOS_TROPHIES_EVENTS_MESSAGE =
-  'End-of-season trophy history is not available yet because EOS trophy snapshots are not persisted. This command only reads stored history and does not query the Clash API live.';
+  'End-of-season trophy history is not available yet because EOS trophy time-series snapshots are not persisted. For current snapshot-backed trophy views, use `/legend` or `/summary`.';
 
 const HISTORY_FILTER_HELP =
   'Accepted filters: `clans` (linked clan tag/name/alias), `player` (player tag), and `user` (linked Discord user). Date and season filters are not exposed on `/history` yet; use command-specific history views where available for date/season filtering.';
