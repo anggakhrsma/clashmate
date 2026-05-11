@@ -5,6 +5,7 @@ import {
   type ChatInputCommandInteraction,
   EmbedBuilder,
   escapeMarkdown,
+  GuildMember,
   PermissionFlagsBits,
   Role,
   SlashCommandBuilder,
@@ -179,6 +180,10 @@ export interface AutoroleCommandOptions {
     readonly listClanMemberSnapshotsForGuild?: (input: {
       guildId: string;
     }) => Promise<AutoroleClanMemberSnapshot[]>;
+    readonly listPlayerTagsForUser?: (input: {
+      guildId: string;
+      discordUserId: string;
+    }) => Promise<string[]>;
   };
   readonly getGuildConfig?: (guildId: string) => Promise<AutoroleConfigView>;
 }
@@ -254,7 +259,7 @@ export const autoroleCommandData = new SlashCommandBuilder()
   .addSubcommand((subcommand) =>
     subcommand
       .setName('refresh')
-      .setDescription('Preview an autorole refresh without changing Discord roles or nicknames.')
+      .setDescription('Preview or apply configured autorole mappings.')
       .addMentionableOption((option) =>
         option.setName('user_or_role').setDescription('User or role to preview refresh scope for.'),
       )
@@ -401,6 +406,13 @@ export async function executeAutoroleInteraction(
       options.store.listClanMemberSnapshotsForGuild?.({ guildId: interaction.guildId }) ??
         Promise.resolve([]),
     ]);
+    const isTestRun = interaction.options.getBoolean('is_test_run');
+    if (isTestRun === false) {
+      await interaction.deferReply({ ephemeral: true });
+      const result = await reconcileAutoroles(view, interaction, snapshots, options);
+      await interaction.editReply({ embeds: [buildAutoroleRefreshResultEmbed(result)] });
+      return;
+    }
     await interaction.reply({
       embeds: [buildAutoroleRefreshPreviewEmbed(view, interaction, snapshots)],
       ephemeral: true,
@@ -420,6 +432,114 @@ export async function executeAutoroleInteraction(
     embeds: [buildAutoroleSettingsEmbed(view, subcommand, Boolean(patch && !hasChanges))],
     ephemeral: true,
   });
+}
+
+interface AutoroleReconcileResult {
+  readonly attemptedAdds: number;
+  readonly attemptedRemoves: number;
+  readonly appliedAdds: number;
+  readonly appliedRemoves: number;
+  readonly skipped: number;
+  readonly failed: number;
+  readonly scannedMembers: number;
+  readonly notes: readonly string[];
+}
+
+async function reconcileAutoroles(
+  view: AutoroleSettingsView,
+  interaction: ChatInputCommandInteraction<'cached'>,
+  snapshots: readonly AutoroleClanMemberSnapshot[],
+  options: AutoroleCommandOptions,
+): Promise<AutoroleReconcileResult> {
+  const linkedPlayers = options.store.listPlayerTagsForUser;
+  if (!linkedPlayers) {
+    return emptyReconcileResult('Skipped: linked account resolver is not available.');
+  }
+
+  const configuredRoleIds = getConfiguredRoleIds(view);
+  const manageableRoleIds = new Set<string>();
+  let skipped = 0;
+  for (const roleId of configuredRoleIds) {
+    const role = await resolveGuildRole(interaction, roleId);
+    if (role?.editable) manageableRoleIds.add(role.id);
+    else skipped += 1;
+  }
+
+  const members = await resolveRefreshMembers(interaction);
+  let attemptedAdds = 0;
+  let attemptedRemoves = 0;
+  let appliedAdds = 0;
+  let appliedRemoves = 0;
+  let failed = 0;
+
+  for (const member of members) {
+    if (!member.manageable) {
+      skipped += 1;
+      continue;
+    }
+    const playerTags = await linkedPlayers({
+      guildId: interaction.guildId,
+      discordUserId: member.id,
+    });
+    if (playerTags.length === 0) {
+      skipped += 1;
+      continue;
+    }
+    const desiredRoleIds = getDesiredRoleIdsForPlayerTags(view, snapshots, playerTags).filter(
+      (roleId) => manageableRoleIds.has(roleId),
+    );
+    const desired = new Set(desiredRoleIds);
+    const currentConfigured = [...manageableRoleIds].filter((roleId) =>
+      member.roles.cache.has(roleId),
+    );
+    const toAdd = [...desired].filter((roleId) => !member.roles.cache.has(roleId));
+    const toRemove = currentConfigured.filter((roleId) => !desired.has(roleId));
+
+    for (const roleId of toAdd) {
+      attemptedAdds += 1;
+      try {
+        await member.roles.add(roleId, 'ClashMate autorole refresh');
+        appliedAdds += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    for (const roleId of toRemove) {
+      attemptedRemoves += 1;
+      try {
+        await member.roles.remove(roleId, 'ClashMate autorole refresh');
+        appliedRemoves += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+  }
+
+  return {
+    attemptedAdds,
+    attemptedRemoves,
+    appliedAdds,
+    appliedRemoves,
+    skipped,
+    failed,
+    scannedMembers: members.length,
+    notes: [
+      'Applied only manageable configured roles. Nicknames and live Clash API were not used.',
+    ],
+  };
+}
+
+function emptyReconcileResult(note: string): AutoroleReconcileResult {
+  return {
+    attemptedAdds: 0,
+    attemptedRemoves: 0,
+    appliedAdds: 0,
+    appliedRemoves: 0,
+    skipped: 0,
+    failed: 0,
+    scannedMembers: 0,
+    notes: [note],
+  };
 }
 
 async function canManageAutorole(
@@ -705,6 +825,99 @@ export function buildAutoroleRefreshPreviewEmbed(
       { name: 'No data?', value: plan.actionabilityNotes.join('\n'), inline: false },
       { name: 'Last action', value: `/${AUTOROLE_COMMAND_NAME} refresh`, inline: false },
     );
+}
+
+function buildAutoroleRefreshResultEmbed(result: AutoroleReconcileResult): EmbedBuilder {
+  return new EmbedBuilder()
+    .setColor(result.failed > 0 ? 0xed4245 : 0x57f287)
+    .setTitle('Autorole Refresh Applied')
+    .setDescription('Opt-in refresh completed for configured autorole mappings.')
+    .addFields(
+      {
+        name: 'Members',
+        value: [`Scanned: ${result.scannedMembers}`, `Skipped: ${result.skipped}`].join('\n'),
+        inline: true,
+      },
+      {
+        name: 'Adds',
+        value: [`Attempted: ${result.attemptedAdds}`, `Applied: ${result.appliedAdds}`].join('\n'),
+        inline: true,
+      },
+      {
+        name: 'Removes',
+        value: [`Attempted: ${result.attemptedRemoves}`, `Applied: ${result.appliedRemoves}`].join(
+          '\n',
+        ),
+        inline: true,
+      },
+      { name: 'Failures', value: `${result.failed}`, inline: true },
+      { name: 'Notes', value: result.notes.join('\n').slice(0, 1024), inline: false },
+    );
+}
+
+async function resolveRefreshMembers(
+  interaction: ChatInputCommandInteraction<'cached'>,
+): Promise<GuildMember[]> {
+  const target = interaction.options.getMentionable('user_or_role');
+  if (target instanceof Role) return [...target.members.values()];
+  if (target instanceof GuildMember) return [target];
+  if (target && 'id' in target) {
+    try {
+      return [await interaction.guild.members.fetch(target.id)];
+    } catch {
+      return [];
+    }
+  }
+  try {
+    const members = await interaction.guild.members.fetch();
+    return [...members.values()];
+  } catch {
+    return [...interaction.guild.members.cache.values()];
+  }
+}
+
+async function resolveGuildRole(
+  interaction: ChatInputCommandInteraction<'cached'>,
+  roleId: string,
+): Promise<Role | null> {
+  return (
+    interaction.guild.roles.cache.get(roleId) ??
+    (await interaction.guild.roles.fetch(roleId).catch(() => null))
+  );
+}
+
+function getConfiguredRoleIds(view: AutoroleSettingsView): Set<string> {
+  return new Set(
+    [
+      ...Object.values(view.clanRoles).flatMap((mapping) => Object.values(mapping)),
+      ...Object.values(view.townHallRoles),
+      ...Object.values(view.leagueRoles),
+      ...Object.values(view.familyRoles),
+    ].filter(Boolean),
+  );
+}
+
+function getDesiredRoleIdsForPlayerTags(
+  view: AutoroleSettingsView,
+  snapshots: readonly AutoroleClanMemberSnapshot[],
+  playerTags: readonly string[],
+): string[] {
+  const normalizedTags = new Set(playerTags.map(normalizeAutoroleKey));
+  const desired = new Set<string>();
+  for (const snapshot of snapshots) {
+    const clanMapping = findClanRoleMapping(view.clanRoles, snapshot.clan.clanTag);
+    for (const member of snapshot.members) {
+      if (!normalizedTags.has(normalizeAutoroleKey(member.playerTag))) continue;
+      for (const roleId of [
+        ...getClanRoleIdsForMember(clanMapping, member.role),
+        ...getLeagueRoleIdsForMember(view.leagueRoles, member),
+        ...getFamilyRoleIdsForMember(view.familyRoles, member.role),
+      ]) {
+        desired.add(roleId);
+      }
+    }
+  }
+  return [...desired];
 }
 
 export function buildAutoroleRefreshPlan(
