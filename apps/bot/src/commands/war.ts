@@ -552,7 +552,7 @@ function buildWarContextRows(entry: WarEntry, normalizedState: string, war: WarD
     `War State: ${formatWarState(normalizedState)}`,
     `Coverage: ${coverage}`,
     `Filters: ${formatWarSnapshotFilters(entry)}`,
-    'Persisted only: no live Clash API fallback and no on-demand polling.',
+    'Persisted only: no live Clash API lookup, fallback, or on-demand polling.',
     'If stale/incomplete, verify the clan is linked/configured and the worker war poller is running.',
   ];
 }
