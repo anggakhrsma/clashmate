@@ -5,6 +5,7 @@ import {
   computeWorkerLoopDelayMs,
   createNoopPollingLeaseHandler,
   runWorkerPollingIteration,
+  startWorkerPollingLoop,
 } from './worker-loop.js';
 
 const intervals = {
@@ -45,6 +46,30 @@ describe('worker polling loop foundation', () => {
   it('uses the smallest configured family interval with jitter for loop scheduling', () => {
     expect(computeWorkerLoopDelayMs(intervals, () => 0)).toBe(120_000);
     expect(computeWorkerLoopDelayMs(intervals, () => 1)).toBe(151_000);
+  });
+
+  it('rejects invalid polling interval configuration before polling starts', () => {
+    const leaseStore = createLeaseStore();
+
+    expect(() =>
+      startWorkerPollingLoop({
+        leaseStore,
+        ownerId: 'worker-a',
+        lockForSeconds: 60,
+        intervals: {
+          ...intervals,
+          clan: { baseSeconds: 0, jitterSeconds: 60 },
+        },
+        handlers: {
+          clan: vi.fn(),
+          player: createNoopPollingLeaseHandler('player'),
+          war: createNoopPollingLeaseHandler('war'),
+        },
+        logger: createLogger(),
+      }),
+    ).toThrow('Worker polling loop clan baseSeconds must be a finite positive number.');
+
+    expect(leaseStore.claimDuePollingLease).not.toHaveBeenCalled();
   });
 
   it('temporary player and war handlers are no-ops that do not fetch or persist data', async () => {
@@ -111,5 +136,44 @@ describe('worker polling loop foundation', () => {
       { error: expect.any(Error) },
       'Worker polling iteration failed',
     );
+  });
+
+  it('logs scheduled runOnce failures and keeps rescheduling', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const logger = createLogger();
+      const leaseStore = createLeaseStore();
+      const options = {
+        leaseStore,
+        ownerId: 'worker-a',
+        lockForSeconds: 60,
+        intervals,
+        handlers: {
+          clan: vi.fn(),
+          player: createNoopPollingLeaseHandler('player'),
+          war: createNoopPollingLeaseHandler('war'),
+        },
+        logger,
+        random: () => 0,
+      };
+
+      const controller = startWorkerPollingLoop(options);
+      await vi.runOnlyPendingTimersAsync();
+
+      options.ownerId = '';
+      await vi.advanceTimersByTimeAsync(120_000);
+
+      expect(logger.error).toHaveBeenCalledWith(
+        { error: expect.any(Error) },
+        'Scheduled worker polling iteration failed',
+      );
+      expect(vi.getTimerCount()).toBe(1);
+
+      controller.stop();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

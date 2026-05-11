@@ -47,21 +47,7 @@ export function computeWorkerLoopDelayMs(
   intervals: Record<PollingResourceType, PollingIntervalConfig>,
   random = Math.random,
 ): number {
-  const intervalConfigs = [intervals.clan, intervals.player, intervals.war];
-
-  if (
-    intervalConfigs.some(
-      (interval) =>
-        !Number.isFinite(interval.baseSeconds) ||
-        !Number.isFinite(interval.jitterSeconds) ||
-        interval.baseSeconds <= 0 ||
-        interval.jitterSeconds < 0,
-    )
-  ) {
-    throw new Error(
-      'Worker polling loop intervals must be finite and positive with non-negative jitter.',
-    );
-  }
+  validateWorkerPollingLoopIntervals(intervals);
 
   const baseSeconds = Math.min(
     intervals.clan.baseSeconds,
@@ -76,6 +62,34 @@ export function computeWorkerLoopDelayMs(
   const jitter = Math.floor(random() * (jitterSeconds + 1));
 
   return (baseSeconds + jitter) * 1000;
+}
+
+function validateWorkerPollingLoopIntervals(
+  intervals: Record<PollingResourceType, PollingIntervalConfig>,
+): void {
+  if (!intervals || typeof intervals !== 'object') {
+    throw new Error('Worker polling loop intervals must include clan, player, and war configs.');
+  }
+
+  for (const resourceType of ['clan', 'player', 'war'] as const) {
+    const interval = intervals[resourceType];
+
+    if (!interval || typeof interval !== 'object') {
+      throw new Error(`Worker polling loop ${resourceType} interval must be an object.`);
+    }
+
+    if (!Number.isFinite(interval.baseSeconds) || interval.baseSeconds <= 0) {
+      throw new Error(
+        `Worker polling loop ${resourceType} baseSeconds must be a finite positive number.`,
+      );
+    }
+
+    if (!Number.isFinite(interval.jitterSeconds) || interval.jitterSeconds < 0) {
+      throw new Error(
+        `Worker polling loop ${resourceType} jitterSeconds must be a finite non-negative number.`,
+      );
+    }
+  }
 }
 
 type PollingOutcomeStatus = ProcessDuePollingLeaseResult['status'];
@@ -161,6 +175,8 @@ function validateWorkerPollingLoopOptions(options: WorkerPollingLoopOptions): vo
     throw new Error('Worker polling loop lockForSeconds must be a finite positive integer.');
   }
 
+  validateWorkerPollingLoopIntervals(options.intervals);
+
   if (!options.handlers || typeof options.handlers !== 'object') {
     throw new Error('Worker polling loop handlers must include clan, player, and war functions.');
   }
@@ -223,11 +239,19 @@ export function startWorkerPollingLoop(
     if (stopped) return;
     const delayMs = computeWorkerLoopDelayMs(options.intervals, options.random);
     timer = scheduleTimeout(() => {
-      void runOnce().finally(scheduleNext);
+      void runOnce()
+        .catch((error: unknown) => {
+          options.logger.error({ error }, 'Scheduled worker polling iteration failed');
+        })
+        .finally(scheduleNext);
     }, delayMs);
   };
 
-  void runOnce().finally(scheduleNext);
+  void runOnce()
+    .catch((error: unknown) => {
+      options.logger.error({ error }, 'Initial worker polling iteration failed');
+    })
+    .finally(scheduleNext);
   options.logger.info({ ownerId: options.ownerId }, 'Worker polling loop started');
 
   return {
