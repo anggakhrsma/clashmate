@@ -138,13 +138,7 @@ export function buildClansPayload(input: {
   readonly guildIconUrl?: string;
 }): RenderedClansPayload {
   if (input.clans.length === 0) {
-    return {
-      content: [
-        'No clans are linked to this server yet.',
-        'Linked clans: 0 · Current snapshot stats: 0/0 · Latest snapshot: unavailable.',
-        'Action: use `/setup clan` to link clans for polling. `/clans` uses persisted linked-clan data only; it does not call the Clash API live or enroll search-only clans.',
-      ].join('\n'),
-    };
+    return { content: 'No clans are linked to this server yet. Use `/setup clan` to link one.' };
   }
 
   const hasCategoryFilter = Boolean(input.categoryId);
@@ -167,13 +161,7 @@ export function buildClansPayload(input: {
     : [...input.clans];
 
   if (hasCategoryFilter && clans.length === 0) {
-    return {
-      content: [
-        `No clans found for category: ${filteredCategory?.displayName ?? input.categoryId}.`,
-        `Linked clans: ${input.clans.length} · Filtered clans: 0 · Current snapshot stats: ${countClansWithSnapshotStats(input.clans)}/${input.clans.length} · Latest snapshot: ${formatLatestSnapshotAge(input.clans)}.`,
-        'The category option filters persisted server-linked clans only. It does not call the Clash API live or enroll search-only clans for polling.',
-      ].join('\n'),
-    };
+    return { content: 'No clans found for the specified category.' };
   }
 
   const description = formatClanGroups(groupClansByCategory(clans, input.categories));
