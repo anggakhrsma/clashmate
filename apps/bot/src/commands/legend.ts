@@ -304,6 +304,7 @@ export function buildLegendLeaderboardEmbed(
   limit: number,
   season: string | null,
 ): EmbedBuilder {
+  const snapshotCoverage = summarizeLegendSnapshotCoverage(snapshots);
   const rows = collectLegendRows(snapshots)
     .filter(
       (row) => row.member.trophies !== null && row.member.trophies >= NEAR_LEGEND_TROPHY_FLOOR,
@@ -323,6 +324,12 @@ export function buildLegendLeaderboardEmbed(
   embed.addFields({
     name: 'Data source',
     value: `${LEGEND_SNAPSHOT_SOURCE_NOTE} ${LEGEND_NO_LIVE_SOURCE_NOTE}`,
+    inline: false,
+  });
+
+  embed.addFields({
+    name: 'Snapshot coverage',
+    value: formatLegendSnapshotCoverage(snapshotCoverage),
     inline: false,
   });
 
@@ -379,6 +386,7 @@ export function buildLegendStatsEmbed(
   snapshots: readonly LegendClanSnapshots[],
   referenceDate: LegendReferenceDateSelection = { raw: null, parsed: null },
 ): EmbedBuilder {
+  const snapshotCoverage = summarizeLegendSnapshotCoverage(snapshots);
   const rows = collectLegendRows(snapshots).filter((row) => row.member.trophies !== null);
   const legendCount = rows.filter(
     (row) => (row.member.trophies ?? 0) >= LEGEND_TROPHY_FLOOR,
@@ -410,6 +418,12 @@ export function buildLegendStatsEmbed(
   embed.addFields({
     name: 'Unavailable history',
     value: LEGEND_HISTORY_UNAVAILABLE_NOTE,
+    inline: false,
+  });
+
+  embed.addFields({
+    name: 'Snapshot coverage',
+    value: formatLegendSnapshotCoverage(snapshotCoverage),
     inline: false,
   });
 
@@ -606,6 +620,66 @@ function countRowsWithStoredLeagueNames(
   rows: readonly { readonly member: LegendMemberSnapshotRow }[],
 ): number {
   return rows.filter((row) => hasStoredLeagueName(row.member)).length;
+}
+
+interface LegendSnapshotCoverage {
+  readonly total: number;
+  readonly withTrophies: number;
+  readonly legend: number;
+  readonly nearLegend: number;
+  readonly latestFetchedAt: Date | null;
+}
+
+function summarizeLegendSnapshotCoverage(
+  snapshots: readonly LegendClanSnapshots[],
+): LegendSnapshotCoverage {
+  const rows = collectLegendRows(snapshots);
+  let withTrophies = 0;
+  let legend = 0;
+  let nearLegend = 0;
+  let latestFetchedAt: Date | null = null;
+
+  for (const row of rows) {
+    const { trophies, lastFetchedAt } = row.member;
+    if (latestFetchedAt === null || lastFetchedAt > latestFetchedAt)
+      latestFetchedAt = lastFetchedAt;
+    if (trophies === null) continue;
+    withTrophies += 1;
+    if (trophies >= LEGEND_TROPHY_FLOOR) legend += 1;
+    if (trophies >= NEAR_LEGEND_TROPHY_FLOOR) nearLegend += 1;
+  }
+
+  return { total: rows.length, withTrophies, legend, nearLegend, latestFetchedAt };
+}
+
+function formatLegendSnapshotCoverage(coverage: LegendSnapshotCoverage): string {
+  const parts = [
+    `${coverage.total.toLocaleString()} member snapshots`,
+    `${coverage.withTrophies.toLocaleString()} with trophies`,
+    `${coverage.legend.toLocaleString()} Legend (≥ 5,000)`,
+    `${coverage.nearLegend.toLocaleString()} near-Legend+ (≥ 4,900)`,
+  ];
+
+  if (coverage.latestFetchedAt) {
+    parts.push(`latest ${formatLegendSnapshotFreshness(coverage.latestFetchedAt)}`);
+  }
+
+  return parts.join(' · ');
+}
+
+function formatLegendSnapshotFreshness(date: Date): string {
+  const ageMs = Date.now() - date.getTime();
+  const ageLabel = ageMs >= 0 ? ` (${formatLegendSnapshotAge(ageMs)} old)` : '';
+  return `${date.toISOString()}${ageLabel}`;
+}
+
+function formatLegendSnapshotAge(ageMs: number): string {
+  const minutes = Math.floor(ageMs / 60_000);
+  if (minutes < 1) return 'less than 1m';
+  if (minutes < 60) return `${minutes.toLocaleString()}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours.toLocaleString()}h`;
+  return `${Math.floor(hours / 24).toLocaleString()}d`;
 }
 
 function hasStoredLeagueName(member: LegendMemberSnapshotRow): boolean {
