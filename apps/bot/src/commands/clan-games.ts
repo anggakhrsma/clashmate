@@ -106,20 +106,64 @@ async function autocompleteClanGames(
     return;
   }
 
-  const choices = await options.reader.listScoreboardChoices(
-    interaction.guildId,
-    String(focused.value ?? ''),
-  );
-  await interaction.respond(formatClanGamesChoices(choices));
+  try {
+    const choices = await options.reader.listScoreboardChoices(
+      interaction.guildId,
+      String(focused.value ?? ''),
+    );
+    await interaction.respond(formatClanGamesChoices(choices));
+  } catch {
+    await interaction.respond([]);
+  }
 }
+
+type ClanGamesScoreboardChoice = Awaited<
+  ReturnType<ClanGamesScoreboardReader['listScoreboardChoices']>
+>[number];
 
 export function formatClanGamesChoices(
   choices: Awaited<ReturnType<ClanGamesScoreboardReader['listScoreboardChoices']>>,
 ): ApplicationCommandOptionChoiceData<string>[] {
-  return choices.slice(0, 25).map((choice) => ({
-    name: `${choice.clanName ?? choice.clanTag} (${choice.clanTag})`,
-    value: choice.clanTag,
-  }));
+  const seen = new Set<string>();
+  return [...choices]
+    .sort(compareClanGamesChoices)
+    .filter((choice) => {
+      const value = choice.clanTag.trim();
+      if (!value) return false;
+      const key = value.toUpperCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 25)
+    .map((choice) => ({
+      name: formatClanGamesChoiceName(choice),
+      value: choice.clanTag.trim(),
+    }));
+}
+
+function compareClanGamesChoices(
+  left: ClanGamesScoreboardChoice,
+  right: ClanGamesScoreboardChoice,
+): number {
+  const leftLabel = getClanGamesChoiceSortLabel(left);
+  const rightLabel = getClanGamesChoiceSortLabel(right);
+  return leftLabel.localeCompare(rightLabel, 'en-US', { sensitivity: 'base' });
+}
+
+function getClanGamesChoiceSortLabel(choice: ClanGamesScoreboardChoice): string {
+  return `${choice.clanName ?? choice.clanAlias ?? ''}\u0000${choice.clanTag}`;
+}
+
+function formatClanGamesChoiceName(choice: ClanGamesScoreboardChoice): string {
+  const label = choice.clanName?.trim() || choice.clanAlias?.trim() || 'Clan';
+  const alias = choice.clanAlias?.trim();
+  const context = alias && alias !== label ? `${label} / ${alias}` : label;
+  return truncateChoiceName(`${context} · ${choice.clanTag}`);
+}
+
+function truncateChoiceName(name: string): string {
+  return name.length <= 100 ? name : `${name.slice(0, 99)}…`;
 }
 
 async function executeClanGames(
