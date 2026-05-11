@@ -33,6 +33,7 @@ export interface ReminderSchedulerIterationResult {
   readonly schedulesScanned: number;
   readonly schedulesDue: number;
   readonly outboxInserted: number;
+  readonly failures?: number;
 }
 
 interface DueReminder {
@@ -67,17 +68,31 @@ export async function runReminderSchedulerIteration(
   const due = schedules.flatMap((schedule) => collectDueReminder(schedule, now));
   const limitedDue = due.slice(0, options.batchSize ?? 50);
   let outboxInserted = 0;
+  let failures = 0;
 
   for (const item of limitedDue) {
-    const payload = await buildReminderPayload(item.schedule, options, now);
-    const inserted = await options.reminders.insertReminderOutboxEntry({
-      guildId: item.schedule.guildId,
-      schedule: item.schedule,
-      bucket: item.bucket,
-      payload,
-      now,
-    });
-    if (inserted) outboxInserted += 1;
+    try {
+      const payload = await buildReminderPayload(item.schedule, options, now);
+      const inserted = await options.reminders.insertReminderOutboxEntry({
+        guildId: item.schedule.guildId,
+        schedule: item.schedule,
+        bucket: item.bucket,
+        payload,
+        now,
+      });
+      if (inserted) outboxInserted += 1;
+    } catch (error) {
+      failures += 1;
+      options.logger?.error?.(
+        {
+          error,
+          guildId: item.schedule.guildId,
+          scheduleId: item.schedule.id,
+          bucket: item.bucket,
+        },
+        'Reminder scheduler failed to process due reminder',
+      );
+    }
   }
 
   options.logger?.debug?.(
@@ -86,11 +101,17 @@ export async function runReminderSchedulerIteration(
       schedulesDue: due.length,
       schedulesProcessed: limitedDue.length,
       outboxInserted,
+      failures,
     },
     'Reminder scheduler iteration completed',
   );
 
-  return { schedulesScanned: schedules.length, schedulesDue: due.length, outboxInserted };
+  return {
+    schedulesScanned: schedules.length,
+    schedulesDue: due.length,
+    outboxInserted,
+    ...(failures > 0 ? { failures } : {}),
+  };
 }
 
 export function startReminderSchedulerLoop(
