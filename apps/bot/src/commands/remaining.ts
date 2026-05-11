@@ -48,6 +48,7 @@ export interface RemainingLatestWarSnapshot {
   readonly state: string;
   readonly snapshot: unknown;
   readonly fetchedAt: Date;
+  readonly updatedAt?: Date;
   readonly trackedClan?: RemainingTrackedClan;
 }
 
@@ -128,8 +129,16 @@ export interface RemainingWarSummary {
 
 export interface RemainingWarSourceContext {
   readonly fetchedAt: Date;
+  readonly updatedAt?: Date;
   readonly snapshotState: string;
   readonly missedAttackEventsUsed: boolean;
+  readonly selectedSource: string;
+  readonly rosterMembers: number;
+  readonly attacksUsed: number;
+  readonly attacksPossible: number;
+  readonly clanFilter?: string;
+  readonly userFilter?: string;
+  readonly playerFilter?: string;
 }
 
 export interface RemainingPlayerRow extends RemainingMemberRow {
@@ -142,6 +151,13 @@ export interface RemainingPlayerRow extends RemainingMemberRow {
 export interface RemainingPlayerEmbedContext {
   readonly scannedSnapshots: number;
   readonly persistedOnly: boolean;
+  readonly selectedSource: string;
+  readonly rosterMembers: number;
+  readonly attacksUsed: number;
+  readonly attacksPossible: number;
+  readonly clanFilter?: string;
+  readonly userFilter?: string;
+  readonly playerFilter?: string;
 }
 
 export function createRemainingSlashCommand(
@@ -264,6 +280,11 @@ async function executeRemaining(
         buildPlayerRemainingEmbed(rows, user ?? undefined, {
           scannedSnapshots: snapshots.length,
           persistedOnly: true,
+          selectedSource: 'current',
+          ...buildSnapshotCoverage(snapshots),
+          ...(clanOption ? { clanFilter: clanOption } : {}),
+          ...(user ? { userFilter: user.id } : {}),
+          ...(player ? { playerFilter: player } : {}),
         }),
       ],
     });
@@ -281,7 +302,7 @@ async function executeRemaining(
   const snapshot = await options.store.getLatestWarSnapshot(clan.clanTag);
   if (!snapshot) {
     await interaction.editReply(
-      `No persisted current war/CWL snapshot is available for **${clan.name ?? clan.clanTag} (${clan.clanTag})** yet. Link/configure this clan and let the war poller run first; \`/remaining\` has no live Clash API fallback and only reports data already stored for linked clans.`,
+      `No persisted current war/CWL snapshot is available for **${clan.name ?? clan.clanTag} (${clan.clanTag})** yet. Selected: current; filters: clan=${clanOption ?? clan.clanTag}; roster/attacks unavailable. Link/configure this clan and let the war poller run first; \`/remaining\` has no live fallback or on-demand polling.`,
     );
     return;
   }
@@ -311,6 +332,7 @@ async function executeRemaining(
     buildRemainingWarSummary(war, clan.clanTag),
     snapshot,
     false,
+    { selectedSource: 'current', ...(clanOption ? { clanFilter: clanOption } : {}) },
   );
   if (!summary) {
     await interaction.editReply(
@@ -394,6 +416,11 @@ async function executeHistoricalRemaining(
         buildPlayerRemainingEmbed(rows, input.user ?? undefined, {
           scannedSnapshots: snapshots.length,
           persistedOnly: true,
+          selectedSource: formatSelectedHistoricalSource(input.warKey),
+          ...buildSnapshotCoverage(snapshots),
+          ...(input.clanOption ? { clanFilter: input.clanOption } : {}),
+          ...(input.user ? { userFilter: input.user.id } : {}),
+          ...(input.player ? { playerFilter: input.player } : {}),
         }),
       ],
     });
@@ -418,6 +445,10 @@ async function executeHistoricalRemaining(
     buildRemainingWarSummary(war, snapshot.trackedClan?.clanTag ?? snapshot.clanTag),
     snapshot,
     false,
+    {
+      selectedSource: formatSelectedHistoricalSource(input.warKey),
+      ...(input.clanOption ? { clanFilter: input.clanOption } : {}),
+    },
   );
   if (!summary) {
     await interaction.editReply(
@@ -513,14 +544,27 @@ function withWarSourceContext(
   summary: RemainingWarSummary | null,
   snapshot: RemainingLatestWarSnapshot,
   missedAttackEventsUsed: boolean,
+  context: {
+    selectedSource: string;
+    clanFilter?: string;
+    userFilter?: string;
+    playerFilter?: string;
+  },
 ): RemainingWarSummary | null {
   if (!summary) return null;
+  const coverage = buildWarCoverage(summary.clan.members ?? [], summary.attacksPerMember);
   return {
     ...summary,
     source: {
       fetchedAt: snapshot.fetchedAt,
+      ...(snapshot.updatedAt ? { updatedAt: snapshot.updatedAt } : {}),
       snapshotState: normalizeWarState(snapshot.state || summary.state),
       missedAttackEventsUsed,
+      selectedSource: context.selectedSource,
+      ...coverage,
+      ...(context.clanFilter ? { clanFilter: context.clanFilter } : {}),
+      ...(context.userFilter ? { userFilter: context.userFilter } : {}),
+      ...(context.playerFilter ? { playerFilter: context.playerFilter } : {}),
     },
   };
 }
@@ -625,6 +669,45 @@ export function buildPlayerRemainingRows(
   return rows.sort((a, b) => a.endTime.getTime() - b.endTime.getTime());
 }
 
+function buildSnapshotCoverage(snapshots: readonly RemainingLatestWarSnapshot[]): {
+  rosterMembers: number;
+  attacksUsed: number;
+  attacksPossible: number;
+} {
+  return snapshots.reduce(
+    (coverage, snapshot) => {
+      const war = extractWarData(snapshot.snapshot);
+      if (!war) return coverage;
+      const attacksPerMember = getAttacksPerMember(war);
+      for (const clan of [war.clan, war.opponent]) {
+        const clanCoverage = buildWarCoverage(clan?.members ?? [], attacksPerMember);
+        coverage.rosterMembers += clanCoverage.rosterMembers;
+        coverage.attacksUsed += clanCoverage.attacksUsed;
+        coverage.attacksPossible += clanCoverage.attacksPossible;
+      }
+      return coverage;
+    },
+    { rosterMembers: 0, attacksUsed: 0, attacksPossible: 0 },
+  );
+}
+
+function buildWarCoverage(
+  members: readonly WarMember[],
+  attacksPerMember: number,
+): { rosterMembers: number; attacksUsed: number; attacksPossible: number } {
+  const rosterMembers = members.filter((member) => member.tag && member.name).length;
+  const attacksUsed = members.reduce((sum, member) => sum + (member.attacks?.length ?? 0), 0);
+  return {
+    rosterMembers,
+    attacksUsed,
+    attacksPossible: rosterMembers * attacksPerMember,
+  };
+}
+
+function formatSelectedHistoricalSource(warKey: string): string {
+  return `${warKey.includes('cwl') ? 'cwl' : 'historical'} war_id:${warKey}`;
+}
+
 export function buildClanRemainingEmbed(summary: RemainingWarSummary): EmbedBuilder {
   const embed = new EmbedBuilder().setAuthor(buildWarAuthor(summary.clan));
   const state = summary.state;
@@ -665,10 +748,10 @@ export function buildClanRemainingEmbed(summary: RemainingWarSummary): EmbedBuil
     embed.addFields({
       name: 'Source',
       value: [
-        `Latest persisted war/CWL snapshot fetched ${time(summary.source.fetchedAt, 'R')}.`,
-        `War state: ${formatWarStateLabel(summary.source.snapshotState || summary.state)}`,
-        `Remaining is calculated as attacks/member (${summary.attacksPerMember}) minus attacks found on each stored member snapshot.`,
-        "Filtered to this server's linked/configured clan; no live Clash API lookup was performed.",
+        `Selected: ${summary.source.selectedSource}; fetched ${time(summary.source.fetchedAt, 'R')}${summary.source.updatedAt ? `; updated ${time(summary.source.updatedAt, 'R')}` : ''}.`,
+        `Roster: ${summary.source.rosterMembers}; attacks: ${summary.source.attacksUsed}/${summary.source.attacksPossible}; state: ${formatWarStateLabel(summary.source.snapshotState || summary.state)}.`,
+        formatFilterContext(summary.source),
+        'Persisted snapshots only; no live fallback or on-demand polling.',
         `Ended-war missed events: ${missedEventsLabel}`,
       ].join('\n'),
       inline: false,
@@ -723,9 +806,10 @@ export function buildPlayerRemainingEmbed(
       name: 'Source',
       value: [
         `Scanned ${context.scannedSnapshots} stored war/CWL snapshot${context.scannedSnapshots === 1 ? '' : 's'} from this server's linked/configured clans.`,
-        'Rows are calculated from persisted member attacks and attacks/member values only.',
+        `Selected: ${context.selectedSource}; roster: ${context.rosterMembers}; attacks: ${context.attacksUsed}/${context.attacksPossible}.`,
+        formatFilterContext(context),
         context.persistedOnly
-          ? 'Persisted snapshots only; no live Clash API lookup was performed.'
+          ? 'Persisted snapshots only; no live fallback or on-demand polling.'
           : 'Live lookup status unknown.',
       ].join('\n'),
       inline: false,
@@ -765,6 +849,19 @@ function formatWarStateLabel(state: string): string {
         : state || 'Unknown';
 }
 
+function formatFilterContext(input: {
+  readonly clanFilter?: string;
+  readonly userFilter?: string;
+  readonly playerFilter?: string;
+}): string {
+  const filters = [
+    input.clanFilter ? `clan=${input.clanFilter}` : null,
+    input.userFilter ? `user=${input.userFilter}` : null,
+    input.playerFilter ? `player=${input.playerFilter}` : null,
+  ].filter((filter): filter is string => Boolean(filter));
+  return filters.length > 0 ? `Filters: ${filters.join(', ')}.` : 'Filters: server linked clans.';
+}
+
 function formatNoPlayerTagsMessage(input: {
   hasPlayerFilter: boolean;
   userId?: string | undefined;
@@ -777,7 +874,7 @@ function formatNoPlayerTagsMessage(input: {
 
 function formatNoHistoricalWarMessage(warKey: string, clanOption: string | null): string {
   const clanText = clanOption ? ` for clan filter \`${clanOption}\`` : '';
-  return `No persisted historical war/CWL snapshot was found for war_id \`${warKey}\`${clanText}. This command only searches retained stored snapshots for linked/configured clans; it does not query the live Clash API. Verify the war_id, clan filter, and that polling had captured/retained that war.`;
+  return `No persisted historical war/CWL snapshot was found for war_id \`${warKey}\`${clanText}. Selected: ${formatSelectedHistoricalSource(warKey)}; roster/attacks unavailable. This command only searches retained stored snapshots for linked/configured clans; no live fallback or on-demand polling is used. Verify the war_id, clan filter, and that polling captured/retained that war.`;
 }
 
 function formatMapPosition(position: number): string {
