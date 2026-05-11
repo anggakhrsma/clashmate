@@ -144,10 +144,25 @@ export function filterActivityClanChoices(
   query: string,
 ): ApplicationCommandOptionChoiceData<string>[] {
   const normalizedQuery = query.trim().toLowerCase();
-  return clans
-    .filter((clan) => clanMatchesQuery(clan, normalizedQuery))
-    .slice(0, 25)
-    .map((clan) => ({ name: formatClanChoiceName(clan), value: clan.alias ?? clan.clanTag }));
+  const choices: ApplicationCommandOptionChoiceData<string>[] = [];
+  const seenChoiceValues = new Set<string>();
+  const seenClanTags = new Set<string>();
+
+  for (const clan of [...clans]
+    .filter((candidate) => clanMatchesQuery(candidate, normalizedQuery))
+    .sort(compareActivityClanChoices)) {
+    const value = clan.alias ?? clan.clanTag;
+    const normalizedValue = value.trim().toLowerCase();
+    const normalizedClanTag = clan.clanTag.trim().toLowerCase();
+    if (seenChoiceValues.has(normalizedValue) || seenClanTags.has(normalizedClanTag)) continue;
+
+    seenChoiceValues.add(normalizedValue);
+    seenClanTags.add(normalizedClanTag);
+    choices.push({ name: formatClanChoiceName(clan), value });
+    if (choices.length === 25) break;
+  }
+
+  return choices;
 }
 
 export async function executeActivity(
@@ -538,9 +553,29 @@ function clanMatchesQuery(clan: ActivityLinkedClan, normalizedQuery: string): bo
     .some((value) => value.includes(normalizedQuery));
 }
 
+function compareActivityClanChoices(a: ActivityLinkedClan, b: ActivityLinkedClan): number {
+  return (
+    normalizeChoiceSortValue(a.name).localeCompare(normalizeChoiceSortValue(b.name)) ||
+    normalizeChoiceSortValue(a.alias).localeCompare(normalizeChoiceSortValue(b.alias)) ||
+    normalizeChoiceSortValue(a.clanTag).localeCompare(normalizeChoiceSortValue(b.clanTag)) ||
+    a.id.localeCompare(b.id)
+  );
+}
+
+function normalizeChoiceSortValue(value: string | null): string {
+  return value?.trim().toLowerCase() ?? '';
+}
+
 function formatClanChoiceName(clan: ActivityLinkedClan): string {
-  const label = clan.alias?.trim() || clan.name?.trim() || clan.clanTag;
-  return `${label} (${clan.clanTag})`.slice(0, 100);
+  const alias = clan.alias?.trim();
+  const name = clan.name?.trim();
+  const context = [
+    name ? `name: ${name}` : undefined,
+    alias ? `alias: ${alias}` : undefined,
+    `tag: ${clan.clanTag}`,
+  ].filter((part): part is string => Boolean(part));
+
+  return context.join(' · ').slice(0, 100);
 }
 
 function formatActivityClanLabel(clan: ActivityLinkedClan): string {
