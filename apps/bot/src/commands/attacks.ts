@@ -173,10 +173,10 @@ export function filterAttacksClanChoices(
   query: string,
 ): ApplicationCommandOptionChoiceData<string>[] {
   const normalizedQuery = query.trim().toLowerCase();
-  return clans
+  return dedupeAttacksClanChoices(clans)
     .filter((clan) => clanMatchesQuery(clan, normalizedQuery))
     .slice(0, 25)
-    .map((clan) => ({ name: formatClanChoiceName(clan), value: clan.alias ?? clan.clanTag }));
+    .map((clan) => ({ name: formatClanChoiceName(clan), value: getAttacksClanChoiceValue(clan) }));
 }
 
 export async function executeAttacks(
@@ -498,14 +498,56 @@ function readClanMemberTags(data: unknown): string[] {
 
 function clanMatchesQuery(clan: AttacksLinkedClan, normalizedQuery: string): boolean {
   if (!normalizedQuery) return true;
-  return [clan.clanTag, clan.clanTag.replace(/^#/, ''), clan.name ?? '', clan.alias ?? '']
+  return [
+    clan.clanTag,
+    clan.clanTag.replace(/^#/, ''),
+    clan.name ?? '',
+    clan.alias ?? '',
+    getAttacksClanChoiceValue(clan),
+  ]
     .map((value) => value.toLowerCase())
     .some((value) => value.includes(normalizedQuery));
 }
 
 function formatClanChoiceName(clan: AttacksLinkedClan): string {
-  const label = clan.alias?.trim() || clan.name?.trim() || clan.clanTag;
-  return `${escapeMarkdown(label)} (${clan.clanTag})`.slice(0, 100);
+  const name = clan.name?.trim();
+  const alias = clan.alias?.trim();
+  const primary = name || alias || clan.clanTag;
+  const context = [clan.clanTag, alias ? `alias: ${alias}` : null].filter(
+    (value) => value !== null,
+  );
+
+  return `${primary} (${context.join(' · ')})`.slice(0, 100);
+}
+
+function dedupeAttacksClanChoices(clans: readonly AttacksLinkedClan[]): AttacksLinkedClan[] {
+  const usedValues = new Set<string>();
+  const usedTags = new Set<string>();
+  const choices: AttacksLinkedClan[] = [];
+
+  for (const clan of [...clans].sort(compareAttacksClanChoices)) {
+    const valueKey = getAttacksClanChoiceValue(clan).trim().toLowerCase();
+    const tagKey = normalizeComparableTag(clan.clanTag);
+    if (usedValues.has(valueKey) || usedTags.has(tagKey)) continue;
+    usedValues.add(valueKey);
+    usedTags.add(tagKey);
+    choices.push(clan);
+  }
+
+  return choices;
+}
+
+function compareAttacksClanChoices(left: AttacksLinkedClan, right: AttacksLinkedClan): number {
+  return (
+    (left.name ?? '').localeCompare(right.name ?? '') ||
+    (left.alias ?? '').localeCompare(right.alias ?? '') ||
+    normalizeComparableTag(left.clanTag).localeCompare(normalizeComparableTag(right.clanTag)) ||
+    left.id.localeCompare(right.id)
+  );
+}
+
+function getAttacksClanChoiceValue(clan: AttacksLinkedClan): string {
+  return clan.alias ?? clan.clanTag;
 }
 
 function normalizeComparableTag(tag: string): string {
