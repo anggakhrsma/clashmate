@@ -247,6 +247,7 @@ function validateReconciliationPlanningLoopOptions(
   if (!options.autoroles) throw new Error('Reconciliation planning autorole store is required.');
   if (!options.nicknames) throw new Error('Reconciliation planning nickname store is required.');
   if (!options.snapshots) throw new Error('Reconciliation planning snapshot reader is required.');
+  if (!options.interval) throw new Error('Reconciliation planning interval config is required.');
   if (!Number.isFinite(options.interval.baseSeconds) || options.interval.baseSeconds < 1) {
     throw new Error('Reconciliation planning base interval must be at least 1 second.');
   }
