@@ -31,6 +31,8 @@ const SUPPORTED_REMINDER_TYPES_NOTE =
   'Supported schedule types: Clan Wars, Capital Raids, and Clan Games.';
 const MENTION_RESOLUTION_NOTE =
   'Mentions resolve only for snapshot members linked to Discord users and are capped at 40 users.';
+const REMINDER_DUE_STATUS_NOTE =
+  'Due/overdue status is computed from stored creation time and duration using the worker duration bucket logic; it does not confirm whether a due reminder has already been delivered.';
 
 const allowedReminderChannelTypes = [
   ChannelType.GuildText,
@@ -505,7 +507,7 @@ async function handleListReminders(
     content:
       schedules.length === 0
         ? `${formatReminderNoDataContext({ type, clanFilter, channelId, reminderId, totalForType })} ${formatReminderPrerequisiteContext({ type, snapshots })} ${STORAGE_ONLY_NOTE}`
-        : `${formatReminderList(schedules, compact)}\n\n${SUPPORTED_REMINDER_TYPES_NOTE} ${formatReminderPrerequisiteContext({ type, snapshots })} ${STORAGE_ONLY_NOTE} ${MENTION_RESOLUTION_NOTE} ${REMINDER_WORKER_NOTE}`,
+        : `${formatReminderList(schedules, compact)}\n\n${SUPPORTED_REMINDER_TYPES_NOTE} ${REMINDER_DUE_STATUS_NOTE} ${formatReminderPrerequisiteContext({ type, snapshots })} ${STORAGE_ONLY_NOTE} ${MENTION_RESOLUTION_NOTE} ${REMINDER_WORKER_NOTE}`,
     ephemeral: true,
   });
 }
@@ -746,21 +748,60 @@ function reminderDurationMilliseconds(value: string): number | null {
 }
 
 function formatReminderNextDue(schedule: Pick<ReminderSchedule, 'createdAt' | 'duration'>): string {
+  const status = computeReminderDueStatus(schedule);
+  if (!status) return 'unknown';
+  return `${formatDiscordTimestamp(status.nextDueMs, 'R')} (${formatDiscordTimestamp(status.nextDueMs, 'f')})`;
+}
+
+interface ReminderDueStatus {
+  readonly bucket: number;
+  readonly due: boolean;
+  readonly dueAtMs: number;
+  readonly nextDueMs: number;
+}
+
+function computeReminderDueStatus(
+  schedule: Pick<ReminderSchedule, 'createdAt' | 'duration'>,
+): ReminderDueStatus | null {
   const durationMs = reminderDurationMilliseconds(schedule.duration);
   const createdAtMs = new Date(schedule.createdAt).getTime();
-  if (!durationMs || Number.isNaN(createdAtMs)) return 'unknown';
+  if (!durationMs || Number.isNaN(createdAtMs)) return null;
 
   const nowMs = Date.now();
   const elapsedMs = nowMs - createdAtMs;
-  const bucket = elapsedMs < durationMs ? 1 : Math.floor(elapsedMs / durationMs) + 1;
-  const nextDueMs = createdAtMs + bucket * durationMs;
-  return `${formatDiscordTimestamp(nextDueMs, 'R')} (${formatDiscordTimestamp(nextDueMs, 'f')})`;
+  if (elapsedMs < durationMs) {
+    return {
+      bucket: 0,
+      due: false,
+      dueAtMs: createdAtMs + durationMs,
+      nextDueMs: createdAtMs + durationMs,
+    };
+  }
+
+  const bucket = Math.floor(elapsedMs / durationMs);
+  return {
+    bucket,
+    due: bucket >= 1,
+    dueAtMs: createdAtMs + bucket * durationMs,
+    nextDueMs: createdAtMs + (bucket + 1) * durationMs,
+  };
 }
 
 function formatReminderCadence(schedule: Pick<ReminderSchedule, 'createdAt' | 'duration'>): string {
   const duration = parseReminderDuration(schedule.duration);
   if (!duration || Number.isNaN(new Date(schedule.createdAt).getTime())) return 'Due: unknown';
-  return `Due every ${formatReminderDurationForDisplay(schedule.duration)} • Next due: ${formatReminderNextDue(schedule)}`;
+  return `Due every ${formatReminderDurationForDisplay(schedule.duration)} • ${formatReminderDueStatus(schedule)}`;
+}
+
+function formatReminderDueStatus(
+  schedule: Pick<ReminderSchedule, 'createdAt' | 'duration'>,
+): string {
+  const status = computeReminderDueStatus(schedule);
+  if (!status) return 'Due status: unknown';
+  if (!status.due) {
+    return `Not due yet • Next due: ${formatDiscordTimestamp(status.nextDueMs, 'R')} (${formatDiscordTimestamp(status.nextDueMs, 'f')})`;
+  }
+  return `Overdue/due bucket ${status.bucket} since ${formatDiscordTimestamp(status.dueAtMs, 'R')} (${formatDiscordTimestamp(status.dueAtMs, 'f')}) • Next bucket: ${formatDiscordTimestamp(status.nextDueMs, 'R')} (${formatDiscordTimestamp(status.nextDueMs, 'f')})`;
 }
 
 function formatDiscordTimestamp(timeMs: number, style: 'R' | 'f'): string {
@@ -907,7 +948,7 @@ function formatReminderList(schedules: readonly ReminderSchedule[], compact: boo
     .slice(0, 20)
     .map((schedule) =>
       compact
-        ? `\`${schedule.id}\` ${formatReminderDurationForDisplay(schedule.duration)} • Next due: ${formatReminderNextDue(schedule)} • <#${schedule.channelId}> ${formatScheduleClans(schedule.clans)}`
+        ? `\`${schedule.id}\` ${formatReminderDurationForDisplay(schedule.duration)} • ${formatReminderDueStatus(schedule)} • <#${schedule.channelId}> ${formatScheduleClans(schedule.clans)}`
         : [
             `**${formatReminderType(schedule.type)}** \`${schedule.id}\``,
             `Duration: ${formatReminderDurationForDisplay(schedule.duration)} • Channel: <#${schedule.channelId}>`,
