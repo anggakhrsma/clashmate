@@ -212,10 +212,25 @@ export function filterRushedClanChoices(
   query: string,
 ): ApplicationCommandOptionChoiceData<string>[] {
   const normalizedQuery = query.trim().toLowerCase();
-  return clans
-    .filter((clan) => clanMatchesQuery(clan, normalizedQuery))
-    .slice(0, 25)
-    .map((clan) => ({ name: formatClanChoiceName(clan), value: clan.alias ?? clan.clanTag }));
+  const seenAcceptedValues = new Set<string>();
+  const seenClanTags = new Set<string>();
+  const choices: ApplicationCommandOptionChoiceData<string>[] = [];
+
+  for (const clan of [...clans]
+    .filter((candidate) => clanMatchesQuery(candidate, normalizedQuery))
+    .sort(compareRushedClanChoices)) {
+    const value = clan.alias ?? clan.clanTag;
+    const acceptedValueKey = value.trim().toLowerCase();
+    const clanTagKey = clan.clanTag.trim().toLowerCase();
+    if (seenAcceptedValues.has(acceptedValueKey) || seenClanTags.has(clanTagKey)) continue;
+
+    seenAcceptedValues.add(acceptedValueKey);
+    seenClanTags.add(clanTagKey);
+    choices.push({ name: formatClanChoiceName(clan), value });
+    if (choices.length >= 25) break;
+  }
+
+  return choices;
 }
 
 async function executeRushedClanMode(
@@ -392,9 +407,29 @@ function clanMatchesQuery(clan: RushedLinkedClan, normalizedQuery: string): bool
     .some((value) => value.includes(normalizedQuery));
 }
 
+function compareRushedClanChoices(left: RushedLinkedClan, right: RushedLinkedClan): number {
+  return (
+    compareChoiceText(left.alias, right.alias) ||
+    compareChoiceText(left.name, right.name) ||
+    left.clanTag.localeCompare(right.clanTag) ||
+    left.id.localeCompare(right.id)
+  );
+}
+
+function compareChoiceText(left: string | null, right: string | null): number {
+  const leftText = left?.trim() ?? '';
+  const rightText = right?.trim() ?? '';
+  if (!leftText && !rightText) return 0;
+  if (!leftText) return 1;
+  if (!rightText) return -1;
+  return leftText.localeCompare(rightText);
+}
+
 function formatClanChoiceName(clan: RushedLinkedClan): string {
-  const label = clan.alias?.trim() || clan.name?.trim() || clan.clanTag;
-  return `${label} (${clan.clanTag})`.slice(0, 100);
+  const alias = clan.alias?.trim();
+  const name = clan.name?.trim();
+  const context = alias && name ? `${alias} — ${name}` : (alias ?? name ?? 'Linked Clan');
+  return `${context} (${clan.clanTag})`.slice(0, 100);
 }
 
 export function buildRushedEmbed(
