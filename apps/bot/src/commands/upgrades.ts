@@ -52,13 +52,13 @@ type UpgradesResolutionResult =
       readonly status: 'resolved';
       readonly playerTag: string;
       readonly targetUser: User | null;
-      readonly source: 'player_option' | 'linked_user';
+      readonly source: 'player_option' | 'linked_user' | 'linked_default';
     }
   | { readonly status: 'invalid_tag' }
   | { readonly status: 'no_link'; readonly targetUser: User; readonly isSelf: boolean };
 
 interface UpgradesEmbedContext {
-  readonly source: 'player_option' | 'linked_user';
+  readonly source: 'player_option' | 'linked_user' | 'linked_default';
   readonly targetUser: User | null;
 }
 
@@ -167,7 +167,7 @@ export async function executeUpgrades(
   }
 
   if (resolution.status === 'no_link') {
-    await interaction.reply({ content: formatNoLinkedPlayerMessage(resolution), ephemeral: true });
+    await interaction.reply({ content: formatUpgradesNoLinkMessage(resolution), ephemeral: true });
     return;
   }
 
@@ -177,7 +177,7 @@ export async function executeUpgrades(
   try {
     player = await options.coc.getPlayer(resolution.playerTag);
   } catch {
-    await interaction.editReply(UPGRADES_NOT_FOUND_MESSAGE);
+    await interaction.editReply(formatUpgradesNotFoundMessage(resolution));
     return;
   }
 
@@ -215,7 +215,12 @@ export async function resolveUpgradesPlayerTag(input: {
   const [playerTag] = await input.links.listPlayerTagsForUser(input.guildId, targetUser.id);
   if (!playerTag)
     return { status: 'no_link', targetUser, isSelf: targetUser.id === input.invokingUser.id };
-  return { status: 'resolved', playerTag, targetUser, source: 'linked_user' };
+  return {
+    status: 'resolved',
+    playerTag,
+    targetUser,
+    source: input.userOption ? 'linked_user' : 'linked_default',
+  };
 }
 
 export function buildUpgradesEmbed(
@@ -239,10 +244,12 @@ export function buildUpgradesEmbed(
         [
           `First pass using public API \`maxLevel\` values${townHall ? ` for TH ${townHall}` : ''}${builderHall ? ` / BH ${builderHall}` : ''}.`,
           formatUpgradesLookupSource(context),
+          'Freshness: current Clash API response only; no cached snapshots or persisted upgrade history are used.',
           "Accepted filters: `player` for an exact Clash tag, or `user` for that member's first linked account when no player tag is supplied.",
-          'This is a one-off API lookup only; it does not enroll the player for polling or long-lived tracking.',
+          'Tracking: this one-off lookup does not enroll the player for polling or long-lived tracking.',
           'Recommendation limits: ClashMate currently uses public API unit `maxLevel` data and simple remaining-level heuristics, not full TH/BH cost/time tables, lab availability, books, hammers, builders, or magic item planning. Some rows can include levels above the current hall until static hall caps are added.',
           `Total remaining levels: **${remainingLevels.toLocaleString('en-US')}**`,
+          formatRemainingCategoryCounts(groups),
           formatUpgradeProgressSummary(progress),
         ].join('\n'),
         EMBED_DESCRIPTION_LIMIT,
@@ -254,13 +261,42 @@ export function buildUpgradesEmbed(
   if (remainingLevels === 0)
     embed.addFields({
       name: 'Upgrades',
-      value: 'No remaining unit upgrades found from API maxLevel values.',
+      value:
+        'No remaining unit upgrades found from current API maxLevel values. If this looks wrong, retry with `player:#TAG`; ClashMate has no persisted upgrade history for this one-off lookup.',
       inline: false,
     });
   return embed;
 }
 
+function formatUpgradesNoLinkMessage(
+  resolution: Extract<UpgradesResolutionResult, { status: 'no_link' }>,
+): string {
+  return [
+    formatNoLinkedPlayerMessage(resolution),
+    resolution.isSelf
+      ? 'Lookup source: your default linked account was requested because no `player` tag or `user` was supplied.'
+      : `Lookup source: ${escapeMarkdown(resolution.targetUser.username)}'s first linked account was requested because no \`player\` tag was supplied.`,
+    'Freshness: `/upgrades` is a current-only Clash API lookup; it does not use persisted upgrade history or enroll players for polling.',
+    'Try `player:#TAG` for a one-off lookup, or link an account before using the default/user source.',
+  ].join('\n');
+}
+
+function formatUpgradesNotFoundMessage(
+  resolution: Extract<UpgradesResolutionResult, { status: 'resolved' }>,
+): string {
+  return [
+    UPGRADES_NOT_FOUND_MESSAGE,
+    formatUpgradesLookupSource(resolution),
+    'Freshness: looked up the current Clash API response only; no cached snapshots or persisted upgrade history were used.',
+    'Tracking: this failed one-off lookup did not enroll the player for polling.',
+  ].join('\n');
+}
+
 function formatUpgradesLookupSource(context: UpgradesEmbedContext): string {
+  if (context.source === 'linked_default') {
+    return 'Lookup source: your default linked player account because no `player` tag or `user` was supplied.';
+  }
+
   if (context.source === 'linked_user') {
     const user = context.targetUser
       ? `${escapeMarkdown(context.targetUser.username)}'s`
@@ -273,6 +309,19 @@ function formatUpgradesLookupSource(context: UpgradesEmbedContext): string {
   }
 
   return 'Lookup source: explicit player tag.';
+}
+
+function formatRemainingCategoryCounts(groups: UpgradeGroups): string {
+  const rows = [
+    ['Troops', groups.troops.length],
+    ['Spells', groups.spells.length],
+    ['Heroes', groups.heroes.length],
+    ['Equipment', groups.heroEquipment.length],
+    ['Builder', groups.builderBase.length],
+  ] as const;
+  return `Remaining categories: ${rows
+    .map(([label, count]) => `${label} ${count.toLocaleString('en-US')}`)
+    .join(' • ')}`;
 }
 
 export function collectRemainingUpgrades(player: ClashPlayer): UpgradeGroups {
