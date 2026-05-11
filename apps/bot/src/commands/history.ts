@@ -740,28 +740,68 @@ export function buildCapitalRaidsHistoryEmbed(
     rows.filter((row): row is typeof row & { latestAt: Date } => row.latestAt !== undefined),
     (row) => row.latestAt,
   );
+  const totals = summarizeCapitalRaidSnapshots(rows);
 
   const embed = new EmbedBuilder()
     .setTitle('Capital Raids History')
     .setDescription(truncateEmbedDescription(formatCapitalRaidsHistoryRows(selectedRows)))
-    .addFields({
-      name: 'Source',
-      value: formatHistorySourceContext({
-        rowsConsidered: rows.length,
-        rowsVisible: selectedRows.length,
-        latestLabel: 'Latest snapshot',
-        latestAt,
-        filters,
-        note: 'Persisted linked-clan capital snapshots only. Raid-week attack logs are not persisted, so this ranking cannot show per-week attacks, districts, loot, or offensive/defensive raid history. No live Clash API lookup, backfill, or polling enrollment is performed.',
-      }),
-      inline: false,
-    })
+    .addFields(
+      {
+        name: 'Totals',
+        value: `${totals.clans} clans · ${totals.withTrophies} with trophies · ${totals.withPoints} with points · ${totals.withHall} with Capital Hall · ${totals.withLeague} with league`,
+        inline: false,
+      },
+      {
+        name: 'Coverage',
+        value:
+          'Snapshot coverage only: capital hall, league, trophies, and/or points from linked-clan snapshots. Raid-week attack logs are not persisted, so per-week attacks, districts, loot, and offensive/defensive raid history are unavailable here.',
+        inline: false,
+      },
+      {
+        name: 'Source',
+        value: formatHistorySourceContext({
+          rowsConsidered: rows.length,
+          rowsVisible: selectedRows.length,
+          latestLabel: 'Latest snapshot',
+          latestAt,
+          filters,
+          note: 'Persisted linked-clan capital snapshots only. No live Clash API lookup, backfill, or polling enrollment is performed.',
+        }),
+        inline: false,
+      },
+    )
     .setFooter({
       text: `Showing ${selectedRows.length}/${rows.length} clans from stored snapshots`,
     });
   if (filters.user)
     embed.setAuthor({ name: filters.user.displayName, iconURL: filters.user.displayAvatarURL() });
   return embed;
+}
+
+function summarizeCapitalRaidSnapshots(
+  rows: readonly {
+    hall: number | null;
+    league: string | null;
+    points: number | null;
+    trophies: number | null;
+  }[],
+): {
+  readonly clans: number;
+  readonly withTrophies: number;
+  readonly withPoints: number;
+  readonly withHall: number;
+  readonly withLeague: number;
+} {
+  return rows.reduce(
+    (acc, row) => ({
+      clans: acc.clans + 1,
+      withTrophies: acc.withTrophies + (row.trophies !== null ? 1 : 0),
+      withPoints: acc.withPoints + (row.points !== null ? 1 : 0),
+      withHall: acc.withHall + (row.hall !== null ? 1 : 0),
+      withLeague: acc.withLeague + (row.league !== null ? 1 : 0),
+    }),
+    { clans: 0, withTrophies: 0, withPoints: 0, withHall: 0, withLeague: 0 },
+  );
 }
 
 function formatCapitalRaidsHistoryRows(
@@ -830,27 +870,93 @@ export function buildSnapshotBackedHistoryEmbed(
   );
   const selected = sorted.slice(0, MAX_HISTORY_ROWS);
   const latestAt = getLatestDate(members, (row) => row.member.lastFetchedAt);
+  const totals = summarizeSnapshotHistoryMembers(option, members);
   const embed = new EmbedBuilder()
     .setTitle(`${formatHistoryOptionTitle(option)} History`)
     .setDescription(truncateEmbedDescription(formatSnapshotHistoryRows(option, selected)))
-    .addFields({
-      name: 'Source',
-      value: formatHistorySourceContext({
-        rowsConsidered: members.length,
-        rowsVisible: selected.length,
-        latestLabel: 'Latest snapshot',
-        latestAt,
-        filters,
-        note: 'Persisted linked-clan member snapshots only. This is snapshot-backed history, not a live Clash API lookup, backfill, or search-only polling enrollment.',
-      }),
-      inline: false,
-    })
+    .addFields(
+      { name: 'Totals', value: totals.totalsText, inline: false },
+      { name: 'Coverage', value: totals.coverageText, inline: false },
+      {
+        name: 'Source',
+        value: formatHistorySourceContext({
+          rowsConsidered: members.length,
+          rowsVisible: selected.length,
+          latestLabel: 'Latest snapshot',
+          latestAt,
+          filters,
+          note: 'Persisted linked-clan member snapshots only. This is snapshot-backed history, not a live Clash API lookup, backfill, or search-only polling enrollment.',
+        }),
+        inline: false,
+      },
+    )
     .setFooter({
       text: `Showing ${selected.length}/${members.length} players from stored snapshots`,
     });
   if (filters.user)
     embed.setAuthor({ name: filters.user.displayName, iconURL: filters.user.displayAvatarURL() });
   return embed;
+}
+
+function summarizeSnapshotHistoryMembers(
+  option: 'capital-contribution' | 'attacks' | 'loot' | 'legend-attacks' | 'eos-trophies',
+  rows: readonly { member: SnapshotHistoryClanMember; clan: SnapshotHistoryClan['clan'] }[],
+): { readonly totalsText: string; readonly coverageText: string } {
+  const clanCount = new Set(rows.map((row) => row.clan.clanTag)).size;
+  const memberCount = rows.length;
+  const withTrophies = rows.filter((row) => row.member.trophies !== null).length;
+  const withLeague = rows.filter((row) => row.member.leagueName?.trim()).length;
+
+  if (option === 'capital-contribution') {
+    const totals = rows.reduce(
+      (acc, row) => ({
+        contribution: acc.contribution + (row.member.capitalContribution ?? 0),
+        gold: acc.gold + (row.member.capitalGold ?? 0),
+        withContribution: acc.withContribution + (row.member.capitalContribution != null ? 1 : 0),
+        withGold: acc.withGold + (row.member.capitalGold != null ? 1 : 0),
+      }),
+      { contribution: 0, gold: 0, withContribution: 0, withGold: 0 },
+    );
+    return {
+      totalsText: `${memberCount} players across ${clanCount} clans · ${totals.contribution.toLocaleString()} capital contributed · ${totals.gold.toLocaleString()} capital gold`,
+      coverageText: `${totals.withContribution}/${memberCount} players include capital contribution and ${totals.withGold}/${memberCount} include capital gold. Raid-week contribution time series are not persisted.`,
+    };
+  }
+
+  if (option === 'loot') {
+    const totals = rows.reduce(
+      (acc, row) => ({
+        donated: acc.donated + (row.member.donations ?? 0),
+        received: acc.received + (row.member.donationsReceived ?? 0),
+        withDonations: acc.withDonations + (row.member.donations !== null ? 1 : 0),
+        withReceived: acc.withReceived + (row.member.donationsReceived !== null ? 1 : 0),
+      }),
+      { donated: 0, received: 0, withDonations: 0, withReceived: 0 },
+    );
+    return {
+      totalsText: `${memberCount} players across ${clanCount} clans · ${totals.donated.toLocaleString()} donated · ${totals.received.toLocaleString()} received`,
+      coverageText: `${totals.withDonations}/${memberCount} players include donated counts and ${totals.withReceived}/${memberCount} include received counts. True loot resource time series are not persisted.`,
+    };
+  }
+
+  const totalTrophies = rows.reduce((sum, row) => sum + (row.member.trophies ?? 0), 0);
+  const baseTotals = `${memberCount} players across ${clanCount} clans · ${totalTrophies.toLocaleString()} total current trophies`;
+  if (option === 'legend-attacks') {
+    return {
+      totalsText: `${baseTotals} · ${withLeague} with league`,
+      coverageText: `${withTrophies}/${memberCount} players include trophy snapshots and ${withLeague}/${memberCount} include league names. Legend day attack timelines are not persisted.`,
+    };
+  }
+  if (option === 'eos-trophies') {
+    return {
+      totalsText: baseTotals,
+      coverageText: `${withTrophies}/${memberCount} players include current trophy snapshots. True end-of-season trophy time series are not persisted.`,
+    };
+  }
+  return {
+    totalsText: `${baseTotals} · ${withLeague} with league`,
+    coverageText: `${withTrophies}/${memberCount} players include trophy snapshots and ${withLeague}/${memberCount} include league names. Multiplayer attack/defense time series are not persisted.`,
+  };
 }
 
 function buildNoSnapshotHistoryEmbed(
