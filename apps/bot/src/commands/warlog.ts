@@ -125,8 +125,12 @@ async function autocompleteWarlog(
     await interaction.respond([]);
     return;
   }
-  const clans = await options.store.listLinkedClans(interaction.guildId);
-  await interaction.respond(filterWarlogClanChoices(clans, String(focused.value ?? '')));
+  try {
+    const clans = await options.store.listLinkedClans(interaction.guildId);
+    await interaction.respond(filterWarlogClanChoices(clans, String(focused.value ?? '')));
+  } catch {
+    await interaction.respond([]);
+  }
 }
 
 export function filterWarlogClanChoices(
@@ -143,9 +147,16 @@ export function filterWarlogClanChoices(
     })
     .slice(0, 25)
     .map((clan) => ({
-      name: `${clan.name ?? clan.clanTag} (${clan.clanTag})`,
+      name: formatWarlogClanChoiceName(clan),
       value: clan.clanTag,
     }));
+}
+
+function formatWarlogClanChoiceName(clan: WarlogTrackedClan): string {
+  const primary = clan.name ?? clan.clanTag;
+  const alias = clan.alias?.trim();
+  const label = alias && alias !== primary ? `${primary} · ${alias}` : primary;
+  return `${label} (${clan.clanTag})`;
 }
 
 async function executeWarlog(
