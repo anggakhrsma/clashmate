@@ -109,8 +109,20 @@ export function filterCompoClanChoices(
   query: string,
 ): ApplicationCommandOptionChoiceData<string>[] {
   const normalizedQuery = query.trim().toLowerCase();
+  const seenTags = new Set<string>();
+  const seenValues = new Set<string>();
+
   return clans
     .filter((clan) => clanMatchesQuery(clan, normalizedQuery))
+    .sort((left, right) => compareCompoClanChoices(left, right, normalizedQuery))
+    .filter((clan) => {
+      const tagKey = normalizeChoiceKey(clan.clanTag.replace(/^#/, ''));
+      const valueKey = normalizeChoiceKey(clan.alias ?? clan.clanTag);
+      if (seenTags.has(tagKey) || seenValues.has(valueKey)) return false;
+      seenTags.add(tagKey);
+      seenValues.add(valueKey);
+      return true;
+    })
     .slice(0, 25)
     .map((clan) => ({ name: formatClanChoiceName(clan), value: clan.alias ?? clan.clanTag }));
 }
@@ -326,9 +338,50 @@ function clanMatchesQuery(clan: CompoLinkedClan, normalizedQuery: string): boole
     .some((value) => value.includes(normalizedQuery));
 }
 
+function compareCompoClanChoices(
+  left: CompoLinkedClan,
+  right: CompoLinkedClan,
+  normalizedQuery: string,
+): number {
+  const leftRank = getCompoClanChoiceRank(left, normalizedQuery);
+  const rightRank = getCompoClanChoiceRank(right, normalizedQuery);
+  if (leftRank !== rightRank) return leftRank - rightRank;
+
+  return formatClanChoiceSortKey(left).localeCompare(formatClanChoiceSortKey(right), 'en-US', {
+    numeric: true,
+    sensitivity: 'base',
+  });
+}
+
+function getCompoClanChoiceRank(clan: CompoLinkedClan, normalizedQuery: string): number {
+  if (!normalizedQuery) return 3;
+
+  const values = [clan.alias ?? '', clan.name ?? '', clan.clanTag, clan.clanTag.replace(/^#/, '')]
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+  if (values.some((value) => value === normalizedQuery)) return 0;
+  if (values.some((value) => value.startsWith(normalizedQuery))) return 1;
+  if (values.some((value) => value.includes(normalizedQuery))) return 2;
+  return 3;
+}
+
 function formatClanChoiceName(clan: CompoLinkedClan): string {
-  const label = clan.alias?.trim() || clan.name?.trim() || clan.clanTag;
-  return `${escapeMarkdown(label)} (${clan.clanTag})`.slice(0, 100);
+  const alias = clan.alias?.trim();
+  const name = clan.name?.trim();
+  const labelParts = [
+    alias ? `Alias: ${alias}` : undefined,
+    name ? `Name: ${name}` : undefined,
+    `Tag: ${clan.clanTag}`,
+  ].filter((part): part is string => Boolean(part));
+  return escapeMarkdown(labelParts.join(' • ')).slice(0, 100);
+}
+
+function formatClanChoiceSortKey(clan: CompoLinkedClan): string {
+  return [clan.alias?.trim() ?? '', clan.name?.trim() ?? '', clan.clanTag].join('\u0000');
+}
+
+function normalizeChoiceKey(value: string): string {
+  return value.trim().toLowerCase();
 }
 
 function readBadgeUrl(data: unknown): string | undefined {
