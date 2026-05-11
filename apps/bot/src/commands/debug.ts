@@ -65,11 +65,28 @@ export interface DebugConfigDiagnostics {
   diagnosticsEnabled: boolean | 'Unknown';
 }
 
+export type DebugReconciliationFeature = 'autorole' | 'nickname';
+
+export interface DebugReconciliationPlanningOutcome {
+  feature: DebugReconciliationFeature;
+  enabled: boolean;
+  shouldRun: boolean;
+  reason: string;
+  snapshotClanCount: number;
+  snapshotMemberCount: number;
+  candidateActionCount: number;
+  plannedAt: Date;
+}
+
 export interface DebugDataReader {
   listTrackedClansForGuild?: (guildId: string) => Promise<readonly DebugTrackedClan[]>;
   getClanStatus?: (clanTag: string) => Promise<DebugClanStatus | undefined>;
   getPollerDiagnostics?: () => Promise<DebugPollerDiagnostics | undefined>;
   getConfigDiagnostics?: (guildId: string) => Promise<DebugConfigDiagnostics | undefined>;
+  listRecentReconciliationPlanningOutcomes?: (input: {
+    guildId: string;
+    limit?: number;
+  }) => Promise<readonly DebugReconciliationPlanningOutcome[]>;
 }
 
 export interface DebugLogger {
@@ -101,6 +118,7 @@ export interface DebugView {
   webhookCount: number | 'Unavailable';
   pollers: DebugPollerDiagnostics | undefined;
   config: DebugConfigDiagnostics | undefined;
+  reconciliation?: readonly DebugReconciliationPlanningOutcome[] | undefined;
   clans: readonly DebugClanRow[];
 }
 
@@ -166,6 +184,7 @@ export async function collectDebugView(options: {
 }): Promise<DebugView> {
   const permissions = collectPermissionResults(options.channel, options.botUserId);
   const clans = await collectClanRows(options.guildId, options.dataReader, options.logger);
+  const config = await readConfigDiagnostics(options.guildId, options.dataReader, options.logger);
 
   return {
     botName: options.botName,
@@ -174,7 +193,15 @@ export async function collectDebugView(options: {
     permissions,
     webhookCount: await countWebhooks(options.channel, options.botUserId),
     pollers: await readPollerDiagnostics(options.dataReader, options.logger),
-    config: await readConfigDiagnostics(options.guildId, options.dataReader, options.logger),
+    config,
+    reconciliation:
+      config?.diagnosticsEnabled === true
+        ? await readReconciliationPlanningOutcomes(
+            options.guildId,
+            options.dataReader,
+            options.logger,
+          )
+        : undefined,
     clans,
   };
 }
@@ -249,6 +276,9 @@ export function renderDebugText(view: DebugView): string {
     '',
     '**Config Diagnostics**',
     renderConfigDiagnostics(view.config),
+    '',
+    '**Reconciliation Planning**',
+    renderReconciliationPlanning(view.reconciliation),
     '',
     '**Configured Clans**',
     renderClanSummary(clanSummary),
@@ -370,6 +400,22 @@ async function readConfigDiagnostics(
   }
 }
 
+async function readReconciliationPlanningOutcomes(
+  guildId: string,
+  dataReader: DebugDataReader | undefined,
+  logger: DebugLogger | undefined,
+): Promise<readonly DebugReconciliationPlanningOutcome[] | undefined> {
+  try {
+    return await dataReader?.listRecentReconciliationPlanningOutcomes?.({ guildId, limit: 20 });
+  } catch (error) {
+    logger?.warn(
+      { error, guildId },
+      'Failed to read reconciliation planning outcomes for debug command',
+    );
+    return undefined;
+  }
+}
+
 function renderPollerDiagnostics(pollers: DebugPollerDiagnostics | undefined): string {
   if (!pollers) return 'Unavailable';
 
@@ -396,6 +442,48 @@ function renderConfigDiagnostics(config: DebugConfigDiagnostics | undefined): st
 function renderConfigSummary(config: DebugConfigDiagnostics | undefined): string {
   if (!config) return 'unavailable';
   return `diagnostics ${formatBooleanDiagnostic(config.diagnosticsEnabled).toLowerCase()}`;
+}
+
+function renderReconciliationPlanning(
+  outcomes: readonly DebugReconciliationPlanningOutcome[] | undefined,
+): string {
+  if (!outcomes) return 'Unavailable';
+  if (outcomes.length === 0) return 'No recent planning outcomes.';
+
+  return (['autorole', 'nickname'] as const)
+    .map((feature) => renderReconciliationFeature(feature, outcomes))
+    .join('\n');
+}
+
+function renderReconciliationFeature(
+  feature: DebugReconciliationFeature,
+  outcomes: readonly DebugReconciliationPlanningOutcome[],
+): string {
+  const rows = outcomes.filter((outcome) => outcome.feature === feature);
+  if (rows.length === 0) return `${feature}: no recent outcomes`;
+
+  const latest = rows.reduce((current, row) =>
+    row.plannedAt.getTime() > current.plannedAt.getTime() ? row : current,
+  );
+  const shouldRunCount = rows.filter((row) => row.shouldRun).length;
+  const skipReasons = summarizeSkipReasons(rows);
+  const latestStatus = latest.shouldRun ? 'run' : `skip:${latest.reason}`;
+
+  return `${feature}: latest ${latest.plannedAt.toISOString()} ${latestStatus}; should_run ${shouldRunCount}/${rows.length}; skips ${skipReasons}; latest snapshots ${latest.snapshotClanCount} clans/${latest.snapshotMemberCount} members/${latest.candidateActionCount} actions`;
+}
+
+function summarizeSkipReasons(outcomes: readonly DebugReconciliationPlanningOutcome[]): string {
+  const counts = new Map<string, number>();
+  for (const outcome of outcomes) {
+    if (outcome.shouldRun) continue;
+    counts.set(outcome.reason, (counts.get(outcome.reason) ?? 0) + 1);
+  }
+  if (counts.size === 0) return 'none';
+
+  return [...counts.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .map(([reason, count]) => `${reason}:${count}`)
+    .join(', ');
 }
 
 function countPassedPermissions(permissions: readonly DebugPermissionResult[]): number {

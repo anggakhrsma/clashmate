@@ -80,6 +80,10 @@ export interface DatabaseDebugReader {
   listTrackedClansForGuild: (guildId: string) => Promise<DebugTrackedClanRecord[]>;
   getPollerDiagnostics: () => Promise<DatabasePollerDiagnostics>;
   getConfigDiagnostics: (guildId: string) => Promise<DatabaseConfigDiagnostics>;
+  listRecentReconciliationPlanningOutcomes: (input: {
+    guildId: string;
+    limit?: number;
+  }) => Promise<ReconciliationPlanningOutcomeRecord[]>;
 }
 
 export interface GuildConfigRecord {
@@ -4345,6 +4349,17 @@ export function createDatabaseDebugReader(database: Database): DatabaseDebugRead
         .limit(1);
 
       return { diagnosticsEnabled: row?.diagnosticsEnabled ?? 'Unknown' };
+    },
+    listRecentReconciliationPlanningOutcomes: async (input) => {
+      const limit = Math.max(1, Math.min(50, Math.trunc(input.limit ?? 20)));
+      const rows = await database
+        .select()
+        .from(schema.reconciliationPlanningOutcomes)
+        .where(eq(schema.reconciliationPlanningOutcomes.guildId, input.guildId))
+        .orderBy(desc(schema.reconciliationPlanningOutcomes.plannedAt))
+        .limit(limit);
+
+      return rows.map(mapReconciliationPlanningOutcome);
     },
   };
 }
