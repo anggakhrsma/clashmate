@@ -197,10 +197,25 @@ export function filterDonationClanChoices(
   query: string,
 ): ApplicationCommandOptionChoiceData<string>[] {
   const normalizedQuery = query.trim().toLowerCase();
-  return clans
+  const seenClanTags = new Set<string>();
+  const seenValues = new Set<string>();
+  const choices: ApplicationCommandOptionChoiceData<string>[] = [];
+
+  for (const clan of [...clans]
     .filter((clan) => clanMatchesQuery(clan, normalizedQuery))
-    .slice(0, 25)
-    .map((clan) => ({ name: formatClanChoiceName(clan), value: clan.alias ?? clan.clanTag }));
+    .sort(compareDonationClanChoices)) {
+    const value = clan.alias ?? clan.clanTag;
+    const normalizedClanTag = clan.clanTag.trim().toUpperCase();
+    const normalizedValue = value.trim().toLowerCase();
+    if (seenClanTags.has(normalizedClanTag) || seenValues.has(normalizedValue)) continue;
+
+    seenClanTags.add(normalizedClanTag);
+    seenValues.add(normalizedValue);
+    choices.push({ name: formatClanChoiceName(clan), value });
+    if (choices.length >= 25) break;
+  }
+
+  return choices;
 }
 
 export async function executeDonations(
@@ -696,8 +711,25 @@ function clanMatchesQuery(clan: DonationsLinkedClan, normalizedQuery: string): b
 }
 
 function formatClanChoiceName(clan: DonationsLinkedClan): string {
-  const label = clan.alias?.trim() || clan.name?.trim() || clan.clanTag;
-  return `${label} (${clan.clanTag})`.slice(0, 100);
+  const alias = clan.alias?.trim();
+  const name = clan.name?.trim();
+  const context = [alias ? `Alias: ${alias}` : null, name ? `Name: ${name}` : null]
+    .filter((part): part is string => part !== null)
+    .join(' · ');
+  return (context ? `${context} · Tag: ${clan.clanTag}` : `Tag: ${clan.clanTag}`).slice(0, 100);
+}
+
+function compareDonationClanChoices(left: DonationsLinkedClan, right: DonationsLinkedClan): number {
+  return (
+    compareNullableLabels(left.alias, right.alias) ||
+    compareNullableLabels(left.name, right.name) ||
+    left.clanTag.localeCompare(right.clanTag) ||
+    left.id.localeCompare(right.id)
+  );
+}
+
+function compareNullableLabels(left: string | null, right: string | null): number {
+  return (left?.trim() ?? '').localeCompare(right?.trim() ?? '');
 }
 
 function truncateEmbedDescription(text: string): string {
