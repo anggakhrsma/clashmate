@@ -25,6 +25,27 @@ export interface StatusMetricReader {
   countClans?: () => Promise<number | undefined>;
   countPlayers?: () => Promise<number | undefined>;
   countLinks?: () => Promise<number | undefined>;
+  listRecentReconciliationPlanningOutcomes?: (input: {
+    guildId: string;
+    limit?: number;
+  }) => Promise<readonly StatusReconciliationPlanningOutcome[]>;
+}
+
+export type StatusReconciliationFeature = 'autorole' | 'nickname';
+
+export interface StatusReconciliationPlanningOutcome {
+  feature: StatusReconciliationFeature;
+  shouldRun: boolean;
+  reason: string;
+  plannedAt: Date;
+}
+
+export interface StatusReconciliationPlanningSummary {
+  totalRecentOutcomes: number;
+  latestPlannedAt?: Date;
+  plannedToRunCounts: Partial<Record<StatusReconciliationFeature, number>>;
+  featureTotals: Partial<Record<StatusReconciliationFeature, number>>;
+  topSkipReasons: Array<{ reason: string; count: number }>;
 }
 
 export interface StatusLogger {
@@ -49,6 +70,7 @@ export interface StatusMetrics {
   clans?: number;
   players?: number;
   links?: number;
+  reconciliationPlanning?: StatusReconciliationPlanningSummary;
   runtime: string;
   cacheSource?: string;
   metricSource?: string;
@@ -142,6 +164,11 @@ export async function collectStatusView(options: {
   const clans = await readMetric('clans', options.metricReader?.countClans, options.logger);
   const players = await readMetric('players', options.metricReader?.countPlayers, options.logger);
   const links = await readMetric('links', options.metricReader?.countLinks, options.logger);
+  const reconciliationOutcomes = await readReconciliationPlanningOutcomes(
+    options.guild.id,
+    options.metricReader?.listRecentReconciliationPlanningOutcomes,
+    options.logger,
+  );
 
   const metrics: StatusMetrics = {
     memoryUsedMb: process.memoryUsage().heapUsed / 1024 / 1024,
@@ -167,6 +194,9 @@ export async function collectStatusView(options: {
   if (typeof clans === 'number') metrics.clans = clans;
   if (typeof players === 'number') metrics.players = players;
   if (typeof links === 'number') metrics.links = links;
+  if (reconciliationOutcomes) {
+    metrics.reconciliationPlanning = summarizeReconciliationPlanning(reconciliationOutcomes);
+  }
   if (options.commitSha) metrics.commitSha = options.commitSha;
   if (options.repositoryUrl) metrics.repositoryUrl = options.repositoryUrl;
 
@@ -231,6 +261,15 @@ export function buildStatusEmbed(view: StatusView): EmbedBuilder {
       value: formatOptionalCount(view.metrics.links),
       inline: false,
     },
+    ...(view.metrics.reconciliationPlanning
+      ? [
+          {
+            name: 'Reconciliation Planning',
+            value: formatReconciliationPlanning(view.metrics.reconciliationPlanning),
+            inline: false,
+          },
+        ]
+      : []),
     {
       name: 'Runtime',
       value: view.metrics.runtime,
@@ -246,6 +285,63 @@ export function buildStatusEmbed(view: StatusView): EmbedBuilder {
   embed.setDescription(formatStatusDiagnostics(view.metrics));
 
   return embed;
+}
+
+export function summarizeReconciliationPlanning(
+  outcomes: readonly StatusReconciliationPlanningOutcome[],
+): StatusReconciliationPlanningSummary {
+  const plannedToRunCounts: StatusReconciliationPlanningSummary['plannedToRunCounts'] = {};
+  const featureTotals: StatusReconciliationPlanningSummary['featureTotals'] = {};
+  const skipReasons = new Map<string, number>();
+  let latestPlannedAt: Date | undefined;
+
+  for (const outcome of outcomes) {
+    featureTotals[outcome.feature] = (featureTotals[outcome.feature] ?? 0) + 1;
+    if (outcome.shouldRun) {
+      plannedToRunCounts[outcome.feature] = (plannedToRunCounts[outcome.feature] ?? 0) + 1;
+    } else {
+      skipReasons.set(outcome.reason, (skipReasons.get(outcome.reason) ?? 0) + 1);
+    }
+    if (!latestPlannedAt || outcome.plannedAt.getTime() > latestPlannedAt.getTime()) {
+      latestPlannedAt = outcome.plannedAt;
+    }
+  }
+
+  const topSkipReasons = [...skipReasons.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .slice(0, 3)
+    .map(([reason, count]) => ({ reason, count }));
+
+  return {
+    totalRecentOutcomes: outcomes.length,
+    ...(latestPlannedAt ? { latestPlannedAt } : {}),
+    plannedToRunCounts,
+    featureTotals,
+    topSkipReasons,
+  };
+}
+
+export function formatReconciliationPlanning(summary: StatusReconciliationPlanningSummary): string {
+  if (summary.totalRecentOutcomes === 0) return 'No recent planning outcomes.';
+
+  const features = (['autorole', 'nickname'] as const)
+    .map((feature) => {
+      const planned = summary.plannedToRunCounts[feature] ?? 0;
+      const total = summary.featureTotals[feature] ?? 0;
+      return `${feature}: ${planned}/${total}`;
+    })
+    .join(', ');
+  const topSkips =
+    summary.topSkipReasons.length > 0
+      ? summary.topSkipReasons.map(({ reason, count }) => `${reason}:${count}`).join(', ')
+      : 'none';
+  const latest = summary.latestPlannedAt?.toISOString() ?? 'Unavailable';
+
+  return [
+    `Recent outcomes: ${formatCount(summary.totalRecentOutcomes)}; latest: ${latest}.`,
+    `Planned to run: ${features}.`,
+    `Top skips: ${topSkips}.`,
+  ].join('\n');
 }
 
 export function formatMegabytes(value: number): string {
@@ -340,6 +436,26 @@ async function readMetric(
     return await reader();
   } catch (error) {
     logger?.warn({ error, metric: name }, 'Failed to read status metric');
+    return undefined;
+  }
+}
+
+async function readReconciliationPlanningOutcomes(
+  guildId: string,
+  reader:
+    | ((input: {
+        guildId: string;
+        limit?: number;
+      }) => Promise<readonly StatusReconciliationPlanningOutcome[]>)
+    | undefined,
+  logger: StatusLogger | undefined,
+): Promise<readonly StatusReconciliationPlanningOutcome[] | undefined> {
+  if (!reader) return undefined;
+
+  try {
+    return await reader({ guildId, limit: 50 });
+  } catch (error) {
+    logger?.warn({ error, metric: 'reconciliationPlanning' }, 'Failed to read status metric');
     return undefined;
   }
 }

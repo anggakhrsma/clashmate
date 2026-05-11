@@ -16,6 +16,7 @@ import {
   createDatabaseLayoutConfigStore,
   createDatabaseNicknameConfigStore,
   createDatabasePlayerLinkStore,
+  createDatabaseReconciliationPlanningOutcomeStore,
   createDatabaseReminderSettingsStore,
   createDatabaseStatusMetrics,
   createDatabaseTrackedClanStore,
@@ -56,6 +57,8 @@ const databaseAutoroleSettingsStore = createDatabaseAutoroleSettingsStore(databa
 const databaseCallerBaseStore = createDatabaseCallerBaseStore(database);
 const databaseConfigStore = createDatabaseConfigStore(database);
 const databaseNicknameConfigStore = createDatabaseNicknameConfigStore(database);
+const databaseReconciliationPlanningOutcomes =
+  createDatabaseReconciliationPlanningOutcomeStore(database);
 const databaseDebugReader = createDatabaseDebugReader(database);
 const databaseLayoutConfigStore = createDatabaseLayoutConfigStore(database);
 const databaseStatusMetrics = createDatabaseStatusMetrics(database);
@@ -82,6 +85,8 @@ const statusMetricReader: StatusMetricReader = {
   countCommandsUsedLast30Days: databaseStatusMetrics.countCommandsUsedLast30Days,
   countClans: databaseStatusMetrics.countTrackedClans,
   countLinks: databaseStatusMetrics.countPlayerLinks,
+  listRecentReconciliationPlanningOutcomes:
+    databaseReconciliationPlanningOutcomes.listRecentReconciliationPlanningOutcomes,
 };
 
 const { GIT_SHA: gitSha, SOURCE_REPOSITORY_URL: sourceRepositoryUrl } = process.env;
