@@ -175,24 +175,31 @@ export function detectMissedWarAttackEvents(
   const data = extractWarData(war.data ?? war);
   if (normalizeState(war.state) !== 'warended' || !data) return [];
 
-  const clanTag = resolveWarClanTag(war);
+  const clanTag = normalizeTag(war.clanTag);
   if (!clanTag) return [];
   const perspectiveClan = choosePerspectiveWarClan(clanTag, data);
+  if (!perspectiveClan) return [];
   const members = getWarMembers(perspectiveClan);
   if (members.length === 0) return [];
 
-  const attacksAvailable = normalizeAttacksPerMember(data.attacksPerMember);
+  const attacksAvailable = resolveAttacksPerMember(war, data);
   if (attacksAvailable === null) return [];
 
   const warKey = buildCurrentWarKey({ clanTag, data });
   const warStartedAt = parseWarTimestamp(data.startTime);
   const warEndedAt = parseWarTimestamp(data.endTime);
   const occurredAt = warEndedAt ?? fetchedAt;
-
-  return members.flatMap((member) => {
+  const membersByTag = new Map<string, WarMember>();
+  for (const member of members) {
     const playerTag = normalizeTag(member.tag);
+    if (playerTag && !membersByTag.has(playerTag)) {
+      membersByTag.set(playerTag, member);
+    }
+  }
+
+  return [...membersByTag.entries()].flatMap(([playerTag, member]) => {
     const playerName = normalizeNonBlankString(member.name);
-    if (!playerTag || !playerName) return [];
+    if (!playerName) return [];
 
     const attacksUsed = getWarAttacks(member).length;
     if (attacksUsed >= attacksAvailable) return [];
@@ -314,7 +321,7 @@ function resolveWarClanTag(
 function choosePerspectiveWarClan(clanTag: string, data: WarData): WarClan | undefined {
   if (normalizeTag(data.clan?.tag) === clanTag) return data.clan;
   if (normalizeTag(data.opponent?.tag) === clanTag) return data.opponent;
-  return data.clan;
+  return undefined;
 }
 
 function parseWarTimestamp(timestamp: unknown): Date | null {
@@ -386,6 +393,32 @@ function normalizeAttacksPerMember(value: unknown): number | null {
   if (value === undefined) return 2;
   const attacksPerMember = asNonNegativeInteger(value);
   return attacksPerMember !== null && attacksPerMember > 0 ? attacksPerMember : null;
+}
+
+function resolveAttacksPerMember(war: { readonly data?: unknown }, data: WarData): number | null {
+  for (const candidate of getAttacksPerMemberCandidates(war, data)) {
+    if (candidate === undefined) continue;
+    const attacksPerMember = normalizeAttacksPerMember(candidate);
+    if (attacksPerMember !== null) return attacksPerMember;
+  }
+
+  return normalizeAttacksPerMember(undefined);
+}
+
+function getAttacksPerMemberCandidates(war: { readonly data?: unknown }, data: WarData): unknown[] {
+  const candidates: unknown[] = [];
+  const pushCandidate = (value: unknown) => {
+    if (!isRecord(value)) return;
+    const record = value as { readonly attacksPerMember?: unknown };
+    candidates.push(record.attacksPerMember);
+  };
+
+  pushCandidate(war);
+  pushCandidate(war.data);
+  pushCandidate(unwrapWarRecord(war));
+  pushCandidate(data);
+
+  return candidates;
 }
 
 function asNonNegativeInteger(value: unknown): number | null {
