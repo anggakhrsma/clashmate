@@ -256,10 +256,25 @@ export function filterCapitalClanChoices(
   query: string,
 ): ApplicationCommandOptionChoiceData<string>[] {
   const normalizedQuery = query.trim().toLowerCase();
-  return clans
-    .filter((clan) => clanMatchesQuery(clan, normalizedQuery))
-    .slice(0, 25)
-    .map((clan) => ({ name: formatClanChoiceName(clan), value: clan.alias ?? clan.clanTag }));
+  const choices: ApplicationCommandOptionChoiceData<string>[] = [];
+  const seenValues = new Set<string>();
+  const seenTags = new Set<string>();
+
+  for (const clan of [...clans]
+    .sort(compareCapitalClanChoices)
+    .filter((linkedClan) => clanMatchesQuery(linkedClan, normalizedQuery))) {
+    const value = clan.alias ?? clan.clanTag;
+    const normalizedValue = normalizeChoiceValue(value);
+    const normalizedTag = normalizeChoiceTag(clan.clanTag);
+    if (seenValues.has(normalizedValue) || seenTags.has(normalizedTag)) continue;
+
+    seenValues.add(normalizedValue);
+    seenTags.add(normalizedTag);
+    choices.push({ name: formatClanChoiceName(clan), value });
+    if (choices.length >= 25) break;
+  }
+
+  return choices;
 }
 
 export function buildCapitalRaidsEmbed(
@@ -605,8 +620,35 @@ function clanMatchesQuery(clan: CapitalLinkedClan, normalizedQuery: string): boo
     .some((value) => value.includes(normalizedQuery));
 }
 
+function compareCapitalClanChoices(a: CapitalLinkedClan, b: CapitalLinkedClan): number {
+  return (
+    (a.sortOrder ?? Number.MAX_SAFE_INTEGER) - (b.sortOrder ?? Number.MAX_SAFE_INTEGER) ||
+    labelForClan(a).localeCompare(labelForClan(b), 'en-US', { sensitivity: 'base' }) ||
+    normalizeChoiceValue(a.alias ?? a.clanTag).localeCompare(
+      normalizeChoiceValue(b.alias ?? b.clanTag),
+      'en-US',
+      { sensitivity: 'base' },
+    ) ||
+    normalizeChoiceTag(a.clanTag).localeCompare(normalizeChoiceTag(b.clanTag), 'en-US') ||
+    a.id.localeCompare(b.id, 'en-US')
+  );
+}
+
+function normalizeChoiceValue(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function normalizeChoiceTag(clanTag: string): string {
+  return clanTag.trim().replace(/^#/, '').toLowerCase();
+}
+
 function formatClanChoiceName(clan: CapitalLinkedClan): string {
-  return `${labelForClan(clan)} (${clan.clanTag})`.slice(0, 100);
+  const name = clan.name?.trim();
+  const alias = clan.alias?.trim();
+  const label = [name || clan.clanTag, `tag ${clan.clanTag}`, alias ? `alias ${alias}` : undefined]
+    .filter((value): value is string => Boolean(value))
+    .join(' · ');
+  return label.slice(0, 100);
 }
 
 function formatClanLink(clan: CapitalLinkedClan): string {
