@@ -15,8 +15,8 @@ export const STATS_COMMAND_NAME = 'stats';
 export const STATS_COMMAND_DESCRIPTION = 'Show war attack stats from stored history.';
 export const STATS_NO_ATTACK_EVENTS_MESSAGE =
   'No war attack stats matched the current `/stats attacks` filters.';
-export const STATS_DEFENSE_UNAVAILABLE_MESSAGE =
-  'Persisted defense history is not available yet. ClashMate currently stores war attack events only, so `/stats defense` cannot build rankings or totals.';
+export const STATS_NO_DEFENSE_EVENTS_MESSAGE =
+  'No war defense stats matched the current `/stats defense` filters.';
 
 const MAX_STATS_ROWS = 15;
 const EMBED_DESCRIPTION_LIMIT = 4096;
@@ -183,6 +183,14 @@ export const statsCommandData = new SlashCommandBuilder()
           .setRequired(false)
           .addChoices(...getSeasonSinceChoices()),
       )
+      .addIntegerOption((option) =>
+        option
+          .setName('days')
+          .setDescription('Limit to defenses detected in the last N days.')
+          .setMinValue(1)
+          .setMaxValue(180)
+          .setRequired(false),
+      )
       .addStringOption((option) =>
         option
           .setName('attempt')
@@ -217,6 +225,18 @@ export interface StatsWarAttackHistoryRow {
   readonly lastAttackedAt: Date;
 }
 
+export interface StatsWarDefenseHistoryRow {
+  readonly defenderTag: string;
+  readonly defenderName: string | null;
+  readonly defenseCount: number;
+  readonly starsAllowed: number;
+  readonly averageStarsAllowed: number;
+  readonly destructionAllowed: number;
+  readonly averageDestructionAllowed: number;
+  readonly freshDefenseCount: number;
+  readonly lastDefendedAt: Date;
+}
+
 export interface StatsStore {
   readonly listLinkedClans: (guildId: string) => Promise<StatsLinkedClan[]>;
   readonly listPlayerTagsForUser: (guildId: string, discordUserId: string) => Promise<string[]>;
@@ -226,6 +246,14 @@ export interface StatsStore {
     attackerTags?: readonly string[];
     since?: Date;
   }) => Promise<StatsWarAttackHistoryRow[]>;
+  readonly listWarDefenseHistoryForGuild?: (input: {
+    guildId: string;
+    clanTags?: readonly string[];
+    defenderTags?: readonly string[];
+    stars?: StarsOption | null;
+    attempt?: AttemptOption | null;
+    since?: Date;
+  }) => Promise<StatsWarDefenseHistoryRow[]>;
 }
 
 export interface StatsCommandOptions {
@@ -294,7 +322,7 @@ export async function executeStats(
 
   const subcommand = interaction.options.getSubcommand();
   if (subcommand === 'defense') {
-    await replyWithStatsDefenseUnavailableEmbed(interaction, options);
+    await replyWithStatsDefenseEmbed(interaction, options);
     return;
   }
   if (subcommand !== 'attacks') {
@@ -376,7 +404,7 @@ export async function executeStats(
   });
 }
 
-async function replyWithStatsDefenseUnavailableEmbed(
+async function replyWithStatsDefenseEmbed(
   interaction: ChatInputCommandInteraction<'cached'>,
   options: StatsCommandOptions,
 ): Promise<void> {
@@ -385,8 +413,10 @@ async function replyWithStatsDefenseUnavailableEmbed(
   const userOption = interaction.options.getUser('user');
   const starsOption = readStarsOption(interaction.options.getString('stars'));
   const attemptOption = readAttemptOption(interaction.options.getString('attempt'));
+  const days = interaction.options.getInteger('days');
   const parityFilters = readStatsParityFilters(interaction);
   const seasonSince = parseSeasonSince(parityFilters.season);
+  const historySince = getStatsHistorySince(days, seasonSince);
 
   let clanTags: string[] | undefined;
   let clanLabel: string | undefined;
@@ -409,24 +439,52 @@ async function replyWithStatsDefenseUnavailableEmbed(
     }
   }
 
-  const attackRows = await options.store.listWarAttackHistoryForGuild({
+  if (!options.store.listWarDefenseHistoryForGuild) {
+    await interaction.editReply({
+      content:
+        'Persisted defense history reader is not wired for this bot process yet. No live Clash API lookup, backfill, or on-demand polling was performed.',
+    });
+    return;
+  }
+
+  const rows = await options.store.listWarDefenseHistoryForGuild({
     guildId: interaction.guildId,
     ...(clanTags ? { clanTags } : {}),
-    ...(playerTags ? { attackerTags: playerTags } : {}),
-    ...(seasonSince ? { since: seasonSince } : {}),
+    ...(playerTags ? { defenderTags: playerTags } : {}),
+    ...(starsOption ? { stars: starsOption } : {}),
+    ...(attemptOption ? { attempt: attemptOption } : {}),
+    ...(historySince ? { since: historySince } : {}),
   });
+  const rankedRows = rankDefenseStatsRows(rows);
+
+  if (rankedRows.length === 0) {
+    await interaction.editReply({
+      content: buildStatsNoDefenseEventsMessage({
+        clanLabel,
+        user: userOption,
+        playerTagCount: playerTags?.length ?? 0,
+        starsOption,
+        attemptOption,
+        days,
+        season: seasonSince,
+        parityFilters,
+      }),
+    });
+    return;
+  }
 
   await interaction.editReply({
     embeds: [
-      buildStatsDefenseUnavailableEmbed({
+      buildStatsDefenseEmbed(rankedRows, {
         clanLabel,
         user: userOption,
-        playerTags,
+        playerTagCount: playerTags?.length ?? 0,
         starsOption,
         attemptOption,
+        days,
+        season: seasonSince,
         parityFilters,
-        attackRowsConsidered: attackRows.length,
-        latestAttackAt: getLatestAttackAt(attackRows),
+        rowsConsidered: rows.length,
       }),
     ],
   });
@@ -560,88 +618,130 @@ export function buildStatsAttacksEmbed(
   return embed;
 }
 
-function buildStatsDefenseUnavailableEmbed(input: {
-  readonly clanLabel: string | undefined;
-  readonly user: User | null;
-  readonly playerTags: readonly string[] | undefined;
-  readonly starsOption: StarsOption | null;
-  readonly attemptOption: AttemptOption | null;
-  readonly parityFilters: StatsParityFilters;
-  readonly attackRowsConsidered: number;
-  readonly latestAttackAt: Date | null;
-}): EmbedBuilder {
-  const filterLabels = formatStatsDefenseFilterLabels(input);
+export function rankDefenseStatsRows(
+  rows: readonly StatsWarDefenseHistoryRow[],
+): StatsWarDefenseHistoryRow[] {
+  return [...rows].sort(
+    (a, b) =>
+      b.defenseCount - a.defenseCount ||
+      a.averageStarsAllowed - b.averageStarsAllowed ||
+      a.averageDestructionAllowed - b.averageDestructionAllowed ||
+      b.freshDefenseCount - a.freshDefenseCount ||
+      b.lastDefendedAt.getTime() - a.lastDefendedAt.getTime(),
+  );
+}
+
+export function buildStatsDefenseEmbed(
+  rows: readonly StatsWarDefenseHistoryRow[],
+  input: {
+    readonly clanLabel: string | undefined;
+    readonly user: User | null;
+    readonly playerTagCount: number;
+    readonly starsOption: StarsOption | null;
+    readonly attemptOption: AttemptOption | null;
+    readonly days: number | null;
+    readonly season: Date | null;
+    readonly parityFilters: StatsParityFilters;
+    readonly rowsConsidered: number;
+  },
+): EmbedBuilder {
+  const selectedRows = rows.slice(0, MAX_STATS_ROWS);
+  const totals = rows.reduce(
+    (acc, row) => ({
+      defenses: acc.defenses + row.defenseCount,
+      stars: acc.stars + row.starsAllowed,
+      destruction: acc.destruction + row.destructionAllowed,
+      fresh: acc.fresh + row.freshDefenseCount,
+    }),
+    { defenses: 0, stars: 0, destruction: 0, fresh: 0 },
+  );
+  const averageStars = totals.defenses > 0 ? totals.stars / totals.defenses : 0;
+  const averageDestruction = totals.defenses > 0 ? totals.destruction / totals.defenses : 0;
   const embed = new EmbedBuilder()
     .setTitle('War Defense Stats')
-    .setDescription(STATS_DEFENSE_UNAVAILABLE_MESSAGE)
+    .setDescription(truncateEmbedDescription(formatDefenseStatsRows(selectedRows)))
     .addFields(
       {
-        name: 'Source & coverage',
-        value: `This response does not query the Clash API or live war state. Persisted defense events are not stored yet, so 0 defense rows are available/visible for rankings or totals. Stored attack rows matching validated clan/user/season context: ${input.attackRowsConsidered}; latest stored attack: ${formatLatestAttackAge(input.latestAttackAt)}.`,
+        name: 'Totals',
+        value: `${totals.defenses} defenses · ${totals.stars} stars allowed · ${averageStars.toFixed(2)} avg stars allowed · ${averageDestruction.toFixed(2)}% avg destruction allowed · ${totals.fresh} fresh defenses`,
         inline: false,
       },
       {
-        name: 'Limitations',
-        value:
-          'Accepted stars/type/attempt/day-style parity filters are echoed for troubleshooting only; they cannot produce defense stats until defense events are persisted. `/stats defense` has no live fallback, historical backfill, or on-demand polling.',
+        name: 'Coverage',
+        value: buildStatsCoverageNote({
+          rowsConsidered: input.rowsConsidered,
+          rowsVisible: selectedRows.length,
+          rowsMatched: rows.length,
+        }).replace('attacker rows', 'defender rows'),
         inline: false,
       },
       {
-        name: 'Polling prerequisites',
+        name: 'Source & limitations',
         value:
-          'Defense rankings require future persisted defense events from observed wars for linked/configured clans. Current war polling only feeds the stored war attack event source used by `/stats attacks`.',
+          'Data source: persisted war attack events already observed by ClashMate for linked/configured clans in this server, grouped by defender tag; no live Clash API lookup or backfill is performed. Type/CWL/friendly filters are accepted for parity but are not applied because stored war attack events do not yet retain a war type discriminator.',
         inline: false,
       },
-    );
+    )
+    .setFooter({
+      text: buildStatsFooter(selectedRows.length, rows.length, input.days, input.season).replace(
+        'attackers',
+        'defenders',
+      ),
+    });
 
-  if (filterLabels.length > 0) {
+  if (input.clanLabel)
+    embed.addFields({ name: 'Clan filter', value: input.clanLabel, inline: false });
+  const activeLabels = formatStatsAppliedFilterLabels(input).map((label) =>
+    label.replace('attacker tags', 'defender tags'),
+  );
+  if (activeLabels.length > 0) {
     embed.addFields({
-      name: 'Accepted filters',
-      value: filterLabels.join('\n').slice(0, 1024),
+      name: 'Active filters',
+      value: activeLabels.join('\n').slice(0, 1024),
       inline: false,
     });
   }
-
-  if (input.user) {
-    embed.setAuthor({ name: input.user.displayName, iconURL: input.user.displayAvatarURL() });
+  const parityLabels = formatStatsParityFilters(input.parityFilters);
+  if (parityLabels.length > 0) {
+    embed.addFields({
+      name: 'Accepted parity filters',
+      value: `${parityLabels.join(' · ')}\nType/CWL/friendly and loot/farm labels are accepted for reference parity only; star and fresh/cleanup filters are applied from stored attack-event fields.`,
+      inline: false,
+    });
   }
-
+  if (input.user)
+    embed.setAuthor({ name: input.user.displayName, iconURL: input.user.displayAvatarURL() });
   return embed;
 }
 
-function formatStatsDefenseFilterLabels(input: {
+function buildStatsNoDefenseEventsMessage(input: {
   readonly clanLabel: string | undefined;
   readonly user: User | null;
-  readonly playerTags: readonly string[] | undefined;
+  readonly playerTagCount: number;
   readonly starsOption: StarsOption | null;
   readonly attemptOption: AttemptOption | null;
+  readonly days: number | null;
+  readonly season: Date | null;
   readonly parityFilters: StatsParityFilters;
-}): string[] {
-  const labels: string[] = [];
-  if (input.clanLabel) labels.push(`Clan: ${input.clanLabel}`);
-  if (input.user) {
-    labels.push(
-      `User: ${escapeMarkdown(input.user.displayName)} (${input.playerTags?.length ?? 0} linked players)`,
-    );
-  }
-  if (input.starsOption) labels.push(`Stars: ${formatStarsOption(input.starsOption)}`);
-  if (input.parityFilters.type)
-    labels.push(`Type: ${formatWarTypeOption(input.parityFilters.type)}`);
-  if (input.parityFilters.season) {
-    labels.push(`Season: Since ${formatSeasonLabel(input.parityFilters.season)}`);
-  }
-  if (input.parityFilters.wars) labels.push(`Wars: ${input.parityFilters.wars}`);
-  if (input.attemptOption) labels.push(`Attempt: ${formatAttemptOption(input.attemptOption)}`);
-  if (input.parityFilters.filterLootHits !== null) {
-    labels.push(`Filter loot hits: ${formatBoolean(input.parityFilters.filterLootHits)}`);
-  }
-  if (input.parityFilters.filterFarmHits !== null) {
-    labels.push(`Filter farm hits: ${formatBoolean(input.parityFilters.filterFarmHits)}`);
-  }
-  if (input.parityFilters.clanOnly !== null) {
-    labels.push(`Clan only: ${formatBoolean(input.parityFilters.clanOnly)}`);
-  }
-  return labels;
+}): string {
+  const filters = [
+    ...formatStatsAppliedFilterLabels(input).map((label) =>
+      label.replace('attacker tags', 'defender tags'),
+    ),
+    ...formatStatsParityFilters(input.parityFilters),
+  ];
+  if (input.user) filters.push(`Linked player tags checked: ${input.playerTagCount}`);
+  const filterText = filters.length > 0 ? ` Active filters: ${filters.join(' · ')}.` : '';
+  return `${STATS_NO_DEFENSE_EVENTS_MESSAGE} Source: persisted war attack events grouped by defender tag for linked/configured clans only; no live Clash API lookup, search, historical backfill, or on-demand polling is performed.${filterText} Try removing the user/clan/time/star/attempt filters or choose a wider season/days window.`;
+}
+
+function formatDefenseStatsRows(rows: readonly StatsWarDefenseHistoryRow[]): string {
+  return rows
+    .map((row, index) => {
+      const label = row.defenderName?.trim() || row.defenderTag;
+      return `${index + 1}. **${escapeMarkdown(label)}** (\`${row.defenderTag}\`) · ${row.defenseCount} defenses · ${row.averageStarsAllowed.toFixed(2)} avg ⭐ allowed · ${row.averageDestructionAllowed.toFixed(2)}% avg allowed · ${row.freshDefenseCount} fresh · ${time(row.lastDefendedAt, 'R')}`;
+    })
+    .join('\n');
 }
 
 function formatStatsRows(rows: readonly StatsWarAttackHistoryRow[]): string {

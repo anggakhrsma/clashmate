@@ -481,6 +481,21 @@ export interface WarAttackHistoryListRow {
   lastAttackedAt: Date;
 }
 
+export interface WarDefenseHistoryListRow {
+  defenderTag: string;
+  defenderName: string | null;
+  defenseCount: number;
+  starsAllowed: number;
+  averageStarsAllowed: number;
+  destructionAllowed: number;
+  averageDestructionAllowed: number;
+  freshDefenseCount: number;
+  lastDefendedAt: Date;
+}
+
+export type WarAttackHistoryStarsFilter = '==3' | '==2' | '>=2' | '==1' | '>=1';
+export type WarAttackHistoryAttemptFilter = 'fresh' | 'cleanup';
+
 export interface WarAttackHistoryReader {
   listWarAttackHistoryForGuild: (input: {
     guildId: string;
@@ -488,6 +503,14 @@ export interface WarAttackHistoryReader {
     attackerTags?: readonly string[];
     since?: Date;
   }) => Promise<WarAttackHistoryListRow[]>;
+  listWarDefenseHistoryForGuild: (input: {
+    guildId: string;
+    clanTags?: readonly string[];
+    defenderTags?: readonly string[];
+    stars?: WarAttackHistoryStarsFilter | null;
+    attempt?: WarAttackHistoryAttemptFilter | null;
+    since?: Date;
+  }) => Promise<WarDefenseHistoryListRow[]>;
 }
 
 export type ClanMemberJoinLeaveHistoryEventType = 'joined' | 'left';
@@ -3827,6 +3850,74 @@ export function createWarAttackHistoryReader(database: Database): WarAttackHisto
         averageDestruction: Number(row.averageDestruction),
         freshAttackCount: Number(row.freshAttackCount),
         lastAttackedAt: row.lastAttackedAt,
+      }));
+    },
+    listWarDefenseHistoryForGuild: async (input) => {
+      const since = input.since ?? new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
+      const filters = [
+        eq(schema.warAttackEvents.guildId, input.guildId),
+        eq(schema.trackedClans.guildId, input.guildId),
+        eq(schema.trackedClans.isActive, true),
+        gte(schema.warAttackEvents.detectedAt, since),
+      ];
+
+      if (input.clanTags?.length) {
+        filters.push(inArray(schema.warAttackEvents.clanTag, [...input.clanTags]));
+      }
+      if (input.defenderTags?.length) {
+        filters.push(inArray(schema.warAttackEvents.defenderTag, [...input.defenderTags]));
+      }
+      if (input.stars === '==3') filters.push(eq(schema.warAttackEvents.stars, 3));
+      if (input.stars === '==2') filters.push(eq(schema.warAttackEvents.stars, 2));
+      if (input.stars === '>=2') filters.push(gte(schema.warAttackEvents.stars, 2));
+      if (input.stars === '==1') filters.push(eq(schema.warAttackEvents.stars, 1));
+      if (input.stars === '>=1') filters.push(gte(schema.warAttackEvents.stars, 1));
+      if (input.attempt === 'fresh') filters.push(eq(schema.warAttackEvents.freshAttack, true));
+      if (input.attempt === 'cleanup') filters.push(eq(schema.warAttackEvents.freshAttack, false));
+
+      const rows = await database
+        .select({
+          defenderTag: schema.warAttackEvents.defenderTag,
+          defenderName: sql<string | null>`max(${schema.clanMemberSnapshots.name})`,
+          defenseCount: count(schema.warAttackEvents.id),
+          starsAllowed: sql<number>`coalesce(sum(${schema.warAttackEvents.stars}), 0)`,
+          averageStarsAllowed: sql<number>`coalesce(avg(${schema.warAttackEvents.stars}), 0)`,
+          destructionAllowed: sql<number>`coalesce(sum(${schema.warAttackEvents.destructionPercentage}), 0)`,
+          averageDestructionAllowed: sql<number>`coalesce(avg(${schema.warAttackEvents.destructionPercentage}), 0)`,
+          freshDefenseCount: sql<number>`coalesce(sum(case when ${schema.warAttackEvents.freshAttack} then 1 else 0 end), 0)`,
+          lastDefendedAt: sql<Date>`max(${schema.warAttackEvents.occurredAt})`,
+        })
+        .from(schema.warAttackEvents)
+        .innerJoin(
+          schema.trackedClans,
+          eq(schema.trackedClans.id, schema.warAttackEvents.trackedClanId),
+        )
+        .leftJoin(
+          schema.clanMemberSnapshots,
+          and(
+            eq(schema.clanMemberSnapshots.clanTag, schema.warAttackEvents.clanTag),
+            eq(schema.clanMemberSnapshots.playerTag, schema.warAttackEvents.defenderTag),
+          ),
+        )
+        .where(and(...filters))
+        .groupBy(schema.warAttackEvents.defenderTag)
+        .orderBy(
+          desc(count(schema.warAttackEvents.id)),
+          asc(sql<number>`coalesce(avg(${schema.warAttackEvents.stars}), 0)`),
+          asc(sql<number>`coalesce(avg(${schema.warAttackEvents.destructionPercentage}), 0)`),
+          asc(schema.warAttackEvents.defenderTag),
+        );
+
+      return rows.map((row) => ({
+        defenderTag: row.defenderTag,
+        defenderName: row.defenderName,
+        defenseCount: Number(row.defenseCount),
+        starsAllowed: Number(row.starsAllowed),
+        averageStarsAllowed: Number(row.averageStarsAllowed),
+        destructionAllowed: Number(row.destructionAllowed),
+        averageDestructionAllowed: Number(row.averageDestructionAllowed),
+        freshDefenseCount: Number(row.freshDefenseCount),
+        lastDefendedAt: row.lastDefendedAt,
       }));
     },
   };
