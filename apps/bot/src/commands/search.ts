@@ -10,9 +10,9 @@ import {
 export const SEARCH_COMMAND_NAME = 'search';
 export const SEARCH_COMMAND_DESCRIPTION = 'Search for Clash of Clans clans by name.';
 export const SEARCH_NO_RESULTS_MESSAGE =
-  'No clans found from the live Clash API. `/search` accepts only the `name` filter; try a more specific clan name, alternate spelling, or fewer words.';
+  'No clans found from the live Clash API for this query. `/search` accepts only the `name` filter; try a more specific clan name, alternate spelling, or fewer words. This one-off lookup does not link clans or enroll polling.';
 export const SEARCH_API_ERROR_MESSAGE =
-  'Could not search clans from the live Clash API right now. Please try again shortly; if it keeps failing, check the clan name and Clash API availability.';
+  'Could not search clans from the live Clash API right now. This is usually temporary; try again shortly, then check the clan name and Clash API availability if it keeps failing. No clans were linked or enrolled for polling.';
 const SEARCH_RESULT_LIMIT = 10;
 const SEARCH_API_LIMIT = 100;
 
@@ -59,7 +59,7 @@ export async function executeSearch(
 
   const name = interaction.options.getString('name')?.trim() ?? '';
   if (!name) {
-    await interaction.reply({ content: SEARCH_NO_RESULTS_MESSAGE, ephemeral: true });
+    await interaction.reply({ content: buildSearchNoResultsMessage(name), ephemeral: true });
     return;
   }
 
@@ -69,12 +69,12 @@ export async function executeSearch(
   try {
     result = await options.coc.getClans({ name, limit: SEARCH_API_LIMIT });
   } catch {
-    await interaction.editReply({ content: SEARCH_API_ERROR_MESSAGE });
+    await interaction.editReply({ content: buildSearchApiErrorMessage(name) });
     return;
   }
 
   if (result.items.length === 0) {
-    await interaction.editReply({ content: SEARCH_NO_RESULTS_MESSAGE });
+    await interaction.editReply({ content: buildSearchNoResultsMessage(name) });
     return;
   }
 
@@ -88,7 +88,7 @@ export function buildSearchEmbed(name: string, clans: readonly ClashClan[]): Emb
     .setTitle(`Clan search results for ${escapeMarkdown(name)}`)
     .setDescription(
       [
-        `Live Clash API one-off lookup by clan name. Showing the first ${shownCount} matching clans; no polling or long-term tracking is created.`,
+        `Live Clash API one-off lookup for \`${escapeInlineCode(name)}\`. Returned ${clans.length} of up to ${SEARCH_API_LIMIT}; showing ${shownCount}. No clan linking, polling enrollment, or long-term tracking is created.`,
         clans.slice(0, SEARCH_RESULT_LIMIT).map(formatSearchResultLine).join('\n\n'),
       ].join('\n\n'),
     )
@@ -100,13 +100,37 @@ export function buildSearchEmbed(name: string, clans: readonly ClashClan[]): Emb
       },
       {
         name: 'Result coverage',
-        value: `Requested up to ${SEARCH_API_LIMIT} clans from the Clash API and displayed ${shownCount}. Results depend on the live API search index and may change over time.`,
+        value: `Query: \`${escapeInlineCode(name)}\` • Returned: ${clans.length}/${SEARCH_API_LIMIT} • Visible: ${shownCount}/${SEARCH_RESULT_LIMIT}. Results depend on the live API search index and may change over time.`,
         inline: false,
       },
     )
     .setFooter({
       text: `Showing ${shownCount} of ${clans.length} returned clans • Source: live Clash API`,
     });
+}
+
+export function buildSearchNoResultsMessage(name: string): string {
+  const query = name.trim();
+  const queryText = query ? ` for \`${escapeInlineCode(query)}\`` : '';
+
+  return [
+    `No clans found from the live Clash API${queryText}.`,
+    `Returned 0 of up to ${SEARCH_API_LIMIT}; visible results 0/${SEARCH_RESULT_LIMIT}.`,
+    '`/search` accepts only the `name` filter. Try a more specific clan name, alternate spelling, or fewer words.',
+    'This one-off lookup does not link clans or enroll polling.',
+  ].join(' ');
+}
+
+export function buildSearchApiErrorMessage(name: string): string {
+  const query = name.trim();
+  const queryText = query ? ` for \`${escapeInlineCode(query)}\`` : '';
+
+  return [
+    `Could not search clans from the live Clash API${queryText}.`,
+    `Requested up to ${SEARCH_API_LIMIT}; visible results 0/${SEARCH_RESULT_LIMIT}.`,
+    'This is usually temporary: try again shortly, then check the clan name and Clash API availability if it keeps failing.',
+    'No clans were linked or enrolled for polling.',
+  ].join(' ');
 }
 
 export function formatSearchResultLine(clan: ClashClan): string {
@@ -213,6 +237,10 @@ function formatNumber(value: number | null): string {
 
 function clashOfStatsClanUrl(tag: string): string {
   return `https://www.clashofstats.com/clans/${encodeURIComponent(tag.replace(/^#/, ''))}`;
+}
+
+function escapeInlineCode(value: string): string {
+  return value.replaceAll('`', '\\`');
 }
 
 function readRecord(value: unknown): Record<string, unknown> | null {
