@@ -139,6 +139,8 @@ async function executeClanGames(
   const user = interaction.options.getUser('user');
   const requestedSeasonId = interaction.options.getString('season') ?? undefined;
   const seasonId = requestedSeasonId ?? getCurrentClanGamesSeasonId(new Date());
+  const coverageChoices = await options.reader.listScoreboardChoices(interaction.guildId, '');
+  const coverage = createClanGamesCoverageContext(coverageChoices);
   const scoreboard = await options.reader.getLatestScoreboard({
     guildId: interaction.guildId,
     ...(clan ? { clanTag: clan } : {}),
@@ -152,6 +154,7 @@ async function executeClanGames(
         seasonId,
         usedCurrentSeasonDefault: !requestedSeasonId,
         user,
+        coverage,
       }),
       ephemeral: true,
     });
@@ -159,7 +162,7 @@ async function executeClanGames(
   }
 
   if (!user) {
-    await interaction.reply({ embeds: [buildClanGamesEmbed(scoreboard, !clan)] });
+    await interaction.reply({ embeds: [buildClanGamesEmbed(scoreboard, !clan, coverage)] });
     return;
   }
 
@@ -173,8 +176,34 @@ async function executeClanGames(
   }
 
   await interaction.reply({
-    embeds: [buildClanGamesEmbed(filterScoreboardForUser(scoreboard, user, playerTags), !clan)],
+    embeds: [
+      buildClanGamesEmbed(filterScoreboardForUser(scoreboard, user, playerTags), !clan, coverage),
+    ],
   });
+}
+
+interface ClanGamesCoverageContext {
+  readonly linkedClanSnapshotCount: number;
+  readonly latestSnapshotUpdatedAt: Date | null;
+  readonly latestSnapshotSeasonId: string | null;
+}
+
+function createClanGamesCoverageContext(
+  choices: readonly Awaited<
+    ReturnType<ClanGamesScoreboardReader['listScoreboardChoices']>
+  >[number][],
+): ClanGamesCoverageContext {
+  const latestChoice = choices.reduce<(typeof choices)[number] | null>((latest, choice) => {
+    if (!choice.updatedAt) return latest;
+    if (!latest?.updatedAt) return choice;
+    return choice.updatedAt > latest.updatedAt ? choice : latest;
+  }, null);
+
+  return {
+    linkedClanSnapshotCount: choices.filter((choice) => choice.updatedAt).length,
+    latestSnapshotUpdatedAt: latestChoice?.updatedAt ?? null,
+    latestSnapshotSeasonId: latestChoice?.seasonId ?? null,
+  };
 }
 
 function filterScoreboardForUser(
@@ -207,6 +236,7 @@ export function buildClanGamesEmbed(
     readonly userFilterNote?: string;
   },
   mentionSelectedClan: boolean,
+  coverage?: ClanGamesCoverageContext,
 ): EmbedBuilder {
   const clanLabel = `${scoreboard.clanName ?? scoreboard.clanTag} (${scoreboard.clanTag})`;
   const seasonChoice = clanGamesSeasonChoices.find(
@@ -224,7 +254,7 @@ export function buildClanGamesEmbed(
       : null,
     `Season: **${escapeMarkdown(seasonLabel)}**${scoreboard.seasonId === getCurrentClanGamesSeasonId(new Date()) ? ' · current Clan Games season' : ''}`,
     `Snapshot source fetched: ${time(scoreboard.sourceFetchedAt, 'R')} · Persisted update: ${time(scoreboard.updatedAt, 'R')}`,
-    `Snapshot coverage: ${totalStoredMembers.toLocaleString()} stored member${totalStoredMembers === 1 ? '' : 's'} · ${visibleMembers.length.toLocaleString()} visible in this response${scoreboard.members.length !== totalStoredMembers ? ` · ${scoreboard.members.length.toLocaleString()} after filters` : ''}`,
+    `Snapshot coverage: ${formatLinkedClanSnapshotCount(coverage)} · ${totalStoredMembers.toLocaleString()} stored member${totalStoredMembers === 1 ? '' : 's'} · ${visibleMembers.length.toLocaleString()} visible${scoreboard.members.length !== totalStoredMembers ? ` · ${scoreboard.members.length.toLocaleString()} after filters` : ''}`,
     scoreboard.userFilterNote ?? null,
     '',
     '```txt',
@@ -246,7 +276,7 @@ export function buildClanGamesEmbed(
       {
         name: 'Data Source',
         value:
-          'Persisted Clan Games snapshot from linked/configured clan polling. No live Clash API lookup is performed; run the worker pollers first for fresh or new-season data.',
+          'Persisted snapshot from linked/configured clan polling only. No live Clash API fallback or on-demand enrollment; link/configure the clan and let worker pollers collect fresh season data.',
       },
     )
     .setFooter({
@@ -262,6 +292,7 @@ function formatClanGamesNoDataMessage(input: {
   readonly seasonId?: string;
   readonly usedCurrentSeasonDefault?: boolean;
   readonly user: User | null;
+  readonly coverage: ClanGamesCoverageContext;
 }): string {
   const filters = [
     `clan: ${input.clan ? `\`${escapeMarkdown(input.clan)}\`` : '`latest linked clan`'}`,
@@ -272,10 +303,24 @@ function formatClanGamesNoDataMessage(input: {
   return [
     CLAN_GAMES_NO_DATA_MESSAGE,
     `Filters checked: ${filters.join(' · ')}.`,
-    'Data source: persisted Clan Games snapshots for linked/configured clans only.',
+    `Stored coverage: ${formatLinkedClanSnapshotCount(input.coverage)} · latest snapshot ${formatLatestSnapshotContext(input.coverage)}.`,
+    'Data source: persisted Clan Games snapshots for linked/configured clans only; no live Clash API fallback and no on-demand enrollment.',
     'Season choices follow the Clan Games cycle: before the monthly event window, the previous month remains the current season.',
-    'What to do next: link/configure the clan if needed, then run the ClashMate worker long enough for Clan Games polling to store a snapshot. This command does not call the Clash API or start polling on demand.',
+    'Next: link/configure the clan if needed, enable worker polling, then wait for a Clan Games snapshot for the requested season.',
   ].join('\n');
+}
+
+function formatLinkedClanSnapshotCount(coverage?: ClanGamesCoverageContext): string {
+  const count = coverage?.linkedClanSnapshotCount ?? 0;
+  return `${count.toLocaleString()} linked clan snapshot${count === 1 ? '' : 's'}`;
+}
+
+function formatLatestSnapshotContext(coverage: ClanGamesCoverageContext): string {
+  if (!coverage.latestSnapshotUpdatedAt) return 'unavailable';
+  const season = coverage.latestSnapshotSeasonId
+    ? `season ${coverage.latestSnapshotSeasonId}, `
+    : '';
+  return `${season}updated ${time(coverage.latestSnapshotUpdatedAt, 'R')}`;
 }
 
 function formatScoreboardRows(
