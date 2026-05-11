@@ -246,6 +246,7 @@ const commandRegistry = createBotCommandRegistry({
   history: {
     store: {
       listLinkedClans: databaseTrackedClans.listLinkedClans,
+      listClansForGuild: databaseTrackedClans.listClansForGuild,
       listPlayerTagsForUser: databasePlayerLinks.listPlayerTagsForUser,
       listDonationHistoryForGuild: databaseDonationHistory.listDonationHistoryForGuild,
       listWarAttackHistoryForGuild: databaseWarAttackHistory.listWarAttackHistoryForGuild,

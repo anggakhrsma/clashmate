@@ -22,7 +22,7 @@ export const HISTORY_NO_JOIN_LEAVE_EVENTS_MESSAGE =
 export const HISTORY_NO_CLAN_GAMES_EVENTS_MESSAGE =
   'No persisted Clan Games snapshots match the selected filters yet. Link/configure the clan for this server and wait for Clan Games polling snapshots before retrying.';
 export const HISTORY_NO_CAPITAL_RAIDS_EVENTS_MESSAGE =
-  'Capital raid history is not available yet because raid-week time-series logs are not persisted. For current snapshot-backed Capital views, use `/capital` or `/summary capital-raids`.';
+  'Capital raid-week attack logs are not persisted yet. Showing current linked-clan capital snapshot rankings only when stored clan snapshots are available.';
 export const HISTORY_NO_CAPITAL_CONTRIBUTION_EVENTS_MESSAGE =
   'Capital contribution history is not available yet because contribution time-series snapshots are not persisted. For current snapshot-backed Capital views, use `/capital` or `/summary capital-contribution`.';
 export const HISTORY_NO_ATTACKS_EVENTS_MESSAGE =
@@ -113,6 +113,10 @@ export interface HistoryLinkedClan {
   readonly alias: string | null;
 }
 
+export interface SnapshotHistoryLinkedClan extends HistoryLinkedClan {
+  readonly snapshot?: unknown;
+}
+
 export interface DonationHistoryRow {
   readonly playerTag: string;
   readonly playerName: string;
@@ -181,6 +185,7 @@ export interface SnapshotHistoryClan {
 
 export interface HistoryStore {
   readonly listLinkedClans: (guildId: string) => Promise<HistoryLinkedClan[]>;
+  readonly listClansForGuild?: (guildId: string) => Promise<SnapshotHistoryLinkedClan[]>;
   readonly listPlayerTagsForUser: (guildId: string, discordUserId: string) => Promise<string[]>;
   readonly listDonationHistoryForGuild: (input: {
     guildId: string;
@@ -349,6 +354,62 @@ export async function executeHistory(
 
     await interaction.editReply({
       embeds: [buildWarAttackHistoryEmbed(rows, filterContext, option)],
+    });
+    return;
+  }
+
+  if (option === 'capital-raids') {
+    if (!options.store.listClansForGuild) {
+      await interaction.editReply({
+        embeds: [
+          buildUnavailableHistoryEmbed(
+            option,
+            HISTORY_NO_CAPITAL_RAIDS_EVENTS_MESSAGE,
+            filterContext,
+          ),
+        ],
+      });
+      return;
+    }
+
+    const allSnapshotClans = await options.store.listClansForGuild(interaction.guildId);
+    let snapshotClans = clanTags
+      ? allSnapshotClans.filter((clan) => clanTags.includes(clan.clanTag))
+      : allSnapshotClans;
+
+    if (playerTags) {
+      if (!options.store.listClanMemberSnapshotsForGuild) {
+        await interaction.editReply({
+          embeds: [
+            buildUnavailableHistoryEmbed(
+              option,
+              'Capital raid player/user filters require persisted linked-clan member snapshots. No live Clash API lookup or polling enrollment is performed.',
+              filterContext,
+            ),
+          ],
+        });
+        return;
+      }
+      const memberSnapshots = await listFilteredSnapshotHistory(
+        options.store.listClanMemberSnapshotsForGuild,
+        {
+          guildId: interaction.guildId,
+          ...(clanTags ? { clanTags } : {}),
+          playerTags,
+        },
+      );
+      const matchedClanTags = new Set(memberSnapshots.map((snapshot) => snapshot.clan.clanTag));
+      snapshotClans = snapshotClans.filter((clan) => matchedClanTags.has(clan.clanTag));
+    }
+
+    const rows = snapshotClans.filter(hasUsableCapitalRaidSnapshot);
+    if (rows.length === 0) {
+      await interaction.editReply({ embeds: [buildNoCapitalRaidsHistoryEmbed(filterContext)] });
+      return;
+    }
+
+    await interaction.editReply({
+      embeds: [buildCapitalRaidsHistoryEmbed(rows, filterContext)],
     });
     return;
   }
@@ -651,6 +712,84 @@ function isSnapshotBackedHistoryOption(
   );
 }
 
+export function buildCapitalRaidsHistoryEmbed(
+  clans: readonly SnapshotHistoryLinkedClan[],
+  filters: HistoryFilterContext,
+): EmbedBuilder {
+  const rows = clans
+    .map((clan) => ({
+      clan,
+      hall: readNestedNumber(clan.snapshot, ['clanCapital', 'capitalHallLevel']),
+      league: readNestedString(clan.snapshot, ['capitalLeague', 'name']),
+      points: readNumber(clan.snapshot, 'clanCapitalPoints'),
+      trophies: readNumber(clan.snapshot, 'clanCapitalTrophies'),
+      latestAt: latestSnapshotDate(clan.snapshot),
+    }))
+    .filter(
+      (row) =>
+        row.hall !== null || row.league !== null || row.points !== null || row.trophies !== null,
+    )
+    .sort(
+      (a, b) =>
+        (b.trophies ?? b.points ?? -1) - (a.trophies ?? a.points ?? -1) ||
+        (b.hall ?? -1) - (a.hall ?? -1),
+    );
+  const selectedRows = rows.slice(0, MAX_HISTORY_ROWS);
+  const latestAt = getLatestDate(
+    rows.filter((row): row is typeof row & { latestAt: Date } => row.latestAt !== undefined),
+    (row) => row.latestAt,
+  );
+
+  const embed = new EmbedBuilder()
+    .setTitle('Capital Raids History')
+    .setDescription(truncateEmbedDescription(formatCapitalRaidsHistoryRows(selectedRows)))
+    .addFields({
+      name: 'Source',
+      value: formatHistorySourceContext({
+        rowsConsidered: rows.length,
+        rowsVisible: selectedRows.length,
+        latestLabel: 'Latest snapshot',
+        latestAt,
+        filters,
+        note: 'Persisted linked-clan capital snapshots only. Raid-week attack logs are not persisted, so this ranking cannot show per-week attacks, districts, loot, or offensive/defensive raid history. No live Clash API lookup, backfill, or polling enrollment is performed.',
+      }),
+      inline: false,
+    })
+    .setFooter({
+      text: `Showing ${selectedRows.length}/${rows.length} clans from stored snapshots`,
+    });
+  if (filters.user)
+    embed.setAuthor({ name: filters.user.displayName, iconURL: filters.user.displayAvatarURL() });
+  return embed;
+}
+
+function formatCapitalRaidsHistoryRows(
+  rows: readonly {
+    clan: SnapshotHistoryLinkedClan;
+    hall: number | null;
+    league: string | null;
+    points: number | null;
+    trophies: number | null;
+    latestAt: Date | undefined;
+  }[],
+): string {
+  return rows
+    .map((row, index) => {
+      const clanLabel = row.clan.alias ?? row.clan.name ?? row.clan.clanTag;
+      const latest = row.latestAt ? ` · ${time(row.latestAt, 'R')}` : '';
+      return `${index + 1}. **${escapeMarkdown(clanLabel)}** (\`${row.clan.clanTag}\`) · ${(row.trophies ?? row.points ?? 0).toLocaleString()} capital trophies/points · Hall ${row.hall ?? 'Unknown'} · ${escapeMarkdown(row.league ?? 'Unknown league')}${latest}`;
+    })
+    .join('\n');
+}
+
+function buildNoCapitalRaidsHistoryEmbed(filters: HistoryFilterContext): EmbedBuilder {
+  return buildUnavailableHistoryEmbed(
+    'capital-raids',
+    'No persisted linked-clan capital snapshot fields match the selected filters yet. Link/configure the clan for this server and wait for clan polling to store capital hall, league, trophies, or points before retrying. Raid-week attack logs are not persisted.',
+    filters,
+  );
+}
+
 async function listFilteredSnapshotHistory(
   reader: NonNullable<HistoryStore['listClanMemberSnapshotsForGuild']>,
   input: { guildId: string; clanTags?: readonly string[]; playerTags?: readonly string[] },
@@ -776,7 +915,7 @@ export function buildUnavailableHistoryEmbed(
       {
         name: 'Available stored-history categories',
         value:
-          '`donations` (donation deltas), `war-attacks`/`cwl-attacks` (stored war attack events), `join-leave` (clan member events), and `clan-games` (Clan Games snapshots).',
+          '`donations` (donation deltas), `war-attacks`/`cwl-attacks` (stored war attack events), `join-leave` (clan member events), `clan-games` (Clan Games snapshots), and `capital-raids` (linked-clan capital snapshots).',
         inline: false,
       },
     );
@@ -991,4 +1130,59 @@ function truncateEmbedDescription(text: string): string {
 
 function formatDifference(value: number): string {
   return value > 0 ? `+${value}` : String(value);
+}
+
+function hasUsableCapitalRaidSnapshot(clan: SnapshotHistoryLinkedClan): boolean {
+  return (
+    readNestedNumber(clan.snapshot, ['clanCapital', 'capitalHallLevel']) !== null ||
+    readNestedString(clan.snapshot, ['capitalLeague', 'name']) !== null ||
+    readNumber(clan.snapshot, 'clanCapitalPoints') !== null ||
+    readNumber(clan.snapshot, 'clanCapitalTrophies') !== null
+  );
+}
+
+function readNumber(snapshot: unknown, key: string): number | null {
+  if (!isRecord(snapshot)) return null;
+  const value = snapshot[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function readNestedNumber(snapshot: unknown, path: readonly string[]): number | null {
+  const value = readNestedValue(snapshot, path);
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function readNestedString(snapshot: unknown, path: readonly string[]): string | null {
+  const value = readNestedValue(snapshot, path);
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function readNestedValue(snapshot: unknown, path: readonly string[]): unknown {
+  let value = snapshot;
+  for (const key of path) {
+    if (!isRecord(value)) return undefined;
+    value = value[key];
+  }
+  return value;
+}
+
+function latestSnapshotDate(snapshot: unknown): Date | undefined {
+  if (!isRecord(snapshot)) return undefined;
+  return getLatestDate(
+    ['lastFetchedAt', 'fetchedAt', 'lastSeenAt', 'updatedAt']
+      .map((key) => readDate(snapshot[key]))
+      .filter((date): date is Date => date !== undefined),
+    (date) => date,
+  );
+}
+
+function readDate(value: unknown): Date | undefined {
+  if (value instanceof Date && Number.isFinite(value.getTime())) return value;
+  if (typeof value !== 'string' && typeof value !== 'number') return undefined;
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
