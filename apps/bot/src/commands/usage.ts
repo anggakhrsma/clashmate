@@ -14,6 +14,7 @@ export const DEFAULT_USAGE_CHART_LIMIT = 15;
 export const MIN_USAGE_CHART_LIMIT = 1;
 export const MAX_USAGE_CHART_LIMIT = 90;
 const USAGE_GROWTH_BAR_WIDTH = 8;
+const UNUSED_COMMAND_SAMPLE_LIMIT = 8;
 
 export const usageCommandData = new SlashCommandBuilder()
   .setName(USAGE_COMMAND_NAME)
@@ -95,8 +96,16 @@ export interface UsageView {
   color?: ColorResolvable;
   dailyUsage: UsageDailyRecord[];
   commandTotals: UsageCommandTotalRecord[];
+  loadedCommandCoverage?: UsageLoadedCommandCoverage;
   totalUses: number;
   metricSource?: string;
+}
+
+export interface UsageLoadedCommandCoverage {
+  loadedCount: number;
+  withUsageCount: number;
+  withoutUsageCount: number;
+  unusedSample: string[];
 }
 
 export function createUsageSlashCommand(options: UsageCommandOptions): SlashCommandDefinition {
@@ -161,23 +170,34 @@ export async function collectUsageView(
   options: UsageCommandOptions,
 ): Promise<UsageView> {
   const metricReader = options.metricReader;
+  const loadedCommandNames = [...new Set(options.loadedCommandNames ?? [])].sort((left, right) =>
+    left.localeCompare(right),
+  );
+  const loadedCommandNameSet = new Set(loadedCommandNames);
   const dailyUsage =
     (await safeRead(
       'dailyUsage',
       metricReader ? () => metricReader.listRecentDailyUsage(15) : undefined,
       options.logger,
     )) ?? [];
-  const loadedCommandNames = new Set(options.loadedCommandNames ?? []);
-  const commandTotals = (
+  const loadedCommandTotals = (
     (await safeRead(
       'commandTotals',
       metricReader ? () => metricReader.listCommandTotals() : undefined,
       options.logger,
     )) ?? []
   )
-    .filter((record) => loadedCommandNames.size === 0 || loadedCommandNames.has(record.commandName))
-    .sort((left, right) => right.uses - left.uses)
-    .slice(0, 50);
+    .filter(
+      (record) => loadedCommandNameSet.size === 0 || loadedCommandNameSet.has(record.commandName),
+    )
+    .sort((left, right) => right.uses - left.uses);
+  const commandTotals = loadedCommandTotals.slice(0, 50);
+  const commandsWithUsage = new Set(
+    loadedCommandTotals.filter((record) => record.uses > 0).map((record) => record.commandName),
+  );
+  const unusedLoadedCommandNames = loadedCommandNames.filter(
+    (name) => !commandsWithUsage.has(name),
+  );
   const totalUses = commandTotals.reduce((sum, record) => sum + record.uses, 0);
   const botAvatarUrl = context.client.user?.displayAvatarURL({ extension: 'png' });
 
@@ -187,6 +207,16 @@ export async function collectUsageView(
     color: source.guild?.members.me?.displayColor || DEFAULT_USAGE_EMBED_COLOR,
     dailyUsage: dailyUsage.slice(0, 15),
     commandTotals,
+    ...(loadedCommandNames.length
+      ? {
+          loadedCommandCoverage: {
+            loadedCount: loadedCommandNames.length,
+            withUsageCount: commandsWithUsage.size,
+            withoutUsageCount: unusedLoadedCommandNames.length,
+            unusedSample: unusedLoadedCommandNames.slice(0, UNUSED_COMMAND_SAMPLE_LIMIT),
+          },
+        }
+      : {}),
     totalUses,
     metricSource: metricReader
       ? 'PostgreSQL aggregate metric reader'
@@ -210,7 +240,7 @@ export function buildUsageEmbed(view: UsageView): EmbedBuilder {
 }
 
 export function formatUsageDescription(
-  view: Pick<UsageView, 'dailyUsage' | 'commandTotals' | 'metricSource'>,
+  view: Pick<UsageView, 'dailyUsage' | 'commandTotals' | 'loadedCommandCoverage' | 'metricSource'>,
 ): string {
   const dailyRows = view.dailyUsage.length
     ? view.dailyUsage.map(
@@ -232,10 +262,22 @@ export function formatUsageDescription(
     '#      Uses Command',
     ...commandRows,
     '```',
+    formatLoadedCommandCoverage(view.loadedCommandCoverage),
     view.metricSource ? `Metrics source: ${view.metricSource}` : undefined,
   ]
     .filter((line): line is string => typeof line === 'string')
     .join('\n');
+}
+
+function formatLoadedCommandCoverage(coverage: UsageLoadedCommandCoverage | undefined): string {
+  if (!coverage)
+    return 'Loaded command coverage: not available (loaded command names not injected).';
+
+  const sample = coverage.unusedSample.length
+    ? ` Sample unused: ${coverage.unusedSample.map((name) => `/${name}`).join(', ')}`
+    : ' No unused loaded commands.';
+
+  return `Loaded command coverage: ${formatCount(coverage.withUsageCount)} with usage, ${formatCount(coverage.withoutUsageCount)} without usage (${formatCount(coverage.loadedCount)} loaded).${sample}`;
 }
 
 async function buildUsageChartReply(limit: number, options: UsageCommandOptions): Promise<string> {
