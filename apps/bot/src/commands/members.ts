@@ -36,6 +36,8 @@ const EMBED_DESCRIPTION_LIMIT = 4096;
 interface MembersFilterContext {
   readonly clan?: MembersLinkedClan;
   readonly linkedClanCount: number;
+  readonly latestSnapshotAt: Date | null;
+  readonly storedMemberRowCount: number;
   readonly user: User | null;
   readonly option: MembersOption;
 }
@@ -202,6 +204,8 @@ export async function executeMembers(
     await replyWithMembers(interaction, snapshots, {
       clan,
       linkedClanCount: clans.length,
+      latestSnapshotAt: getLatestSnapshotTimeForSnapshot(snapshots),
+      storedMemberRowCount: snapshots?.members.length ?? 0,
       user: userOption,
       option,
     });
@@ -216,12 +220,22 @@ export async function executeMembers(
     : snapshots.find((entry) => entry.members.length > 0);
 
   if (selected === 'no_link') {
-    await interaction.editReply({ content: formatNoLinkedMembersMessage(userOption) });
+    await interaction.editReply({
+      content: formatNoLinkedMembersMessage(userOption, {
+        linkedClanCount: clans.length,
+        latestSnapshotAt: getLatestSnapshotTimeForSnapshots(snapshots),
+        storedMemberRowCount: countStoredMemberRows(snapshots),
+        user: userOption,
+        option,
+      }),
+    });
     return;
   }
 
   await replyWithMembers(interaction, selected, {
     linkedClanCount: clans.length,
+    latestSnapshotAt: getLatestSnapshotTimeForSnapshots(snapshots),
+    storedMemberRowCount: countStoredMemberRows(snapshots),
     user: userOption,
     option,
   });
@@ -246,11 +260,42 @@ async function selectClanForUser(
   );
 }
 
-function formatNoLinkedMembersMessage(user: User | null): string {
-  if (!user) {
-    return 'No linked player accounts were found. Use `/link create` first, then run `/members user:<you>` again.';
+function formatNoLinkedMembersMessage(user: User | null, filters: MembersFilterContext): string {
+  const parts = user
+    ? [
+        `**${escapeMarkdown(user.displayName)}** does not have linked player accounts in this server.`,
+        'Ask them to use `/link create`, then run `/members user:<user>` again.',
+      ]
+    : [
+        'No linked player accounts were found.',
+        'Use `/link create` first, then run `/members user:<you>` again.',
+      ];
+  parts.push(formatMembersCoverageContext(filters));
+  parts.push(
+    'Source: persisted clan-poller member snapshots only; `/members` does not perform live Clash API lookups or enroll search-only clans for polling.',
+  );
+  return parts.join('\n');
+}
+
+function formatMembersCoverageContext(filters: MembersFilterContext): string {
+  const parts = [
+    `linked clans: ${filters.linkedClanCount}`,
+    `stored member rows: ${filters.storedMemberRowCount}`,
+    `latest snapshot: ${formatLatestMemberSnapshot(filters.latestSnapshotAt)}`,
+    `view: ${formatMembersOptionLabel(filters.option)}`,
+  ];
+  if (filters.clan) {
+    const clanName = filters.clan.alias ?? filters.clan.name ?? filters.clan.clanTag;
+    parts.push(`clan filter: ${escapeMarkdown(clanName)} (${filters.clan.clanTag})`);
+  } else {
+    parts.push('clan filter: first linked clan with stored rows');
   }
-  return `**${escapeMarkdown(user.displayName)}** does not have linked player accounts in this server. Ask them to use \`/link create\`, then run \`/members user:${escapeMarkdown(user.displayName)}\` again.`;
+  if (!filters.user) {
+    parts.push('user filter: not applied');
+  } else {
+    parts.push(`user filter: ${escapeMarkdown(filters.user.displayName)}`);
+  }
+  return parts.join(' · ');
 }
 
 async function replyWithMembers(
@@ -269,17 +314,9 @@ async function replyWithMembers(
 
 function formatNoMembersSnapshotMessage(filters: MembersFilterContext): string {
   const parts = ['No stored member snapshot rows matched the accepted `/members` filters.'];
-  parts.push(`linked clans: ${filters.linkedClanCount}`);
-  if (filters.clan) {
-    const clanName = filters.clan.alias ?? filters.clan.name ?? filters.clan.clanTag;
-    parts.push(`clan: ${escapeMarkdown(clanName)} (${filters.clan.clanTag})`);
-  } else {
-    parts.push('clan: first linked clan with stored member rows');
-  }
-  if (filters.user) parts.push(`user: ${escapeMarkdown(filters.user.displayName)}`);
-  parts.push(`view: ${formatMembersOptionLabel(filters.option)}`);
+  parts.push(formatMembersCoverageContext(filters));
   parts.push(
-    'Source: persisted clan-poller member snapshots only; `/members` does not perform a live Clash API lookup.',
+    'Source: persisted clan-poller member snapshots only; `/members` does not perform live Clash API lookups or enroll search-only clans for polling.',
   );
   if (filters.user) {
     parts.push(
@@ -388,6 +425,25 @@ function getLatestMemberSnapshotTime(members: readonly MembersSnapshotRow[]): Da
     return value === null || fetchedAt > value ? fetchedAt : value;
   }, null);
   return latest === null ? null : new Date(latest);
+}
+
+function getLatestSnapshotTimeForSnapshot(snapshot: MembersClanSnapshots | undefined): Date | null {
+  return snapshot ? getLatestMemberSnapshotTime(snapshot.members) : null;
+}
+
+function getLatestSnapshotTimeForSnapshots(
+  snapshots: readonly MembersClanSnapshots[],
+): Date | null {
+  const latest = snapshots.reduce<number | null>((value, snapshot) => {
+    const snapshotTime = getLatestMemberSnapshotTime(snapshot.members)?.getTime() ?? null;
+    if (snapshotTime === null) return value;
+    return value === null || snapshotTime > value ? snapshotTime : value;
+  }, null);
+  return latest === null ? null : new Date(latest);
+}
+
+function countStoredMemberRows(snapshots: readonly MembersClanSnapshots[]): number {
+  return snapshots.reduce((total, snapshot) => total + snapshot.members.length, 0);
 }
 
 function formatMembersOptionLabel(option: MembersOption): string {
