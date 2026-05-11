@@ -304,8 +304,11 @@ export function filterStatsClanChoices(
   const normalizedQuery = query.trim().toLowerCase();
   return clans
     .filter((clan) => clanMatchesQuery(clan, normalizedQuery))
+    .map((clan) => ({ clan, name: formatClanChoiceName(clan), value: clan.alias ?? clan.clanTag }))
+    .sort((a, b) => compareStatsClanChoices(a, b, normalizedQuery))
+    .filter((choice, index, choices) => isFirstStatsClanChoice(choice, index, choices))
     .slice(0, 25)
-    .map((clan) => ({ name: formatClanChoiceName(clan), value: clan.alias ?? clan.clanTag }));
+    .map(({ name, value }) => ({ name, value }));
 }
 
 export async function executeStats(
@@ -1007,8 +1010,59 @@ function clanMatchesQuery(clan: StatsLinkedClan, normalizedQuery: string): boole
 }
 
 function formatClanChoiceName(clan: StatsLinkedClan): string {
-  const label = clan.alias?.trim() || clan.name?.trim() || clan.clanTag;
+  const alias = clan.alias?.trim();
+  const name = clan.name?.trim();
+  const label = alias && name ? `${alias} — ${name}` : alias || name || 'Linked Clan';
   return `${label} (${clan.clanTag})`.slice(0, 100);
+}
+
+function compareStatsClanChoices(
+  a: { readonly clan: StatsLinkedClan; readonly name: string; readonly value: string },
+  b: { readonly clan: StatsLinkedClan; readonly name: string; readonly value: string },
+  normalizedQuery: string,
+): number {
+  return (
+    getClanChoiceMatchRank(a.clan, normalizedQuery) -
+      getClanChoiceMatchRank(b.clan, normalizedQuery) ||
+    a.name.localeCompare(b.name, 'en-US', { sensitivity: 'base' }) ||
+    a.clan.clanTag.localeCompare(b.clan.clanTag, 'en-US', { sensitivity: 'base' }) ||
+    a.value.localeCompare(b.value, 'en-US', { sensitivity: 'base' }) ||
+    a.clan.id.localeCompare(b.clan.id, 'en-US', { sensitivity: 'base' })
+  );
+}
+
+function getClanChoiceMatchRank(clan: StatsLinkedClan, normalizedQuery: string): number {
+  if (!normalizedQuery) return 0;
+  const tag = clan.clanTag.toLowerCase();
+  const tagWithoutHash = tag.replace(/^#/, '');
+  const alias = clan.alias?.trim().toLowerCase() ?? '';
+  const name = clan.name?.trim().toLowerCase() ?? '';
+  if (alias === normalizedQuery || name === normalizedQuery || tag === normalizedQuery) return 0;
+  if (tagWithoutHash === normalizedQuery.replace(/^#/, '')) return 0;
+  if (alias.startsWith(normalizedQuery) || name.startsWith(normalizedQuery)) return 1;
+  if (
+    tag.startsWith(normalizedQuery) ||
+    tagWithoutHash.startsWith(normalizedQuery.replace(/^#/, ''))
+  ) {
+    return 1;
+  }
+  return 2;
+}
+
+function isFirstStatsClanChoice(
+  choice: { readonly clan: StatsLinkedClan; readonly value: string },
+  index: number,
+  choices: readonly { readonly clan: StatsLinkedClan; readonly value: string }[],
+): boolean {
+  const normalizedTag = choice.clan.clanTag.toLowerCase();
+  const normalizedValue = choice.value.trim().toLowerCase();
+  return (
+    choices.findIndex(
+      (candidate) =>
+        candidate.clan.clanTag.toLowerCase() === normalizedTag ||
+        candidate.value.trim().toLowerCase() === normalizedValue,
+    ) === index
+  );
 }
 
 function truncateEmbedDescription(text: string): string {
