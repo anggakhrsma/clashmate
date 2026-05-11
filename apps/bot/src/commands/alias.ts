@@ -111,13 +111,33 @@ export async function autocompleteAlias(
   }
 
   const focused = interaction.options.getFocused(true);
-  const clans = await options.store.listLinkedClans(interaction.guildId);
+  let clans: AliasTrackedClan[];
+  try {
+    clans = await options.store.listLinkedClans(interaction.guildId);
+  } catch {
+    await interaction.respond([]);
+    return;
+  }
   if (focused.name === 'clan') {
-    await interaction.respond(filterAliasClanChoices(clans, String(focused.value ?? '')));
+    await interaction.respond(
+      filterAliasChoices(clans, String(focused.value ?? ''), {
+        label: formatAliasCreateChoiceName,
+        value: (clan) => clan.clanTag,
+      }),
+    );
     return;
   }
   if (focused.name === 'alias') {
-    await interaction.respond(filterAliasDeleteChoices(clans, String(focused.value ?? '')));
+    await interaction.respond(
+      filterAliasChoices(
+        clans.filter((clan) => Boolean(clan.alias?.trim())),
+        String(focused.value ?? ''),
+        {
+          label: formatAliasDeleteChoiceName,
+          value: (clan) => clan.alias ?? clan.clanTag,
+        },
+      ),
+    );
     return;
   }
   await interaction.respond([]);
@@ -281,7 +301,10 @@ export function filterAliasClanChoices(
   clans: readonly AliasTrackedClan[],
   query: string,
 ): ApplicationCommandOptionChoiceData<string>[] {
-  return filterAliasChoices(clans, query, (clan) => clan.clanTag);
+  return filterAliasChoices(clans, query, {
+    label: formatAliasCreateChoiceName,
+    value: (clan) => clan.clanTag,
+  });
 }
 
 export function filterAliasDeleteChoices(
@@ -291,14 +314,22 @@ export function filterAliasDeleteChoices(
   return filterAliasChoices(
     clans.filter((clan) => Boolean(clan.alias?.trim())),
     query,
-    (clan) => clan.alias ?? clan.clanTag,
+    {
+      label: formatAliasDeleteChoiceName,
+      value: (clan) => clan.alias ?? clan.clanTag,
+    },
   );
+}
+
+interface AliasChoiceFormat {
+  readonly label: (clan: AliasTrackedClan) => string;
+  readonly value: (clan: AliasTrackedClan) => string;
 }
 
 function filterAliasChoices(
   clans: readonly AliasTrackedClan[],
   query: string,
-  valueForClan: (clan: AliasTrackedClan) => string,
+  format: AliasChoiceFormat,
 ): ApplicationCommandOptionChoiceData<string>[] {
   const normalizedQuery = query.trim().toLowerCase();
   return clans
@@ -308,8 +339,9 @@ function filterAliasChoices(
         .filter((value): value is string => Boolean(value))
         .some((value) => value.toLowerCase().includes(normalizedQuery));
     })
+    .toSorted(compareAliasChoices)
     .slice(0, 25)
-    .map((clan) => ({ name: formatAliasChoiceName(clan), value: valueForClan(clan) }));
+    .map((clan) => ({ name: format.label(clan), value: format.value(clan) }));
 }
 
 export function formatAliasList(clans: readonly AliasTrackedClan[]): string {
@@ -402,9 +434,34 @@ function findDuplicateAlias(
   );
 }
 
-function formatAliasChoiceName(clan: AliasTrackedClan): string {
+function compareAliasChoices(left: AliasTrackedClan, right: AliasTrackedClan): number {
+  const leftAlias = left.alias?.trim().toLowerCase() ?? '';
+  const rightAlias = right.alias?.trim().toLowerCase() ?? '';
+  return (
+    leftAlias.localeCompare(rightAlias) ||
+    left.name.localeCompare(right.name) ||
+    left.clanTag.localeCompare(right.clanTag)
+  );
+}
+
+function formatAliasCreateChoiceName(clan: AliasTrackedClan): string {
   const alias = clan.alias?.trim();
-  return alias ? `${alias} — ${clan.name} (${clan.clanTag})` : `${clan.name} (${clan.clanTag})`;
+  return truncateChoiceName(
+    alias
+      ? `Clan: ${clan.name} | Tag: ${clan.clanTag} | Alias: ${alias}`
+      : `Clan: ${clan.name} | Tag: ${clan.clanTag} | Alias: none`,
+  );
+}
+
+function formatAliasDeleteChoiceName(clan: AliasTrackedClan): string {
+  return truncateChoiceName(
+    `Alias: ${clan.alias?.trim() ?? ''} | Clan: ${clan.name} | Tag: ${clan.clanTag}`,
+  );
+}
+
+function truncateChoiceName(value: string): string {
+  if (value.length <= 100) return value;
+  return `${value.slice(0, 99)}…`;
 }
 
 function normalizePossibleTag(value: string): string {
