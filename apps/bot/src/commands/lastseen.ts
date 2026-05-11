@@ -56,7 +56,7 @@ export interface LastSeenLinkedClan {
 
 export interface LastSeenClanMemberSnapshots {
   readonly clan: LastSeenLinkedClan;
-  readonly members: readonly { readonly playerTag: string }[];
+  readonly members: readonly { readonly playerTag: string; readonly name?: string }[];
 }
 
 export interface LastSeenStore {
@@ -133,7 +133,8 @@ async function autocompleteLastSeen(
   const focused = interaction.options.getFocused(true);
   try {
     if (focused.name === 'player') {
-      const tags = await options.store.listPlayerTagsForUser(
+      const tags = await listLastSeenAutocompletePlayerTags(
+        options.store,
         interaction.guildId,
         interaction.user.id,
       );
@@ -148,6 +149,43 @@ async function autocompleteLastSeen(
     await interaction.respond([]);
   } catch {
     await interaction.respond([]);
+  }
+}
+
+async function listLastSeenAutocompletePlayerTags(
+  store: Pick<LastSeenStore, 'listPlayerTagsForUser' | 'listClanMemberSnapshotsForGuild'>,
+  guildId: string,
+  userId: string,
+): Promise<string[]> {
+  const [linkedTags, snapshots] = await Promise.all([
+    readLastSeenAutocompleteLinkedTags(store, guildId, userId),
+    readLastSeenAutocompleteSnapshotTags(store, guildId),
+  ]);
+
+  return dedupeLastSeenPlayerTags([...linkedTags, ...snapshots]);
+}
+
+async function readLastSeenAutocompleteLinkedTags(
+  store: Pick<LastSeenStore, 'listPlayerTagsForUser'>,
+  guildId: string,
+  userId: string,
+): Promise<string[]> {
+  try {
+    return await store.listPlayerTagsForUser(guildId, userId);
+  } catch {
+    return [];
+  }
+}
+
+async function readLastSeenAutocompleteSnapshotTags(
+  store: Pick<LastSeenStore, 'listClanMemberSnapshotsForGuild'>,
+  guildId: string,
+): Promise<string[]> {
+  try {
+    const snapshots = await store.listClanMemberSnapshotsForGuild({ guildId });
+    return snapshots.flatMap((snapshot) => snapshot.members.map((member) => member.playerTag));
+  } catch {
+    return [];
   }
 }
 
@@ -171,7 +209,7 @@ export function filterLastSeenPlayerChoices(
     ? normalizedQuery.slice(1)
     : normalizedQuery;
 
-  return tags
+  return dedupeLastSeenPlayerTags(tags)
     .filter((tag) => {
       const normalizedTag = tag.toUpperCase();
       const tagWithoutHash = normalizedTag.startsWith('#') ? normalizedTag.slice(1) : normalizedTag;
@@ -183,6 +221,20 @@ export function filterLastSeenPlayerChoices(
     })
     .slice(0, 25)
     .map((tag) => ({ name: tag, value: tag }));
+}
+
+function dedupeLastSeenPlayerTags(tags: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const deduped: string[] = [];
+  for (const tag of tags) {
+    const trimmed = tag.trim();
+    if (!trimmed) continue;
+    const normalized = trimmed.toUpperCase();
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    deduped.push(trimmed);
+  }
+  return deduped;
 }
 
 export async function executeLastSeen(
