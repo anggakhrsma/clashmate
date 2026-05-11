@@ -18,7 +18,7 @@ export const BOOSTS_NO_ACTIVE_DATA_MESSAGE =
   'No members are boosting in this clan from the live player lookups ClashMate could analyze.';
 
 const BOOSTS_CONTEXT_MESSAGE =
-  'Source: active Super Troop boosts are read from current Clash player troop data for members in the latest stored clan member snapshot. This command only accepts the optional `clan` filter; troop/recent filters are not slash-command options in ClashMate yet.';
+  'Source: current Clash player troop data for members in the latest stored clan member snapshot. `/boosts` performs one-off live lookups only; it does not enroll players into polling or persist boost results.';
 const BOOSTS_POLLING_PREREQUISITE_MESSAGE =
   'Prerequisites: link the clan with `/setup clan`, keep the clan poller running so member snapshots stay fresh, and allow live player lookups to complete.';
 
@@ -47,6 +47,7 @@ export interface BoostsLinkedClan {
 export interface BoostsSnapshotRow {
   readonly playerTag: string;
   readonly name: string;
+  readonly lastFetchedAt?: Date;
 }
 
 export interface BoostsClanSnapshots {
@@ -86,6 +87,7 @@ export interface BoostsScanCoverage {
   readonly fetchedPlayers: number;
   readonly skippedPlayers: number;
   readonly failedLookups: number;
+  readonly latestSnapshotAt?: Date;
 }
 
 export function createBoostsSlashCommand(options: BoostsCommandOptions): SlashCommandDefinition {
@@ -187,7 +189,7 @@ export async function executeBoosts(
   }
 
   const scan = await fetchPlayersForBoosts(snapshots.members, options.coc);
-  const coverage = buildBoostsScanCoverage(snapshots.members.length, scan);
+  const coverage = buildBoostsScanCoverage(snapshots.members, scan);
   const coverageText = formatBoostsScanCoverage(coverage);
   const players = scan.players;
   const boosts = collectActiveBoosts(players);
@@ -226,21 +228,26 @@ async function fetchPlayersForBoosts(
 }
 
 function buildBoostsScanCoverage(
-  storedMembers: number,
+  members: readonly BoostsSnapshotRow[],
   scan: BoostsPlayerScan,
 ): BoostsScanCoverage {
+  const latestSnapshotAt = findLatestSnapshotAt(members);
   return {
-    storedMembers,
+    storedMembers: members.length,
     fetchedPlayers: scan.players.length,
-    skippedPlayers: Math.max(0, storedMembers - MAX_PLAYER_FETCHES),
+    skippedPlayers: Math.max(0, members.length - MAX_PLAYER_FETCHES),
     failedLookups: scan.failedLookups,
+    ...(latestSnapshotAt ? { latestSnapshotAt } : {}),
   };
 }
 
 export function formatBoostsScanCoverage(coverage: BoostsScanCoverage): string {
-  const failedText =
-    coverage.failedLookups === 0 ? '' : `, ${coverage.failedLookups} lookup(s) failed`;
-  return `Scan coverage: ${coverage.storedMembers} member(s) from the latest stored clan snapshot, ${coverage.fetchedPlayers} live player lookup(s) fetched/analyzed, ${coverage.skippedPlayers} skipped due to the ${MAX_PLAYER_FETCHES} player lookup cap${failedText}.`;
+  const analyzedPercent = formatPercentage(coverage.fetchedPlayers, coverage.storedMembers);
+  const snapshotText = coverage.latestSnapshotAt
+    ? `; latest snapshot ${formatSnapshotAge(coverage.latestSnapshotAt)} old`
+    : '';
+  const notes = formatCoverageNotes(coverage);
+  return `Scan coverage: ${coverage.fetchedPlayers}/${coverage.storedMembers} member(s) fetched/analyzed (${analyzedPercent})${snapshotText}. ${notes}`;
 }
 
 export function collectActiveBoosts(players: readonly ClashPlayer[]): ActiveBoostGroup[] {
@@ -261,6 +268,43 @@ export function collectActiveBoosts(players: readonly ClashPlayer[]): ActiveBoos
       ),
     }))
     .sort((a, b) => b.players.length - a.players.length || a.troopName.localeCompare(b.troopName));
+}
+
+function findLatestSnapshotAt(members: readonly BoostsSnapshotRow[]): Date | undefined {
+  const latestMs = members.reduce<number | undefined>((latest, member) => {
+    const timestamp = member.lastFetchedAt?.getTime();
+    if (timestamp === undefined || Number.isNaN(timestamp)) return latest;
+    return latest === undefined || timestamp > latest ? timestamp : latest;
+  }, undefined);
+  return latestMs === undefined ? undefined : new Date(latestMs);
+}
+
+function formatPercentage(part: number, total: number): string {
+  if (total <= 0) return '0%';
+  return `${Math.round((part / total) * 100)}%`;
+}
+
+function formatCoverageNotes(coverage: BoostsScanCoverage): string {
+  const notes: string[] = [];
+  if (coverage.skippedPlayers > 0) {
+    notes.push(`${coverage.skippedPlayers} skipped by the ${MAX_PLAYER_FETCHES}-player cap`);
+  }
+  if (coverage.failedLookups > 0) {
+    notes.push(`${coverage.failedLookups} live lookup(s) failed`);
+  }
+  if (notes.length === 0) return 'Full snapshot analyzed.';
+  return `Partial result: ${notes.join('; ')}.`;
+}
+
+function formatSnapshotAge(snapshotAt: Date): string {
+  const ageMs = Math.max(0, Date.now() - snapshotAt.getTime());
+  const minuteMs = 60_000;
+  const hourMs = 60 * minuteMs;
+  const dayMs = 24 * hourMs;
+  if (ageMs < minuteMs) return '<1m';
+  if (ageMs < hourMs) return `${Math.floor(ageMs / minuteMs)}m`;
+  if (ageMs < dayMs) return `${Math.floor(ageMs / hourMs)}h`;
+  return `${Math.floor(ageMs / dayMs)}d`;
 }
 
 export function buildBoostsEmbed(
