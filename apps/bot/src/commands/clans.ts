@@ -36,6 +36,7 @@ export interface ClansLinkedClan {
   readonly categoryId: string | null;
   readonly sortOrder: number;
   readonly snapshot?: unknown;
+  readonly snapshotFetchedAt?: Date | string | null;
 }
 
 export interface ClansStore {
@@ -137,7 +138,13 @@ export function buildClansPayload(input: {
   readonly guildIconUrl?: string;
 }): RenderedClansPayload {
   if (input.clans.length === 0) {
-    return { content: 'No clans are linked to this server yet. Use `/setup clan` to link one.' };
+    return {
+      content: [
+        'No clans are linked to this server yet.',
+        'Linked clans: 0 · Current snapshot stats: 0/0 · Latest snapshot: unavailable.',
+        'Action: use `/setup clan` to link clans for polling. `/clans` uses persisted linked-clan data only; it does not call the Clash API live or enroll search-only clans.',
+      ].join('\n'),
+    };
   }
 
   const hasCategoryFilter = Boolean(input.categoryId);
@@ -147,9 +154,11 @@ export function buildClansPayload(input: {
 
   if (hasCategoryFilter && !filteredCategory) {
     return {
-      content:
-        `Category filter \`${input.categoryId}\` was accepted, but no stored category matched it. ` +
-        'Use category autocomplete to choose a real stored category linked to this server.',
+      content: [
+        `Category filter: \`${input.categoryId}\` (not found).`,
+        `Linked clans: ${input.clans.length} · Current snapshot stats: ${countClansWithSnapshotStats(input.clans)}/${input.clans.length} · Latest snapshot: ${formatLatestSnapshotAge(input.clans)}.`,
+        'Use category autocomplete to choose a stored category for this server. No live Clash API fallback is attempted, and no polling enrollment changes are made.',
+      ].join('\n'),
     };
   }
 
@@ -159,21 +168,24 @@ export function buildClansPayload(input: {
 
   if (hasCategoryFilter && clans.length === 0) {
     return {
-      content: 'No clans found for the specified category.',
+      content: [
+        `No clans found for category: ${filteredCategory?.displayName ?? input.categoryId}.`,
+        `Linked clans: ${input.clans.length} · Filtered clans: 0 · Current snapshot stats: ${countClansWithSnapshotStats(input.clans)}/${input.clans.length} · Latest snapshot: ${formatLatestSnapshotAge(input.clans)}.`,
+        'The category option filters persisted server-linked clans only. It does not call the Clash API live or enroll search-only clans for polling.',
+      ].join('\n'),
     };
   }
 
   const description = formatClanGroups(groupClansByCategory(clans, input.categories));
   const [firstChunk = '', ...chunks] = splitText(description, EMBED_DESCRIPTION_LIMIT);
-  const clansWithSnapshotStats = input.clans.filter(hasSnapshotStats).length;
+  const clansWithSnapshotStats = countClansWithSnapshotStats(input.clans);
   const coverageContext = [
-    `Source: ${input.clans.length} linked clan${input.clans.length === 1 ? '' : 's'} configured for this server.`,
-    `Current snapshot stats available: ${clansWithSnapshotStats}/${input.clans.length}. Missing stats show as Unknown; /clans does not make live Clash API fallback requests.`,
-    'Category autocomplete only shows stored categories, and the category option filters this server-linked list only.',
-    'Listing clans here does not enroll search-only clans or otherwise change polling; use `/setup clan` to link clans for polling.',
+    `Coverage: linked clans ${input.clans.length}; shown ${clans.length}; current snapshot stats ${clansWithSnapshotStats}/${input.clans.length}; latest snapshot ${formatLatestSnapshotAge(input.clans)}.`,
+    'Source: persisted linked-clan records only. Missing stats show as Unknown; no live Clash API fallback or search-only polling enrollment occurs.',
+    'Category autocomplete shows stored categories for this server; the category option filters this linked list only. Use `/setup clan` to link clans for polling.',
   ];
   if (filteredCategory) {
-    coverageContext.unshift(`Filtered category: ${filteredCategory.displayName}`);
+    coverageContext.unshift(`Category filter: ${filteredCategory.displayName}.`);
   }
   const embed = new EmbedBuilder()
     .setAuthor({
@@ -269,6 +281,35 @@ function hasSnapshotStats(clan: ClansLinkedClan): boolean {
     typeof getSnapshotNumber(clan.snapshot, 'members') === 'number' ||
     typeof getSnapshotNumber(clan.snapshot, 'clanLevel') === 'number'
   );
+}
+
+function countClansWithSnapshotStats(clans: readonly ClansLinkedClan[]): number {
+  return clans.filter(hasSnapshotStats).length;
+}
+
+function formatLatestSnapshotAge(clans: readonly ClansLinkedClan[]): string {
+  const latestFetchedAt = clans
+    .map((clan) => parseSnapshotFetchedAt(clan.snapshotFetchedAt))
+    .filter((value): value is Date => Boolean(value))
+    .sort((a, b) => b.getTime() - a.getTime())[0];
+
+  if (!latestFetchedAt) return 'unavailable';
+  const ageMs = Math.max(0, Date.now() - latestFetchedAt.getTime());
+  const minuteMs = 60_000;
+  const hourMs = 60 * minuteMs;
+  const dayMs = 24 * hourMs;
+
+  if (ageMs < minuteMs) return 'less than 1m ago';
+  if (ageMs < hourMs) return `${Math.floor(ageMs / minuteMs)}m ago`;
+  if (ageMs < dayMs) return `${Math.floor(ageMs / hourMs)}h ago`;
+  return `${Math.floor(ageMs / dayMs)}d ago`;
+}
+
+function parseSnapshotFetchedAt(value: Date | string | null | undefined): Date | undefined {
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? undefined : value;
+  if (typeof value !== 'string') return undefined;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
 }
 
 export function splitText(text: string, maxLength: number): string[] {
