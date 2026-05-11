@@ -49,6 +49,7 @@ export interface NotificationFanOutSourceResultSummary {
   readonly eventsScanned: number;
   readonly matchedTargets: number;
   readonly insertedOutboxEntries: number;
+  readonly skippedMessage?: string;
   readonly errorMessage?: string;
 }
 
@@ -130,6 +131,24 @@ function summarizeNotificationFanOutSourceFailure(
     matchedTargets: 0,
     insertedOutboxEntries: 0,
     errorMessage: error instanceof Error ? error.message : String(error),
+  };
+}
+
+function summarizeSkippedNotificationFanOutSource(
+  source: NotificationFanOutSource,
+  skippedMessage: string,
+): NotificationFanOutSourceResultSummary {
+  return {
+    source,
+    attempted: 0,
+    created: 0,
+    skipped: 1,
+    failed: 0,
+    cursorAdvanced: false,
+    eventsScanned: 0,
+    matchedTargets: 0,
+    insertedOutboxEntries: 0,
+    skippedMessage,
   };
 }
 
@@ -339,6 +358,13 @@ export async function runNotificationFanOutIteration(
         options.logger,
       ),
     );
+  } else {
+    sources.push(
+      summarizeSkippedNotificationFanOutSource(
+        'clanGames',
+        'Clan games notification fan-out is not available on this store; source skipped.',
+      ),
+    );
   }
 
   const summary = createNotificationFanOutIterationSummary(sources);
@@ -364,7 +390,11 @@ export function startNotificationFanOutLoop(
   const clearScheduledTimeout = options.clearTimeout ?? clearTimeout;
 
   const runOnce = async () => {
-    await runNotificationFanOutIteration(options);
+    try {
+      await runNotificationFanOutIteration(options);
+    } catch (error) {
+      options.logger.error({ error }, 'Notification fan-out iteration failed unexpectedly');
+    }
   };
 
   const scheduleNext = () => {
