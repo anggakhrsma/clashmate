@@ -199,8 +199,12 @@ async function autocompleteRemaining(
     return;
   }
 
-  const clans = await options.store.listLinkedClans(interaction.guildId);
-  await interaction.respond(filterRemainingClanChoices(clans, query));
+  try {
+    const clans = await options.store.listLinkedClans(interaction.guildId);
+    await interaction.respond(filterRemainingClanChoices(clans, query));
+  } catch {
+    await interaction.respond([]);
+  }
 }
 
 export function filterRemainingClanChoices(
@@ -208,21 +212,44 @@ export function filterRemainingClanChoices(
   query: string,
 ): ApplicationCommandOptionChoiceData<string>[] {
   const normalized = query.toLowerCase();
-  const choices = clans
+  const dedupedByTag = new Map<string, RemainingTrackedClan>();
+  for (const clan of clans) {
+    const key = clan.clanTag.trim().toUpperCase();
+    if (!dedupedByTag.has(key)) dedupedByTag.set(key, clan);
+  }
+
+  const choices = [...dedupedByTag.values()]
     .filter((clan) => {
       if (!normalized) return true;
       return [clan.clanTag, clan.name, clan.alias]
         .filter((value): value is string => Boolean(value))
         .some((value) => value.toLowerCase().includes(normalized));
     })
+    .sort(compareRemainingClanChoices)
     .slice(0, 25)
     .map((clan) => ({
-      name: `${clan.name ?? clan.clanTag} (${clan.clanTag})`,
+      name: formatRemainingClanChoiceName(clan),
       value: clan.clanTag,
     }));
 
   if (choices.length === 0 && query.trim()) return [{ name: query.trim(), value: query.trim() }];
   return choices;
+}
+
+function compareRemainingClanChoices(a: RemainingTrackedClan, b: RemainingTrackedClan): number {
+  return (
+    (a.alias ?? '').localeCompare(b.alias ?? '', 'en', { sensitivity: 'base' }) ||
+    (a.name ?? '').localeCompare(b.name ?? '', 'en', { sensitivity: 'base' }) ||
+    a.clanTag.localeCompare(b.clanTag, 'en', { sensitivity: 'base' })
+  );
+}
+
+function formatRemainingClanChoiceName(clan: RemainingTrackedClan): string {
+  const context = [clan.alias, clan.name]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .filter((value, index, values) => values.indexOf(value) === index);
+  const label = context.length > 0 ? `${context.join(' / ')} (${clan.clanTag})` : clan.clanTag;
+  return label.length > 100 ? `${label.slice(0, 97)}...` : label;
 }
 
 async function executeRemaining(
