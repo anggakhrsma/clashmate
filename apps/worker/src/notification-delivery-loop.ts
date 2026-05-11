@@ -43,6 +43,8 @@ export interface NotificationDeliveryLoopOptions {
   readonly maxAttempts?: number;
   readonly retryBaseSeconds?: number;
   readonly random?: () => number;
+  readonly setTimeout?: (callback: () => void, delayMs: number) => NodeJS.Timeout;
+  readonly clearTimeout?: (timer: NodeJS.Timeout) => void;
   readonly logger?: Pick<Logger, 'debug' | 'error' | 'info'>;
 }
 
@@ -154,7 +156,8 @@ function validateNotificationDeliveryLoopOptions(options: NotificationDeliveryLo
     throw new Error('Notification delivery options must be an object.');
   }
 
-  const { deliveryStore, logger, ownerId, random, sender } = options;
+  const { clearTimeout, deliveryStore, interval, logger, ownerId, random, sender, setTimeout } =
+    options;
   if (!isObjectRecord(deliveryStore)) {
     throw new Error('Notification delivery deliveryStore must be an object.');
   }
@@ -188,8 +191,28 @@ function validateNotificationDeliveryLoopOptions(options: NotificationDeliveryLo
     throw new Error('Notification delivery ownerId must be a non-empty string.');
   }
 
+  if (!isObjectRecord(interval)) {
+    throw new Error('Notification delivery interval must be an object.');
+  }
+  if (
+    !Number.isFinite(interval.baseSeconds) ||
+    !Number.isFinite(interval.jitterSeconds) ||
+    interval.baseSeconds <= 0 ||
+    interval.jitterSeconds < 0
+  ) {
+    throw new Error(
+      'Notification delivery loop intervals must be finite and positive with non-negative jitter.',
+    );
+  }
+
   if (random !== undefined && typeof random !== 'function') {
     throw new Error('Notification delivery random must be a function when provided.');
+  }
+  if (setTimeout !== undefined && typeof setTimeout !== 'function') {
+    throw new Error('Notification delivery setTimeout must be a function when provided.');
+  }
+  if (clearTimeout !== undefined && typeof clearTimeout !== 'function') {
+    throw new Error('Notification delivery clearTimeout must be a function when provided.');
   }
 
   if (logger !== undefined) {
@@ -392,23 +415,34 @@ export function startNotificationDeliveryLoop(
   const schedule = () => {
     if (stopped) return;
     const delayMs = computeNotificationDeliveryLoopDelayMs(options.interval, options.random);
-    timer = setTimeout(async () => {
-      await runNotificationDeliveryIteration(options).catch((error: unknown) => {
+    timer = timeout(async () => {
+      try {
+        await runNotificationDeliveryIteration(options);
+      } catch (error) {
         options.logger?.error?.({ error }, 'Notification delivery iteration failed');
-      });
-      schedule();
+      } finally {
+        schedule();
+      }
     }, delayMs);
   };
 
-  void runNotificationDeliveryIteration(options).catch((error: unknown) => {
-    options.logger?.error?.({ error }, 'Initial notification delivery iteration failed');
-  });
-  schedule();
+  const timeout = options.setTimeout ?? setTimeout;
+  const clear = options.clearTimeout ?? clearTimeout;
+
+  void (async () => {
+    try {
+      await runNotificationDeliveryIteration(options);
+    } catch (error) {
+      options.logger?.error?.({ error }, 'Initial notification delivery iteration failed');
+    } finally {
+      schedule();
+    }
+  })();
 
   return {
     stop: () => {
       stopped = true;
-      if (timer) clearTimeout(timer);
+      if (timer) clear(timer);
     },
   };
 }

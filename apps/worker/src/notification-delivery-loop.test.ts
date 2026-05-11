@@ -7,6 +7,7 @@ import {
   formatDiscordNotificationMessage,
   formatNotificationOutboxMessage,
   runNotificationDeliveryIteration,
+  startNotificationDeliveryLoop,
 } from './notification-delivery-loop.js';
 
 function createDeliveryStore(): NotificationOutboxDeliveryStore {
@@ -29,6 +30,115 @@ describe('notification delivery loop', () => {
     expect(computeNotificationDeliveryLoopDelayMs({ baseSeconds: 15, jitterSeconds: 5 }, () => 1)).toBe(
       21_000,
     );
+  });
+
+  it('validates loop intervals before starting the loop', () => {
+    const deliveryStore = createDeliveryStore();
+    const sender = { sendChannelMessage: vi.fn().mockResolvedValue(undefined) };
+    const timer = Symbol('timer') as unknown as NodeJS.Timeout;
+    const setTimeoutSpy = vi.fn((_callback: () => void, _delayMs: number) => timer);
+
+    expect(() =>
+      startNotificationDeliveryLoop({
+        deliveryStore,
+        sender,
+        ownerId: 'worker-1',
+        interval: { baseSeconds: 0, jitterSeconds: 0 },
+        setTimeout: setTimeoutSpy,
+      }),
+    ).toThrow('Notification delivery loop intervals must be finite and positive with non-negative jitter.');
+    expect(setTimeoutSpy).not.toHaveBeenCalled();
+    expect(deliveryStore.claimDueNotificationOutboxEntries).not.toHaveBeenCalled();
+  });
+
+  it('logs initial iteration failures before scheduling the next run', async () => {
+    const deliveryStore = createDeliveryStore();
+    const failure = new Error('database unavailable');
+    vi.mocked(deliveryStore.claimDueNotificationOutboxEntries).mockRejectedValue(failure);
+    const sender = { sendChannelMessage: vi.fn().mockResolvedValue(undefined) };
+    const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn() };
+    const scheduledCallbacks: Array<() => void> = [];
+    const timer = Symbol('timer') as unknown as NodeJS.Timeout;
+    const setTimeoutSpy = vi.fn((callback: () => void, _delayMs: number) => {
+      scheduledCallbacks.push(callback);
+      return timer;
+    });
+
+    startNotificationDeliveryLoop({
+      deliveryStore,
+      sender,
+      ownerId: 'worker-1',
+      interval: { baseSeconds: 1, jitterSeconds: 0 },
+      setTimeout: setTimeoutSpy,
+      logger,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(logger.error).toHaveBeenCalledWith(
+      { error: failure },
+      'Initial notification delivery iteration failed',
+    );
+    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 1000);
+    expect(scheduledCallbacks).toHaveLength(1);
+  });
+
+  it('logs scheduled iteration failures and reschedules', async () => {
+    const deliveryStore = createDeliveryStore();
+    const failure = new Error('database unavailable');
+    vi.mocked(deliveryStore.claimDueNotificationOutboxEntries)
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(failure);
+    const sender = { sendChannelMessage: vi.fn().mockResolvedValue(undefined) };
+    const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn() };
+    const scheduledCallbacks: Array<() => void> = [];
+    const timer = Symbol('timer') as unknown as NodeJS.Timeout;
+    const setTimeoutSpy = vi.fn((callback: () => void, _delayMs: number) => {
+      scheduledCallbacks.push(callback);
+      return timer;
+    });
+
+    startNotificationDeliveryLoop({
+      deliveryStore,
+      sender,
+      ownerId: 'worker-1',
+      interval: { baseSeconds: 1, jitterSeconds: 0 },
+      setTimeout: setTimeoutSpy,
+      logger,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    scheduledCallbacks[0]?.();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(logger.error).toHaveBeenCalledWith(
+      { error: failure },
+      'Notification delivery iteration failed',
+    );
+    expect(setTimeoutSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses injectable clearTimeout when stopped', async () => {
+    const deliveryStore = createDeliveryStore();
+    const sender = { sendChannelMessage: vi.fn().mockResolvedValue(undefined) };
+    const timer = Symbol('timer') as unknown as NodeJS.Timeout;
+    const setTimeoutSpy = vi.fn(() => timer);
+    const clearTimeoutSpy = vi.fn();
+
+    const controller = startNotificationDeliveryLoop({
+      deliveryStore,
+      sender,
+      ownerId: 'worker-1',
+      interval: { baseSeconds: 1, jitterSeconds: 0 },
+      setTimeout: setTimeoutSpy,
+      clearTimeout: clearTimeoutSpy,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    controller.stop();
+
+    expect(clearTimeoutSpy).toHaveBeenCalledWith(timer);
   });
 
   it('computes capped exponential retry times', () => {
