@@ -6,6 +6,7 @@ import {
   EmbedBuilder,
   escapeMarkdown,
   SlashCommandBuilder,
+  type User,
 } from 'discord.js';
 import {
   filterPlayerTagAutocompleteChoices,
@@ -58,8 +59,14 @@ interface UnitProgressSummary {
   readonly incompleteUnits: number;
   readonly levelsGained: number;
   readonly maxLevels: number;
+  readonly categoryCounts: readonly string[];
   readonly groupCounts: readonly string[];
 }
+
+type UnitsLookupResolution = {
+  readonly source: 'explicit_tag' | 'stored_user_link';
+  readonly targetUser?: User | null;
+};
 
 export function createUnitsSlashCommand(options: UnitsCommandOptions): SlashCommandDefinition {
   return {
@@ -142,17 +149,21 @@ export async function executeUnits(
   try {
     player = await options.coc.getPlayer(resolution.playerTag);
   } catch {
-    await interaction.editReply(formatUnitsApiErrorMessage(resolution.playerTag));
+    await interaction.editReply(formatUnitsApiErrorMessage(resolution.playerTag, resolution));
     return;
   }
 
-  await interaction.editReply({ embeds: [buildUnitsEmbed(player, resolution.source)] });
+  await interaction.editReply({ embeds: [buildUnitsEmbed(player, resolution)] });
 }
 
 export function buildUnitsEmbed(
   player: ClashPlayer,
-  source: 'explicit_tag' | 'stored_user_link',
+  resolutionOrSource: UnitsLookupResolution | UnitsLookupResolution['source'],
 ): EmbedBuilder {
+  const resolution =
+    typeof resolutionOrSource === 'string'
+      ? { source: resolutionOrSource, targetUser: null }
+      : resolutionOrSource;
   const data = isRecord(player.data) ? player.data : {};
   const townHallLevel = readNumber(readValue(data, 'townHallLevel'));
   const builderHallLevel = readNumber(readValue(data, 'builderHallLevel'));
@@ -163,9 +174,8 @@ export function buildUnitsEmbed(
     )
     .setFooter({
       text: [
-        `Lookup source: ${formatLookupSource(source)}.`,
-        'Filters: player tag or linked Discord user only.',
-        'One-off lookups do not enroll players for polling.',
+        `Source: ${formatLookupSource(resolution.source, resolution.targetUser)}.`,
+        'Live current-only Clash API snapshot; no polling enrollment or persisted history.',
       ].join(' '),
     });
 
@@ -226,7 +236,8 @@ export function buildUnitsEmbed(
       name: 'Units',
       value: [
         'No public unit, hero, spell, pet, or equipment level data was found in the Clash API response.',
-        'Try again later, verify the player tag, or use `/link create` to choose a linked account.',
+        `Source used: ${formatLookupSource(resolution.source, resolution.targetUser)}.`,
+        'This is a live current-only lookup with no stored history; verify the tag, use `/link create`, or try again later.',
       ].join(' '),
       inline: false,
     });
@@ -242,16 +253,21 @@ function formatInvalidUnitsLookupMessage(input: string): string {
   ].join(' ');
 }
 
-function formatUnitsApiErrorMessage(playerTag: string): string {
+function formatUnitsApiErrorMessage(playerTag: string, resolution: UnitsLookupResolution): string {
   return [
-    `Clash API could not return unit data for \`${playerTag}\`.`,
+    `Clash API could not return current unit data for \`${playerTag}\` (${formatLookupSource(resolution.source, resolution.targetUser)}).`,
     PLAYER_NOT_FOUND_MESSAGE,
-    'This lookup was one-off only and did not create polling state; check the tag or try again later if the API is unavailable.',
+    'This was a live one-off lookup only: no polling enrollment, cached snapshot, or persisted unit history was created. Check the source/tag or try again later if the API is unavailable.',
   ].join(' ');
 }
 
-function formatLookupSource(source: 'explicit_tag' | 'stored_user_link'): string {
-  return source === 'explicit_tag' ? 'player option' : 'linked Discord user';
+function formatLookupSource(
+  source: 'explicit_tag' | 'stored_user_link',
+  targetUser?: User | null,
+): string {
+  if (source === 'explicit_tag') return 'player tag option';
+  if (!targetUser) return 'linked Discord user';
+  return `linked Discord user ${sanitize(targetUser.displayName)}`;
 }
 
 function summarizeUnitProgress(groups: readonly UnitGroupView[]): UnitProgressSummary {
@@ -260,8 +276,12 @@ function summarizeUnitProgress(groups: readonly UnitGroupView[]): UnitProgressSu
   let levelsGained = 0;
   let maxLevels = 0;
   const groupedCounts = new Map<string, { total: number; maxed: number }>();
+  const categoryCounts: string[] = [];
 
   for (const group of groups) {
+    if (group.units.length > 0) {
+      categoryCounts.push(`${group.title}: ${group.units.length}`);
+    }
     for (const unit of group.units) {
       totalUnits += 1;
       levelsGained += unit.level;
@@ -283,6 +303,7 @@ function summarizeUnitProgress(groups: readonly UnitGroupView[]): UnitProgressSu
     incompleteUnits: totalUnits - maxedUnits,
     levelsGained,
     maxLevels,
+    categoryCounts,
     groupCounts: Array.from(
       groupedCounts,
       ([name, count]) => `${name}: ${count.maxed}/${count.total} maxed`,
@@ -302,6 +323,10 @@ function formatProgressSummary(summary: UnitProgressSummary): string {
 
   if (summary.groupCounts.length > 0) {
     rows.push(summary.groupCounts.join(' • '));
+  }
+
+  if (summary.categoryCounts.length > 0) {
+    rows.push(`Categories: ${summary.categoryCounts.join(' • ')}`);
   }
 
   return rows.join('\n');
