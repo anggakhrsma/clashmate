@@ -367,8 +367,8 @@ export function buildAttacksEmbed(
     })
     .setTimestamp();
 
-  const seasonLabel = options.season ? formatAttacksSeasonLabel(options.season) : null;
-  if (seasonLabel) embed.addFields({ name: 'Season', value: seasonLabel, inline: true });
+  const seasonContext = options.season ? formatAttacksSeasonContext(options.season) : null;
+  if (seasonContext) embed.addFields({ name: 'Season', value: seasonContext, inline: true });
   if (options.coverage) {
     embed.addFields({ name: 'Scan Coverage', value: formatAttacksCoverageText(options.coverage) });
   }
@@ -395,12 +395,14 @@ export function createAttacksScanCoverage(input: {
 }
 
 export function formatAttacksCoverageText(coverage: AttacksScanCoverage): string {
+  const analyzedPercent = formatAnalyzedPercentage(coverage);
+  const notes = formatAttacksCoverageNotes(coverage);
   return [
     `Clan members discovered: ${coverage.clanMembersDiscovered}`,
-    `Player lookups attempted/analyzed: ${coverage.playerLookupsAttempted}/${coverage.playerLookupsAnalyzed}`,
-    `Skipped after scan cap (${MAX_PLAYER_FETCHES}): ${coverage.skippedDueToMaxPlayerFetches}`,
-    `Failed lookups: ${coverage.failedLookups}`,
+    `Analyzed: ${coverage.playerLookupsAnalyzed}/${coverage.clanMembersDiscovered} (${analyzedPercent})`,
+    `Lookup results: ${coverage.playerLookupsAttempted} attempted, ${coverage.failedLookups} failed`,
     `Rows with attack/defense data: ${coverage.rowsWithData}`,
+    ...(notes.length > 0 ? [`Notes: ${notes.join('; ')}`] : []),
   ].join('\n');
 }
 
@@ -413,6 +415,12 @@ export function formatAttacksLimitationsText(season: string | null | undefined):
 export function formatAttacksSeasonLabel(season: string): string {
   const choice = ATTACKS_SEASON_CHOICES.find((entry) => entry.value === season);
   return choice ? `${choice.name} (${season})` : season;
+}
+
+export function formatAttacksSeasonContext(season: string): string {
+  const seasonLabel = formatAttacksSeasonLabel(season);
+  if (isCurrentAttacksSeason(season)) return seasonLabel;
+  return `${seasonLabel}\nLabel only; results use current public API values.`;
 }
 
 export function resolveAttacksClan(
@@ -449,6 +457,34 @@ function formatAttacksTable(rows: readonly AttackWinsRow[]): string {
   const table = `\`\`\`\n${lines.join('\n')}\n\`\`\``;
   if (table.length <= EMBED_DESCRIPTION_LIMIT) return table;
   return `${table.slice(0, EMBED_DESCRIPTION_LIMIT - 5)}\n\`\`\``;
+}
+
+function formatAnalyzedPercentage(coverage: AttacksScanCoverage): string {
+  if (coverage.clanMembersDiscovered === 0) return '0%';
+  const percentage = Math.round(
+    (coverage.playerLookupsAnalyzed / coverage.clanMembersDiscovered) * 100,
+  );
+  return `${percentage}%`;
+}
+
+function formatAttacksCoverageNotes(coverage: AttacksScanCoverage): string[] {
+  const notes: string[] = [];
+  if (coverage.skippedDueToMaxPlayerFetches > 0) {
+    notes.push(
+      `${coverage.skippedDueToMaxPlayerFetches} not scanned after ${MAX_PLAYER_FETCHES} member cap`,
+    );
+  }
+  if (coverage.failedLookups > 0) {
+    notes.push(`${coverage.failedLookups} player lookup failed`);
+  }
+  if (coverage.skippedDueToMaxPlayerFetches > 0 || coverage.failedLookups > 0) {
+    notes.push('partial result');
+  }
+  return notes;
+}
+
+function isCurrentAttacksSeason(season: string): boolean {
+  return ATTACKS_SEASON_CHOICES[0]?.value === season;
 }
 
 function readClanMemberTags(data: unknown): string[] {
