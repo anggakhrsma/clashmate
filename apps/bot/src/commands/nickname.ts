@@ -2,6 +2,7 @@ import type { CommandContext, SlashCommandDefinition } from '@clashmate/discord'
 import {
   type ChatInputCommandInteraction,
   EmbedBuilder,
+  type GuildMember,
   PermissionFlagsBits,
   SlashCommandBuilder,
 } from 'discord.js';
@@ -9,7 +10,7 @@ import {
 export const NICKNAME_COMMAND_NAME = 'nickname';
 export const NICKNAME_COMMAND_DESCRIPTION = 'Manage automatic nickname settings.';
 export const NICKNAME_FIRST_PASS_NOTE =
-  'ClashMate stores these server nickname preferences only. `/nickname config` is a preview/dry-run command today: it never changes Discord nicknames, even when `change_nicknames` is set to `Yes`.';
+  'ClashMate stores these server nickname preferences and previews nickname reconciliation for the invoking member only. It changes your nickname only when `change_nicknames` is set to `Yes` in this invocation and every safety check passes.';
 export const NICKNAME_REFRESH_NOTE =
   'Automatic nickname refresh is not enabled yet because ClashMate does not currently run the member refresh job that safely applies stored preferences to Discord members.';
 export const DISCORD_NICKNAME_MAX_LENGTH = 32;
@@ -151,8 +152,17 @@ export async function executeNicknameInteraction(
     ? await updateNicknameConfigWithExistingValues(interaction, options.store, input.view)
     : await options.store.getNicknameConfig(interaction.guildId);
 
+  const plan = planInvokingMemberNicknameReconciliation(interaction, view, input.view);
+
+  if (plan.shouldRename) {
+    await interaction.member.setNickname(
+      plan.desiredNickname,
+      'ClashMate nickname config opt-in preview',
+    );
+  }
+
   await interaction.reply({
-    embeds: [buildNicknameConfigEmbed(view, input.warnings)],
+    embeds: [buildNicknameConfigEmbed(view, input.warnings, plan)],
     ephemeral: true,
   });
 }
@@ -215,6 +225,7 @@ export function parseNicknameConfigOptions(input: {
 export function buildNicknameConfigEmbed(
   view: NicknameConfigView,
   warnings: readonly string[] = [],
+  reconciliationPlan?: NicknameReconciliationPlan,
 ): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(0x5865f2)
@@ -276,11 +287,19 @@ export function buildNicknameConfigEmbed(
         inline: false,
       },
       {
-        name: 'Dry-run preview',
+        name: 'Format preview',
         value: formatNicknamePreview(view),
         inline: false,
       },
     );
+
+  if (reconciliationPlan) {
+    embed.addFields({
+      name: 'Invoking member reconciliation',
+      value: formatReconciliationPlan(reconciliationPlan),
+      inline: false,
+    });
+  }
 
   if (warnings.length > 0) {
     embed.addFields({
@@ -291,6 +310,85 @@ export function buildNicknameConfigEmbed(
   }
 
   return embed;
+}
+
+export interface NicknameReconciliationPlan {
+  currentNickname: string;
+  desiredNickname: string | null;
+  canRename: boolean;
+  shouldRename: boolean;
+  blockers: string[];
+}
+
+function planInvokingMemberNicknameReconciliation(
+  interaction: ChatInputCommandInteraction<'cached'>,
+  view: NicknameConfigView,
+  invocationUpdates: NicknameConfigView,
+): NicknameReconciliationPlan {
+  const member = interaction.member;
+  const blockers: string[] = [];
+  const format = view.familyNicknameFormat ?? view.nonFamilyNicknameFormat;
+  const desiredNickname = format ? buildMemberNicknamePreview(format, member) : null;
+
+  if (!interaction.guild.members.me?.permissions.has(PermissionFlagsBits.ManageNicknames)) {
+    blockers.push('Manage Nicknames missing');
+  }
+
+  if (!member.manageable) {
+    blockers.push('bot/user hierarchy prevents renaming this member');
+  }
+
+  if (view.changeNicknames !== 'true') {
+    blockers.push('stored changeNicknames is disabled');
+  }
+
+  if (!desiredNickname) {
+    blockers.push('no usable placeholder data');
+  }
+
+  const canRename = blockers.length === 0;
+
+  return {
+    currentNickname: member.nickname ?? member.displayName,
+    desiredNickname,
+    canRename,
+    shouldRename: canRename && invocationUpdates.changeNicknames === 'true',
+    blockers,
+  };
+}
+
+function buildMemberNicknamePreview(format: string, member: GuildMember): string | null {
+  const preview = format
+    .replaceAll('{DISCORD_NAME}', member.displayName)
+    .replaceAll('{DISCORD_USERNAME}', member.user.username)
+    .replaceAll('{USERNAME}', member.user.username)
+    .replaceAll('{DISCORD}', member.displayName);
+
+  if (preview === format || hasUnresolvedNicknamePlaceholder(preview)) return null;
+  return preview.slice(0, DISCORD_NICKNAME_MAX_LENGTH);
+}
+
+function hasUnresolvedNicknamePlaceholder(value: string): boolean {
+  return /\{[^{}]+\}/.test(value);
+}
+
+function formatReconciliationPlan(plan: NicknameReconciliationPlan): string {
+  const lines = [
+    `Current nickname: ${formatPlanValue(plan.currentNickname)}`,
+    `Desired nickname preview: ${formatPlanValue(plan.desiredNickname)}`,
+    `Could rename invoking member: ${plan.canRename ? 'Yes' : 'No'}`,
+    `Actual rename this invocation: ${plan.shouldRename ? 'Yes' : 'No'}`,
+  ];
+
+  if (plan.blockers.length > 0) {
+    lines.push(`Blockers: ${plan.blockers.join('; ')}`);
+  }
+
+  return lines.join('\n');
+}
+
+function formatPlanValue(value: string | null): string {
+  return value ? `\`${value}\`` : 'Not available';
 }
 
 export function validateNicknameFormat(
