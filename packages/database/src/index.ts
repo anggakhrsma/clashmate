@@ -146,8 +146,13 @@ export interface UpdateNicknameConfigInput extends NicknameConfigRecord {
   actorDiscordUserId: string;
 }
 
+export interface GuildNicknameConfigRecord extends NicknameConfigRecord {
+  guildId: string;
+}
+
 export interface DatabaseNicknameConfigStore {
   getNicknameConfig: (guildId: string) => Promise<NicknameConfigRecord>;
+  listNicknameConfigs: () => Promise<GuildNicknameConfigRecord[]>;
   updateNicknameConfig: (input: UpdateNicknameConfigInput) => Promise<NicknameConfigRecord>;
 }
 
@@ -178,8 +183,13 @@ export interface UpdateAutoroleSettingsInput {
   metadata?: Record<string, unknown>;
 }
 
+export interface GuildAutoroleSettingsRecord extends AutoroleSettingsRecord {
+  guildId: string;
+}
+
 export interface DatabaseAutoroleSettingsStore {
   getAutoroleSettings: (guildId: string) => Promise<AutoroleSettingsRecord>;
+  listAutoroleSettings: () => Promise<GuildAutoroleSettingsRecord[]>;
   updateAutoroleSettings: (input: UpdateAutoroleSettingsInput) => Promise<AutoroleSettingsRecord>;
 }
 
@@ -2769,6 +2779,14 @@ export function createDatabaseAutoroleSettingsStore(
 ): DatabaseAutoroleSettingsStore {
   return {
     getAutoroleSettings: async (guildId) => readAutoroleConfig(database, guildId),
+    listAutoroleSettings: async () => {
+      const rows = await database
+        .select({ guildId: schema.guildSettings.guildId, value: schema.guildSettings.value })
+        .from(schema.guildSettings)
+        .where(eq(schema.guildSettings.key, AUTOROLE_SETTINGS_KEY));
+
+      return rows.map((row) => ({ guildId: row.guildId, ...readAutoroleSettings(row.value) }));
+    },
     updateAutoroleSettings: async (input) =>
       database.transaction(async (tx) => {
         const now = new Date();
@@ -2814,6 +2832,14 @@ export function createDatabaseAutoroleSettingsStore(
 export function createDatabaseNicknameConfigStore(database: Database): DatabaseNicknameConfigStore {
   return {
     getNicknameConfig: async (guildId) => readNicknameConfig(database, guildId),
+    listNicknameConfigs: async () => {
+      const rows = await database
+        .select({ guildId: schema.guildSettings.guildId, value: schema.guildSettings.value })
+        .from(schema.guildSettings)
+        .where(eq(schema.guildSettings.key, NICKNAME_CONFIG_SETTING_KEY));
+
+      return rows.map((row) => ({ guildId: row.guildId, ...readNicknameConfigSetting(row.value) }));
+    },
     updateNicknameConfig: async (input) =>
       database.transaction(async (tx) => {
         const now = new Date();

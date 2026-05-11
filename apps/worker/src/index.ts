@@ -6,6 +6,8 @@ import {
   createClanMemberSnapshotReader,
   createClanSnapshotStore,
   createDatabase,
+  createDatabaseAutoroleSettingsStore,
+  createDatabaseNicknameConfigStore,
   createDatabasePlayerLinkStore,
   createDatabaseReminderDeliveryStore,
   createMissedWarAttackEventStore,
@@ -27,6 +29,7 @@ import { startNotificationDeliveryLoop } from './notification-delivery-loop.js';
 import { startNotificationFanOutLoop } from './notification-fanout-loop.js';
 import { createPlayerPollerHandler } from './player-poller.js';
 import { startPollingEnrollmentLoop, syncPollingLeases } from './polling-enrollment.js';
+import { startReconciliationPlanningLoop } from './reconciliation-planning-loop.js';
 import { startReminderSchedulerLoop } from './reminder-scheduler-loop.js';
 import { createWarPollerHandler } from './war-poller.js';
 import { createWorkerOwnerId, startWorkerPollingLoop } from './worker-loop.js';
@@ -90,6 +93,8 @@ const notificationFanOut = createNotificationFanOutStore(database);
 const notificationDelivery = createNotificationOutboxDeliveryStore(database);
 const reminderDelivery = createDatabaseReminderDeliveryStore(database);
 const playerLinks = createDatabasePlayerLinkStore(database);
+const autoroleSettings = createDatabaseAutoroleSettingsStore(database);
+const nicknameConfigs = createDatabaseNicknameConfigStore(database);
 const notificationSender = createDiscordRestNotificationSender(config.DISCORD_TOKEN);
 const coc = new ClashMateCocClient({ token: config.CLASH_OF_CLANS_API_TOKEN });
 const clanPollerHandler = createClanPollerHandler({
@@ -166,6 +171,17 @@ const reminderSchedulerLoop = startReminderSchedulerLoop({
   logger,
 });
 
+const reconciliationPlanningLoop = startReconciliationPlanningLoop({
+  autoroles: autoroleSettings,
+  nicknames: nicknameConfigs,
+  snapshots: clanMemberSnapshots,
+  interval: {
+    baseSeconds: config.NOTIFICATION_FANOUT_SECONDS,
+    jitterSeconds: config.NOTIFICATION_FANOUT_JITTER_SECONDS,
+  },
+  logger,
+});
+
 const notificationDeliveryLoop = startNotificationDeliveryLoop({
   deliveryStore: notificationDelivery,
   sender: notificationSender,
@@ -199,6 +215,7 @@ registerShutdownHandlers(
     pollingEnrollmentLoop,
     notificationFanOutLoop,
     reminderSchedulerLoop,
+    reconciliationPlanningLoop,
     notificationDeliveryLoop,
     workerPollingLoop,
   ],
@@ -216,6 +233,7 @@ logger.info(
     notificationFanOutReady: Boolean(notificationFanOut),
     notificationDeliveryReady: Boolean(notificationDelivery),
     reminderSchedulerReady: Boolean(reminderDelivery),
+    reconciliationPlanningReady: Boolean(autoroleSettings && nicknameConfigs),
     notificationFanOutIntervalSeconds: config.NOTIFICATION_FANOUT_SECONDS,
     notificationFanOutJitterSeconds: config.NOTIFICATION_FANOUT_JITTER_SECONDS,
     notificationFanOutBatchSize: config.NOTIFICATION_FANOUT_BATCH_SIZE,
