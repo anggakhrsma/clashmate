@@ -133,6 +133,8 @@ const envSchema = z.object({
   NOTIFICATION_FANOUT_SECONDS: z.coerce.number().int().positive().default(30),
   NOTIFICATION_FANOUT_JITTER_SECONDS: z.coerce.number().int().nonnegative().default(10),
   NOTIFICATION_FANOUT_BATCH_SIZE: z.coerce.number().int().positive().max(1000).default(100),
+  RECONCILIATION_PLANNING_SECONDS: z.coerce.number().int().positive().default(300),
+  RECONCILIATION_PLANNING_JITTER_SECONDS: z.coerce.number().int().nonnegative().default(60),
   NOTIFICATION_DELIVERY_SECONDS: z.coerce.number().int().positive().default(15),
   NOTIFICATION_DELIVERY_JITTER_SECONDS: z.coerce.number().int().nonnegative().default(5),
   NOTIFICATION_DELIVERY_BATCH_SIZE: z.coerce.number().int().positive().max(1000).default(50),

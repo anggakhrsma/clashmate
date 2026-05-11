@@ -176,8 +176,8 @@ const reconciliationPlanningLoop = startReconciliationPlanningLoop({
   nicknames: nicknameConfigs,
   snapshots: clanMemberSnapshots,
   interval: {
-    baseSeconds: config.NOTIFICATION_FANOUT_SECONDS,
-    jitterSeconds: config.NOTIFICATION_FANOUT_JITTER_SECONDS,
+    baseSeconds: config.RECONCILIATION_PLANNING_SECONDS,
+    jitterSeconds: config.RECONCILIATION_PLANNING_JITTER_SECONDS,
   },
   logger,
 });
@@ -234,6 +234,8 @@ logger.info(
     notificationDeliveryReady: Boolean(notificationDelivery),
     reminderSchedulerReady: Boolean(reminderDelivery),
     reconciliationPlanningReady: Boolean(autoroleSettings && nicknameConfigs),
+    reconciliationPlanningIntervalSeconds: config.RECONCILIATION_PLANNING_SECONDS,
+    reconciliationPlanningJitterSeconds: config.RECONCILIATION_PLANNING_JITTER_SECONDS,
     notificationFanOutIntervalSeconds: config.NOTIFICATION_FANOUT_SECONDS,
     notificationFanOutJitterSeconds: config.NOTIFICATION_FANOUT_JITTER_SECONDS,
     notificationFanOutBatchSize: config.NOTIFICATION_FANOUT_BATCH_SIZE,
