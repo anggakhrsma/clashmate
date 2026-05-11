@@ -320,6 +320,31 @@ export interface NicknameReconciliationPlan {
   blockers: string[];
 }
 
+export interface ScheduledNicknameReconciliationPlan {
+  readonly enabled: boolean;
+  readonly shouldRun: boolean;
+  readonly reason: string;
+  readonly format: string | null;
+}
+
+export function planScheduledNicknameReconciliation(
+  view: NicknameConfigView,
+): ScheduledNicknameReconciliationPlan {
+  const format = view.familyNicknameFormat ?? view.nonFamilyNicknameFormat;
+  const enabled = view.changeNicknames === 'true';
+  const shouldRun = enabled && Boolean(format);
+  return {
+    enabled,
+    shouldRun,
+    reason: !enabled
+      ? 'change_nicknames is disabled'
+      : !format
+        ? 'no nickname format is configured'
+        : 'scheduled nickname reconciliation is safe to run with Discord permission and hierarchy checks',
+    format: format ?? null,
+  };
+}
+
 function planInvokingMemberNicknameReconciliation(
   interaction: ChatInputCommandInteraction<'cached'>,
   view: NicknameConfigView,

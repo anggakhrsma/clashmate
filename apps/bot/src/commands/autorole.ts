@@ -445,6 +445,46 @@ interface AutoroleReconcileResult {
   readonly notes: readonly string[];
 }
 
+export interface ScheduledAutoroleReconciliationPlan {
+  readonly enabled: boolean;
+  readonly shouldRun: boolean;
+  readonly reason: string;
+  readonly candidateRoleActions: number;
+  readonly snapshotMemberCount: number;
+}
+
+export function planScheduledAutoroleReconciliation(
+  view: AutoroleSettingsView,
+  snapshots: readonly AutoroleClanMemberSnapshot[] = [],
+): ScheduledAutoroleReconciliationPlan {
+  const plan = buildAutoroleRefreshPlan(view, {
+    target: {
+      kind: 'server',
+      id: 'scheduled',
+      label: 'Scheduled background refresh',
+      memberEstimate: 'all cached/fetchable members',
+    },
+    options: { isTestRun: false, forceRefresh: false },
+    snapshots,
+  });
+  const enabled = view.config.autoUpdateRoles === true;
+  const shouldRun =
+    enabled && plan.mappingsExist.any && plan.snapshotCoverage.snapshotMemberCount > 0;
+  return {
+    enabled,
+    shouldRun,
+    reason: !enabled
+      ? 'auto_update_roles is disabled'
+      : !plan.mappingsExist.any
+        ? 'no autorole mappings are configured'
+        : plan.snapshotCoverage.snapshotMemberCount === 0
+          ? 'no linked-clan member snapshots are available'
+          : 'scheduled autorole reconciliation is safe to run',
+    candidateRoleActions: plan.previewActions.candidateAdds,
+    snapshotMemberCount: plan.snapshotCoverage.snapshotMemberCount,
+  };
+}
+
 async function reconcileAutoroles(
   view: AutoroleSettingsView,
   interaction: ChatInputCommandInteraction<'cached'>,
