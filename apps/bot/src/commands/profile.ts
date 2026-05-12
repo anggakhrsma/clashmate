@@ -463,11 +463,11 @@ function buildProfileSummaryField(input: {
   readonly timezone: ProfileTimezonePreferenceRecord | null;
 }): { name: string; value: string; inline: false } {
   const verifiedCount = input.links.filter((link) => link.isVerified).length;
-  const hasDefault = input.links.some((link) => link.isDefault);
+  const defaultCount = input.links.filter((link) => link.isDefault).length;
   const rows = [
     `Linked accounts: **${input.links.length}**`,
     `Verified: **${verifiedCount}**`,
-    `Default account: **${hasDefault ? 'yes' : 'no'}**`,
+    `Default accounts: **${defaultCount}**`,
     `Timezone: **${input.timezone ? 'saved' : 'not saved'}**`,
   ];
 
