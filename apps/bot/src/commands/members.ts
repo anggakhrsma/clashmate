@@ -287,11 +287,11 @@ function formatNoLinkedMembersMessage(user: User | null, filters: MembersFilterC
 
 function formatMembersCoverageContext(filters: MembersFilterContext): string {
   const parts = [
-    `linked clans: ${filters.linkedClanCount}`,
-    `with snapshots: ${filters.linkedClanWithRowsCount}`,
+    `linked clans: ${filters.linkedClanWithRowsCount}/${filters.linkedClanCount} with rows`,
     `considered: ${formatLinkedClanDiagnosticList(filters.linkedClanLabels)}`,
     `stored member rows: ${filters.storedMemberRowCount}`,
     `latest snapshot: ${formatLatestMemberSnapshot(filters.latestSnapshotAt)}`,
+    `snapshot fields: ${formatSnapshotMemberFieldsSummary()}`,
     `view: ${formatMembersOptionLabel(filters.option)}`,
   ];
   if (filters.clan) {
@@ -334,6 +334,7 @@ function formatNoMembersSnapshotMessage(filters: MembersFilterContext): string {
     );
   }
   parts.push(formatMembersPollingPrerequisite(filters.linkedClanCount));
+  parts.push(formatNoMembersGuidance(filters));
   return parts.join('\n');
 }
 
@@ -396,7 +397,7 @@ export function buildMembersEmbed(
     .setTitle(`${clanName} Members`)
     .setDescription(truncateEmbedDescription(formatMembersDescription(members, option)))
     .setFooter({
-      text: `Showing ${members.length}/${snapshots.members.length} from stored snapshots`,
+      text: `${formatVisibleHiddenRows(members.length, snapshots.members.length)} from stored snapshots`,
     });
 
   if (user) embed.setAuthor({ name: user.displayName, iconURL: user.displayAvatarURL() });
@@ -412,7 +413,8 @@ export function buildMembersEmbed(
       `Linked clan coverage: ${coverageContext.linkedClanWithRowsCount}/${coverageContext.linkedClanCount} have stored member rows`,
       `Clan set: ${formatLinkedClanDiagnosticList(coverageContext.linkedClanLabels)}`,
       `Stored member rows considered: ${coverageContext.storedMemberRowCount}`,
-      `Rows shown: ${members.length}/${snapshots.members.length} selected (limit ${MAX_MEMBER_ROWS})`,
+      `Visible/hidden rows: ${formatVisibleHiddenRows(members.length, snapshots.members.length)} (limit ${MAX_MEMBER_ROWS})`,
+      `Snapshot fields: ${formatSnapshotMemberFieldsSummary()}`,
       `Option coverage: ${formatMembersOptionCoverage(option, snapshots.members)}`,
       `Snapshot freshness: ${formatMemberSnapshotFreshness(coverageContext.latestSnapshotAt)}`,
       formatMembersClanFilterSummary(coverageContext.clan),
@@ -464,6 +466,31 @@ function formatMembersPollingPrerequisite(linkedClanCount: number): string {
     return 'Polling prerequisite: link at least one clan with `/setup clan`, then wait for clan polling to create member snapshots.';
   }
   return MEMBERS_NO_SNAPSHOT_MESSAGE;
+}
+
+function formatNoMembersGuidance(filters: MembersFilterContext): string {
+  if (filters.linkedClanCount === 0) {
+    return 'No-data guidance: `/members` reads linked-clan snapshots, so link a clan before expecting rows.';
+  }
+  if (filters.linkedClanWithRowsCount === 0) {
+    return 'No-data guidance: linked clans exist, but none have stored member rows yet; wait for the clan poller to refresh.';
+  }
+  if (filters.clan) {
+    return 'No-data guidance: this clan filter matched a linked clan, but that clan has no stored member rows yet.';
+  }
+  if (filters.user) {
+    return 'No-data guidance: the user has links, but none matched a currently stored clan member snapshot.';
+  }
+  return 'No-data guidance: try an autocomplete clan filter for a linked clan with stored rows.';
+}
+
+function formatVisibleHiddenRows(visibleRows: number, totalRows: number): string {
+  const hiddenRows = Math.max(0, totalRows - visibleRows);
+  return `${visibleRows} visible / ${hiddenRows} hidden (${totalRows} selected)`;
+}
+
+function formatSnapshotMemberFieldsSummary(): string {
+  return 'tag/name/role, trophies, donations, rank, XP, first/last seen, fetched at';
 }
 
 function getLatestMemberSnapshotTime(members: readonly MembersSnapshotRow[]): Date | null {
