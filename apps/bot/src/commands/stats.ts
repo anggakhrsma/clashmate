@@ -244,12 +244,16 @@ export interface StatsStore {
     guildId: string;
     clanTags?: readonly string[];
     attackerTags?: readonly string[];
+    warKeyPrefix?: string;
+    excludeWarKeyPrefix?: string;
     since?: Date;
   }) => Promise<StatsWarAttackHistoryRow[]>;
   readonly listWarDefenseHistoryForGuild?: (input: {
     guildId: string;
     clanTags?: readonly string[];
     defenderTags?: readonly string[];
+    warKeyPrefix?: string;
+    excludeWarKeyPrefix?: string;
     stars?: StarsOption | null;
     attempt?: AttemptOption | null;
     since?: Date;
@@ -364,10 +368,12 @@ export async function executeStats(
     }
   }
 
+  const warKeyFilters = getStatsWarKeyFilters(parityFilters.type);
   const rows = await options.store.listWarAttackHistoryForGuild({
     guildId: interaction.guildId,
     ...(clanTags ? { clanTags } : {}),
     ...(playerTags ? { attackerTags: playerTags } : {}),
+    ...warKeyFilters,
     ...(historySince ? { since: historySince } : {}),
   });
   const rankedRows = rankStatsRows(filterRowsByAttempt(rows, attemptOption));
@@ -453,10 +459,12 @@ async function replyWithStatsDefenseEmbed(
     return;
   }
 
+  const warKeyFilters = getStatsWarKeyFilters(parityFilters.type);
   const rows = await options.store.listWarDefenseHistoryForGuild({
     guildId: interaction.guildId,
     ...(clanTags ? { clanTags } : {}),
     ...(playerTags ? { defenderTags: playerTags } : {}),
+    ...warKeyFilters,
     ...(starsOption ? { stars: starsOption } : {}),
     ...(attemptOption ? { attempt: attemptOption } : {}),
     ...(historySince ? { since: historySince } : {}),
@@ -638,7 +646,7 @@ export function buildStatsAttacksEmbed(
   if (parityLabels.length > 0) {
     embed.addFields({
       name: 'Accepted parity filters',
-      value: `${parityLabels.join(' · ')}\nAccepted for reference parity only; not applied to stored aggregate stats yet.`,
+      value: `${parityLabels.join(' · ')}\nCWL/No CWL type filters use persisted war keys when selected. Friendly, loot, farm, and clan-only labels are accepted for reference parity only.`,
       inline: false,
     });
   }
@@ -725,7 +733,7 @@ export function buildStatsDefenseEmbed(
       {
         name: 'Source & limitations',
         value:
-          'Data source: persisted war attack events already observed by ClashMate for linked/configured clans in this server, grouped by defender tag; no live Clash API lookup or backfill is performed. Type/CWL/friendly filters are accepted for parity but are not applied because stored war attack events do not yet retain a war type discriminator.',
+          'Data source: persisted war attack events already observed by ClashMate for linked/configured clans in this server, grouped by defender tag; no live Clash API lookup or backfill is performed. CWL/No CWL type filters use persisted war keys when selected; friendly, loot, farm, and clan-only parity labels remain display-only.',
         inline: false,
       },
     )
@@ -752,7 +760,7 @@ export function buildStatsDefenseEmbed(
   if (parityLabels.length > 0) {
     embed.addFields({
       name: 'Accepted parity filters',
-      value: `${parityLabels.join(' · ')}\nType/CWL/friendly and loot/farm labels are accepted for reference parity only; star and fresh/cleanup filters are applied from stored attack-event fields.`,
+      value: `${parityLabels.join(' · ')}\nCWL/No CWL type filters use persisted war keys when selected. Friendly, loot, farm, and clan-only labels are accepted for reference parity only; star and fresh/cleanup filters are applied from stored attack-event fields.`,
       inline: false,
     });
   }
@@ -919,7 +927,7 @@ function buildStatsNoAttackEventsMessage(input: {
   const filterText = filters.length > 0 ? ` Active filters: ${filters.join(' · ')}.` : '';
   const nextHint =
     input.rowsConsidered > 0
-      ? 'Try removing the user/clan/time/attempt filters or choose a wider season/days window; some accepted parity labels are echoed but cannot narrow aggregate rows yet.'
+      ? 'Try removing the user/clan/time/type/attempt filters or choose a wider season/days window; friendly, loot, farm, and clan-only parity labels are echoed but cannot narrow aggregate rows yet.'
       : 'Link/configure a clan in this server, make sure the user has linked players when using the user filter, let the war poller observe wars for the linked clan, and wait for war attack events to be persisted.';
   return `${STATS_NO_ATTACK_EVENTS_MESSAGE} Source: persisted war attack events for linked/configured clans only; no live Clash API lookup, search, historical backfill, or on-demand polling is performed. Rows considered: ${input.rowsConsidered}; latest stored attack: ${formatLatestEventAge(input.latestAttackAt)}.${filterText} ${nextHint}`;
 }
@@ -968,6 +976,15 @@ function readWarTypeOption(value: string | null): WarTypeOption | null {
   return value && WAR_TYPE_OPTIONS.includes(value as WarTypeOption)
     ? (value as WarTypeOption)
     : null;
+}
+
+function getStatsWarKeyFilters(value: WarTypeOption | null): {
+  readonly warKeyPrefix?: string;
+  readonly excludeWarKeyPrefix?: string;
+} {
+  if (value === 'cwl') return { warKeyPrefix: 'cwl:' };
+  if (value === 'regular' || value === 'noCWL') return { excludeWarKeyPrefix: 'cwl:' };
+  return {};
 }
 
 function readStatsParityFilters(interaction: ChatInputCommandInteraction): StatsParityFilters {

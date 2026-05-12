@@ -559,6 +559,7 @@ export interface WarAttackHistoryReader {
     clanTags?: readonly string[];
     attackerTags?: readonly string[];
     warKeyPrefix?: string;
+    excludeWarKeyPrefix?: string;
     since?: Date;
     until?: Date;
   }) => Promise<WarAttackHistoryListRow[]>;
@@ -567,6 +568,7 @@ export interface WarAttackHistoryReader {
     clanTags?: readonly string[];
     defenderTags?: readonly string[];
     warKeyPrefix?: string;
+    excludeWarKeyPrefix?: string;
     stars?: WarAttackHistoryStarsFilter | null;
     attempt?: WarAttackHistoryAttemptFilter | null;
     since?: Date;
@@ -4048,6 +4050,11 @@ export function createWarAttackHistoryReader(database: Database): WarAttackHisto
           sql`lower(${schema.warAttackEvents.warKey}) like ${`${input.warKeyPrefix.toLowerCase()}%`}`,
         );
       }
+      if (input.excludeWarKeyPrefix) {
+        filters.push(
+          sql`lower(${schema.warAttackEvents.warKey}) not like ${`${input.excludeWarKeyPrefix.toLowerCase()}%`}`,
+        );
+      }
       if (input.until) {
         filters.push(lte(schema.warAttackEvents.occurredAt, input.until));
       }
@@ -4114,6 +4121,11 @@ export function createWarAttackHistoryReader(database: Database): WarAttackHisto
       if (input.warKeyPrefix) {
         filters.push(
           sql`lower(${schema.warAttackEvents.warKey}) like ${`${input.warKeyPrefix.toLowerCase()}%`}`,
+        );
+      }
+      if (input.excludeWarKeyPrefix) {
+        filters.push(
+          sql`lower(${schema.warAttackEvents.warKey}) not like ${`${input.excludeWarKeyPrefix.toLowerCase()}%`}`,
         );
       }
       if (input.until) {
