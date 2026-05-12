@@ -56,6 +56,17 @@ export interface PlayerPollerHandlerOptions {
 export interface PlayerPollerResult {
   readonly status: 'snapshot_updated' | 'not_linked';
   readonly playerTag: string;
+  readonly clanGamesConsidered: boolean;
+  readonly clanGamesSkipReason?:
+    | 'player_not_linked'
+    | 'clan_games_store_missing'
+    | 'missing_clan_tag'
+    | 'missing_games_champion_achievement'
+    | 'no_active_clan_games_season';
+  readonly clanTag?: string;
+  readonly gamesChampionAchievementValue?: number;
+  readonly clanGamesSeasonId?: string;
+  readonly clanGamesEventMaxPoints?: number;
   readonly clanGames?: ProcessClanGamesProgressResult;
 }
 
@@ -78,9 +89,16 @@ export function createPlayerPollerHandler(options: PlayerPollerHandlerOptions) {
     const pollerResult: PlayerPollerResult = {
       status: result.status === 'upserted' ? 'snapshot_updated' : 'not_linked',
       playerTag,
+      clanGamesConsidered: false,
     };
 
-    if (pollerResult.status !== 'snapshot_updated' || !options.clanGames) return pollerResult;
+    if (pollerResult.status !== 'snapshot_updated') {
+      return { ...pollerResult, clanGamesSkipReason: 'player_not_linked' };
+    }
+
+    if (!options.clanGames) {
+      return { ...pollerResult, clanGamesSkipReason: 'clan_games_store_missing' };
+    }
 
     const clanTag = extractPlayerClanTag(player);
     const currentAchievementValue = extractGamesChampionAchievementValue(player);
@@ -88,10 +106,31 @@ export function createPlayerPollerHandler(options: PlayerPollerHandlerOptions) {
       (options.clanGamesSeasonConfig ?? defaultClanGamesSeasonConfig)(fetchedAt),
     );
 
-    if (!clanTag || currentAchievementValue === null || !seasonConfig) return pollerResult;
+    const clanGamesContext: PlayerPollerResult = {
+      ...pollerResult,
+      clanGamesConsidered: true,
+      ...(clanTag ? { clanTag } : {}),
+      ...(currentAchievementValue === null
+        ? {}
+        : { gamesChampionAchievementValue: currentAchievementValue }),
+      ...(seasonConfig
+        ? {
+            clanGamesSeasonId: seasonConfig.seasonId,
+            clanGamesEventMaxPoints: seasonConfig.eventMaxPoints,
+          }
+        : {}),
+    };
+
+    if (!clanTag) return { ...clanGamesContext, clanGamesSkipReason: 'missing_clan_tag' };
+    if (currentAchievementValue === null) {
+      return { ...clanGamesContext, clanGamesSkipReason: 'missing_games_champion_achievement' };
+    }
+    if (!seasonConfig) {
+      return { ...clanGamesContext, clanGamesSkipReason: 'no_active_clan_games_season' };
+    }
 
     return {
-      ...pollerResult,
+      ...clanGamesContext,
       clanGames: await options.clanGames.processClanGamesProgress({
         clanTag,
         seasonId: seasonConfig.seasonId,

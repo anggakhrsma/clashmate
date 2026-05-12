@@ -1,4 +1,4 @@
-import type { ClaimedPollingLease, PlayerSnapshotStore } from '@clashmate/database';
+import type { ClaimedPollingLease, ClanGamesEventStore, PlayerSnapshotStore } from '@clashmate/database';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createPlayerPollerHandler } from './player-poller.js';
@@ -33,6 +33,8 @@ describe('player poller handler', () => {
     await expect(handler(playerLease)).resolves.toEqual({
       status: 'snapshot_updated',
       playerTag: '#PLAYER1',
+      clanGamesConsidered: false,
+      clanGamesSkipReason: 'clan_games_store_missing',
     });
 
     expect(coc.getPlayer).toHaveBeenCalledWith('#PLAYER1');
@@ -52,7 +54,100 @@ describe('player poller handler', () => {
     await expect(handler({ ...playerLease, resourceId: '#SEARCH1' })).resolves.toEqual({
       status: 'not_linked',
       playerTag: '#SEARCH1',
+      clanGamesConsidered: false,
+      clanGamesSkipReason: 'player_not_linked',
     });
+  });
+
+  it('returns Clan Games diagnostics and preserves processing result semantics', async () => {
+    const fetchedAt = new Date('2026-04-23T10:00:00.000Z');
+    const clanGamesResult = {
+      status: 'processed' as const,
+      baselinesCreated: 0,
+      progressEvents: 1,
+      completedEvents: 0,
+      clanSnapshots: 1,
+    };
+    const clanGames: ClanGamesEventStore = {
+      processClanGamesProgress: vi.fn().mockResolvedValue(clanGamesResult),
+    };
+    const coc = {
+      getPlayer: vi.fn().mockResolvedValue({
+        tag: '#PLAYER1',
+        name: 'Chief',
+        clan: { tag: '#2PP' },
+        achievements: [{ name: 'Games Champion', value: 1234 }],
+      }),
+    };
+    const handler = createPlayerPollerHandler({
+      coc,
+      snapshots: createSnapshotStore('upserted'),
+      clanGames,
+      clanGamesSeasonConfig: () => ({ seasonId: '2026-04', eventMaxPoints: 4000 }),
+      now: () => fetchedAt,
+    });
+
+    await expect(handler(playerLease)).resolves.toEqual({
+      status: 'snapshot_updated',
+      playerTag: '#PLAYER1',
+      clanGamesConsidered: true,
+      clanTag: '#2PP',
+      gamesChampionAchievementValue: 1234,
+      clanGamesSeasonId: '2026-04',
+      clanGamesEventMaxPoints: 4000,
+      clanGames: clanGamesResult,
+    });
+
+    expect(clanGames.processClanGamesProgress).toHaveBeenCalledWith({
+      clanTag: '#2PP',
+      seasonId: '2026-04',
+      eventMaxPoints: 4000,
+      fetchedAt,
+      players: [
+        {
+          playerTag: '#PLAYER1',
+          playerName: 'Chief',
+          currentAchievementValue: 1234,
+          rawPlayer: {
+            tag: '#PLAYER1',
+            name: 'Chief',
+            clan: { tag: '#2PP' },
+            achievements: [{ name: 'Games Champion', value: 1234 }],
+          },
+        },
+      ],
+    });
+  });
+
+  it('returns concise Clan Games skip reason with available context', async () => {
+    const clanGames: ClanGamesEventStore = {
+      processClanGamesProgress: vi.fn(),
+    };
+    const coc = {
+      getPlayer: vi.fn().mockResolvedValue({
+        tag: '#PLAYER1',
+        name: 'Chief',
+        clan: { tag: '#2PP' },
+      }),
+    };
+    const handler = createPlayerPollerHandler({
+      coc,
+      snapshots: createSnapshotStore('upserted'),
+      clanGames,
+      clanGamesSeasonConfig: () => ({ seasonId: '2026-04', eventMaxPoints: 4000 }),
+    });
+
+    await expect(handler(playerLease)).resolves.toEqual({
+      status: 'snapshot_updated',
+      playerTag: '#PLAYER1',
+      clanGamesConsidered: true,
+      clanGamesSkipReason: 'missing_games_champion_achievement',
+      clanTag: '#2PP',
+      clanGamesSeasonId: '2026-04',
+      clanGamesEventMaxPoints: 4000,
+    });
+
+    expect(clanGames.processClanGamesProgress).not.toHaveBeenCalled();
   });
 
   it('rejects non-player leases', async () => {
