@@ -573,10 +573,10 @@ function formatDonationCoverage(
       ? 'persisted donation history events'
       : 'current member snapshots';
   const fetchedLabel = snapshots.source === 'history' ? 'Latest detected' : 'Latest fetched';
+  const hiddenRows = Math.max(0, snapshots.members.length - visibleRows.length);
   return [
     `Source: ${source}`,
-    `Rows considered: ${snapshots.members.length}`,
-    `Visible rows: ${visibleRows.length}`,
+    `Row coverage: ${visibleRows.length}/${snapshots.members.length} shown${hiddenRows > 0 ? ` (${hiddenRows} more hidden by the display limit)` : ''}`,
     `${fetchedLabel}: ${formatDonationTimestampContext(latest)}`,
     `Active filters: ${formatDonationActiveFilters(filters, sort, user)}`,
   ].join('\n');
@@ -590,8 +590,8 @@ function formatDonationSourceContext(
   const latest = getLatestDonationTimestamp(snapshots.members);
   const prefix =
     source === 'history'
-      ? `Selected source: derived history · rows: ${snapshots.members.length} · latest event: ${formatDonationTimestampContext(latest)}.`
-      : `Selected source: latest snapshot · rows: ${snapshots.members.length} · latest snapshot: ${formatDonationTimestampContext(latest)}.`;
+      ? `Selected source: derived history · reason: date/season filter supplied · rows: ${snapshots.members.length} · latest event: ${formatDonationTimestampContext(latest)}.`
+      : `Selected source: latest snapshot · reason: no date/season filter supplied · rows: ${snapshots.members.length} · latest snapshot: ${formatDonationTimestampContext(latest)}.`;
   if (source === 'history') {
     return `${prefix} Date and season filters use persisted donation events only; no live fallback or automatic backfill is attempted.`;
   }
@@ -617,8 +617,10 @@ function formatDonationActiveFilters(
   sort: DonationSort,
   user: User | null,
 ): string {
+  const hasDateFilter = Boolean(filters.season || filters.startDate || filters.endDate);
   const parts = [
-    user ? `user: ${escapeMarkdown(user.displayName)}` : null,
+    user ? `user: ${escapeMarkdown(user.displayName)}` : 'user: all players',
+    hasDateFilter ? null : 'date/season: none',
     filters.season ? `season: \`${escapeBackticks(filters.season)}\`` : null,
     filters.startDate ? `start_date: \`${escapeBackticks(filters.startDate)}\`` : null,
     filters.endDate ? `end_date: \`${escapeBackticks(filters.endDate)}\`` : null,
