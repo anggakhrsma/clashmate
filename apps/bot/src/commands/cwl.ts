@@ -407,10 +407,10 @@ export function buildCwlHistoryEmbed(
           latestAttack ? `latest event ${formatFreshness(latestAttack)}` : '',
           filters ? `filters accepted: ${filters}` : 'filters resolved to all linked clans',
           input.season
-            ? 'season is a retained-data label; rows are limited to persisted attack history currently stored'
-            : 'current retained attack history only',
-          'Exact CWL-only filtering may be approximate; classification and season filtering use stored war data',
-          'no live fallback or on-demand polling',
+            ? 'season is display/filter context only; rows come from currently retained attack history'
+            : 'currently retained attack history only',
+          'Exact CWL-only filtering may be approximate; classification and season filtering use persisted war data',
+          'no live Clash API lookup, no on-demand polling, and no polling enrollment changes',
         ]
           .filter(Boolean)
           .join(' · '),
@@ -602,14 +602,14 @@ function noDataMessage(
     : ` ${linkedClanSummary}; scanned 0 stored attack summary rows for this filter; showing 0 rows (display limit ${MAX_ROWS}).`;
   return [
     `No CWL ${source} data is available for the accepted filters${filters ? ` (${filters})` : ''}.`,
-    `${coverage}${season} Persisted-only: no live Clash API fallback and no on-demand polling were used. CWL-only classification and season filtering are approximate until stored CWL round metadata is available.`,
-    'Link the clan, wait for scheduled war polling to store activity, or try a broader clan/user/season filter.',
+    `${coverage}${season} Persisted-only: no live Clash API lookup, no on-demand polling, and no polling enrollment changes were used. CWL-only classification and season filtering are approximate until persisted CWL round metadata is available.`,
+    'Link the clan, wait for existing scheduled war polling to retain a current snapshot/history, or try a broader clan/user/season filter.',
   ].join(' ');
 }
 function buildSourceFooter(season: string | null): string {
-  if (!season) return 'Persisted war data first pass';
+  if (!season) return 'Persisted retained/current war snapshots only';
   const label = formatSeasonLabel(season);
-  return `Season label: ${label} · persisted war data first pass`;
+  return `Season label: ${label} · display/filter context · persisted retained/current war snapshots only`;
 }
 function formatSeasonLabel(season: string): string {
   const choice = CWL_SEASON_CHOICES.find((candidate) => candidate.value === season);
@@ -646,10 +646,10 @@ function buildSnapshotSourceField(
     `state ${formatState(entry.war.state ?? entry.snapshot.state)}`,
     ...formatRoundContext(entry.snapshot, entry.war),
     context.season
-      ? 'season is a retained-data label; current snapshot selection still uses persisted latest snapshots'
+      ? 'season is display/filter context; current snapshot selection still uses persisted latest snapshots'
       : 'current latest snapshot data only',
-    'CWL-only classification/season filtering is approximate from stored war data',
-    'no live fallback or on-demand polling',
+    'CWL-only classification/season filtering is approximate from persisted war data',
+    'no live Clash API lookup, no on-demand polling, and no polling enrollment changes',
   ].filter((detail) => detail.length > 0);
   return { name: 'Source / coverage', value: details.join(' · '), inline: false };
 }
