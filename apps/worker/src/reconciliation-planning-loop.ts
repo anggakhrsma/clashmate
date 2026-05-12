@@ -42,6 +42,38 @@ export interface ReconciliationPlanningIterationResult {
   readonly nicknameSkipsPlanned: number;
 }
 
+interface ReconciliationPlanningIterationDiagnostics {
+  readonly guildsScanned: number;
+  readonly settingsScanned: {
+    readonly autorole: number;
+    readonly nickname: number;
+  };
+  readonly runsPlanned: {
+    readonly autorole: number;
+    readonly nickname: number;
+  };
+  readonly skipped: {
+    readonly autorole: number;
+    readonly nickname: number;
+    readonly total: number;
+  };
+  readonly candidateActions: {
+    readonly autorole: number;
+    readonly nickname: number;
+    readonly total: number;
+  };
+  readonly snapshotContext: {
+    readonly guildsWithSnapshots: number;
+    readonly guildsMissingSnapshots: number;
+    readonly clans: number;
+    readonly members: number;
+    readonly snapshotsWithoutMembers: number;
+    readonly oldestFetchedAt: string | null;
+    readonly newestFetchedAt: string | null;
+  };
+  readonly skipReasons: Record<string, number>;
+}
+
 export interface PlannedReconciliationOutcome {
   readonly guildId: string;
   readonly feature: 'autorole' | 'nickname';
@@ -70,29 +102,53 @@ export async function runReconciliationPlanningIteration(
   const outcomes: PlannedReconciliationOutcome[] = [];
 
   for (const settings of autoroleSettings) {
-    const snapshots = await getGuildSnapshots(options.snapshots, snapshotCache, settings.guildId);
-    outcomes.push(planAutorole(settings, snapshots));
+    try {
+      const snapshots = await getGuildSnapshots(options.snapshots, snapshotCache, settings.guildId);
+      outcomes.push(planAutorole(settings, snapshots));
+    } catch (error) {
+      options.logger?.error?.(
+        { error, guildId: settings.guildId, feature: 'autorole' },
+        'Background reconciliation planning failed for guild',
+      );
+      throw error;
+    }
   }
 
   for (const config of nicknameConfigs) {
-    const snapshots = await getGuildSnapshots(options.snapshots, snapshotCache, config.guildId);
-    outcomes.push(planNickname(config, snapshots));
+    try {
+      const snapshots = await getGuildSnapshots(options.snapshots, snapshotCache, config.guildId);
+      outcomes.push(planNickname(config, snapshots));
+    } catch (error) {
+      options.logger?.error?.(
+        { error, guildId: config.guildId, feature: 'nickname' },
+        'Background reconciliation planning failed for guild',
+      );
+      throw error;
+    }
   }
 
   const plannedAt = new Date();
   for (const outcome of outcomes) {
     options.logger?.info?.(outcome, 'Background reconciliation planning outcome');
-    await options.outcomes?.insertReconciliationPlanningOutcome({
-      guildId: outcome.guildId,
-      feature: outcome.feature,
-      enabled: outcome.enabled,
-      shouldRun: outcome.shouldRun,
-      reason: outcome.reason,
-      snapshotClanCount: outcome.snapshotClanCount,
-      snapshotMemberCount: outcome.snapshotMemberCount,
-      candidateActionCount: outcome.candidateActions,
-      plannedAt,
-    });
+    try {
+      await options.outcomes?.insertReconciliationPlanningOutcome({
+        guildId: outcome.guildId,
+        feature: outcome.feature,
+        enabled: outcome.enabled,
+        shouldRun: outcome.shouldRun,
+        reason: outcome.reason,
+        snapshotClanCount: outcome.snapshotClanCount,
+        snapshotMemberCount: outcome.snapshotMemberCount,
+        candidateActionCount: outcome.candidateActions,
+        plannedAt,
+      });
+    } catch (error) {
+      options.logger?.error?.(
+        { error, guildId: outcome.guildId, feature: outcome.feature },
+        'Background reconciliation planning outcome persistence failed for guild',
+      );
+      throw error;
+    }
   }
 
   const autoroleRunsPlanned = outcomes.filter(
@@ -112,6 +168,17 @@ export async function runReconciliationPlanningIteration(
   } satisfies ReconciliationPlanningIterationResult;
 
   options.logger?.debug?.(result, 'Background reconciliation planning iteration completed');
+  options.logger?.info?.(
+    buildReconciliationPlanningIterationDiagnostics(
+      outcomes,
+      snapshotCache,
+      autoroleSettings.length,
+      nicknameConfigs.length,
+      autoroleRunsPlanned,
+      nicknameRunsPlanned,
+    ),
+    'Background reconciliation planning iteration diagnostics',
+  );
   return result;
 }
 
@@ -239,6 +306,98 @@ function countConfiguredAutoroleRoles(settings: GuildAutoroleSettingsRecord): nu
       ...Object.values(settings.clanRoles).flatMap((roles) => Object.values(roles)),
     ].filter(Boolean),
   ).size;
+}
+
+function buildReconciliationPlanningIterationDiagnostics(
+  outcomes: readonly PlannedReconciliationOutcome[],
+  snapshotsByGuild: ReadonlyMap<string, readonly Snapshot[]>,
+  autoroleSettingsScanned: number,
+  nicknameSettingsScanned: number,
+  autoroleRunsPlanned: number,
+  nicknameRunsPlanned: number,
+): ReconciliationPlanningIterationDiagnostics {
+  const guildIds = new Set(outcomes.map((outcome) => outcome.guildId));
+  const skippedOutcomes = outcomes.filter((outcome) => !outcome.shouldRun);
+  const skipReasons = skippedOutcomes.reduce<Record<string, number>>((counts, outcome) => {
+    counts[outcome.reason] = (counts[outcome.reason] ?? 0) + 1;
+    return counts;
+  }, {});
+  const candidateAutoroleActions = sumCandidateActions(outcomes, 'autorole');
+  const candidateNicknameActions = sumCandidateActions(outcomes, 'nickname');
+  const snapshotContext = summarizeSnapshotContext(snapshotsByGuild);
+
+  return {
+    guildsScanned: guildIds.size,
+    settingsScanned: {
+      autorole: autoroleSettingsScanned,
+      nickname: nicknameSettingsScanned,
+    },
+    runsPlanned: {
+      autorole: autoroleRunsPlanned,
+      nickname: nicknameRunsPlanned,
+    },
+    skipped: {
+      autorole: autoroleSettingsScanned - autoroleRunsPlanned,
+      nickname: nicknameSettingsScanned - nicknameRunsPlanned,
+      total: skippedOutcomes.length,
+    },
+    candidateActions: {
+      autorole: candidateAutoroleActions,
+      nickname: candidateNicknameActions,
+      total: candidateAutoroleActions + candidateNicknameActions,
+    },
+    snapshotContext,
+    skipReasons,
+  };
+}
+
+function sumCandidateActions(
+  outcomes: readonly PlannedReconciliationOutcome[],
+  feature: PlannedReconciliationOutcome['feature'],
+): number {
+  return outcomes
+    .filter((outcome) => outcome.feature === feature)
+    .reduce((total, outcome) => total + outcome.candidateActions, 0);
+}
+
+function summarizeSnapshotContext(
+  snapshotsByGuild: ReadonlyMap<string, readonly Snapshot[]>,
+): ReconciliationPlanningIterationDiagnostics['snapshotContext'] {
+  let guildsWithSnapshots = 0;
+  let clans = 0;
+  let members = 0;
+  let snapshotsWithoutMembers = 0;
+  let oldestFetchedAt: Date | null = null;
+  let newestFetchedAt: Date | null = null;
+
+  for (const snapshots of snapshotsByGuild.values()) {
+    const guildMemberCount = countSnapshotMembers(snapshots);
+    if (snapshots.length > 0 && guildMemberCount > 0) guildsWithSnapshots += 1;
+    clans += snapshots.length;
+    members += guildMemberCount;
+    snapshotsWithoutMembers += snapshots.filter((snapshot) => snapshot.members.length === 0).length;
+
+    for (const snapshot of snapshots) {
+      for (const member of snapshot.members) {
+        if (!oldestFetchedAt || member.lastFetchedAt < oldestFetchedAt) {
+          oldestFetchedAt = member.lastFetchedAt;
+        }
+        if (!newestFetchedAt || member.lastFetchedAt > newestFetchedAt) {
+          newestFetchedAt = member.lastFetchedAt;
+        }
+      }
+    }
+  }
+
+  return {
+    guildsWithSnapshots,
+    guildsMissingSnapshots: snapshotsByGuild.size - guildsWithSnapshots,
+    clans,
+    members,
+    snapshotsWithoutMembers,
+    oldestFetchedAt: oldestFetchedAt?.toISOString() ?? null,
+    newestFetchedAt: newestFetchedAt?.toISOString() ?? null,
+  };
 }
 
 function validateReconciliationPlanningLoopOptions(
