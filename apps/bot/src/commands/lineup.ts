@@ -79,9 +79,12 @@ interface LineupEntry {
 }
 
 interface LineupOutputContext {
+  readonly clanFilter: string;
   readonly userFilter: string;
   readonly rowsConsidered: number;
   readonly rowsVisible: number;
+  readonly snapshotsConsidered: number;
+  readonly readableSnapshots: number;
 }
 
 export interface LineupRow {
@@ -230,14 +233,16 @@ async function executeLineup(
     return;
   }
 
-  const entries = snapshots
+  const parsedEntries = snapshots
     .map((snapshot) => ({ snapshot, war: extractLineupWarData(snapshot.snapshot) }))
-    .filter((entry): entry is LineupEntry => Boolean(entry.war))
-    .filter((entry) => playerTags.length === 0 || warIncludesPlayer(entry.war, playerTags));
+    .filter((entry): entry is LineupEntry => Boolean(entry.war));
+  const entries = parsedEntries.filter(
+    (entry) => playerTags.length === 0 || warIncludesPlayer(entry.war, playerTags),
+  );
 
   if (user && entries.length === 0) {
     await interaction.editReply(
-      `No readable persisted current-war snapshot includes linked player tags for ${user.toString()}${clan ? ` in ${formatTrackedClanName(clan)}` : ''}. User filtering checks this server's linked player tags against stored war members only and does not refresh data live.`,
+      `No readable persisted current-war snapshot includes linked player tags for ${user.toString()}${clan ? ` in ${formatTrackedClanName(clan)}` : ''}. Considered ${snapshots.length} persisted snapshot${snapshots.length === 1 ? '' : 's'} (${parsedEntries.length} readable) and ${playerTags.length} linked player tag${playerTags.length === 1 ? '' : 's'}. User filtering checks this server's linked player tags against stored war members only and does not refresh data live.`,
     );
     return;
   }
@@ -254,6 +259,7 @@ async function executeLineup(
     entry.war,
     entry.snapshot.trackedClan?.clanTag ?? entry.snapshot.clanTag,
   );
+  const visibleRows = rows.slice(0, 50);
   if (
     normalizeWarState(entry.war.state ?? entry.snapshot.state) === 'notinwar' ||
     rows.length === 0
@@ -266,12 +272,17 @@ async function executeLineup(
 
   await interaction.editReply({
     embeds: [
-      buildLineupEmbed(entry, rows, {
+      buildLineupEmbed(entry, visibleRows, {
+        clanFilter: clan
+          ? `Selected ${formatTrackedClanName(clan)}`
+          : 'Not applied; scanned persisted snapshots for this server',
         userFilter: user
           ? `Applied to ${user.toString()} (${playerTags.length} linked tag${playerTags.length === 1 ? '' : 's'})`
           : 'Not applied',
         rowsConsidered: rows.length,
-        rowsVisible: rows.length,
+        rowsVisible: visibleRows.length,
+        snapshotsConsidered: snapshots.length,
+        readableSnapshots: parsedEntries.length,
       }),
     ],
   });
@@ -473,13 +484,21 @@ export function buildLineupEmbed(
     `Persisted current-war snapshot for ${formatCode(trackedTag)} fetched ${formatDiscordTimestamp(entry.snapshot.fetchedAt)}.`,
     'Snapshots are produced by the war poller for clans linked/configured in this server.',
     'No live Clash API lookup or manual refresh is performed by `/lineup`.',
+    `Snapshots considered: ${context?.snapshotsConsidered ?? 1}; readable: ${context?.readableSnapshots ?? 1}.`,
     '',
     '**War State**',
     formatWarState(warState),
     '',
+    '**Filters**',
+    `Clan filter: ${context?.clanFilter ?? 'Not applied'}.`,
+    `User filter: ${context?.userFilter ?? 'Not applied'}.`,
+    '',
     '**Coverage**',
     `Member rows considered: ${rowsConsidered}. Visible: ${rowsVisible}.`,
-    `User filter: ${context?.userFilter ?? 'Not applied'}.`,
+    rowsVisible < rowsConsidered
+      ? `Showing the first ${rowsVisible} map position${rowsVisible === 1 ? '' : 's'} to keep the Discord embed concise.`
+      : 'All available map positions are visible.',
+    'If this looks stale or empty, wait for the next war poll after linking/configuring the clan.',
     '',
     '**Lineup**',
     ...rows.map(formatLineupRow),
