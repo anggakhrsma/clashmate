@@ -375,10 +375,25 @@ export function filterSummaryClanChoices(
   query: string,
 ): ApplicationCommandOptionChoiceData<string>[] {
   const normalizedQuery = query.trim().toLowerCase();
-  return clans
-    .filter((clan) => clanMatchesQuery(clan, normalizedQuery))
-    .slice(0, 25)
-    .map((clan) => ({ name: formatClanChoiceName(clan), value: clan.alias ?? clan.clanTag }));
+  const choices: ApplicationCommandOptionChoiceData<string>[] = [];
+  const seenAcceptedValues = new Set<string>();
+  const seenClanTags = new Set<string>();
+
+  for (const clan of [...clans]
+    .filter((candidate) => clanMatchesQuery(candidate, normalizedQuery))
+    .sort(compareSummaryClanChoices)) {
+    const acceptedValue = clan.alias ?? clan.clanTag;
+    const acceptedValueKey = acceptedValue.trim().toLowerCase();
+    const clanTagKey = clan.clanTag.trim().toLowerCase();
+    if (seenAcceptedValues.has(acceptedValueKey) || seenClanTags.has(clanTagKey)) continue;
+
+    seenAcceptedValues.add(acceptedValueKey);
+    seenClanTags.add(clanTagKey);
+    choices.push({ name: formatClanChoiceName(clan), value: acceptedValue });
+    if (choices.length === 25) break;
+  }
+
+  return choices;
 }
 
 export async function executeSummary(
@@ -1326,9 +1341,21 @@ function clanMatchesQuery(clan: SummaryLinkedClan, normalizedQuery: string): boo
     .some((value) => value.includes(normalizedQuery));
 }
 
+function compareSummaryClanChoices(a: SummaryLinkedClan, b: SummaryLinkedClan): number {
+  return (
+    formatClanChoiceName(a).localeCompare(formatClanChoiceName(b), 'en-US', {
+      sensitivity: 'base',
+      numeric: true,
+    }) || a.clanTag.localeCompare(b.clanTag, 'en-US')
+  );
+}
+
 function formatClanChoiceName(clan: SummaryLinkedClan): string {
-  const label = clan.alias?.trim() || clan.name?.trim() || clan.clanTag;
-  return `${label} (${clan.clanTag})`.slice(0, 100);
+  const name = clan.name?.trim();
+  const alias = clan.alias?.trim();
+  const primary = alias || name || clan.clanTag;
+  const context = alias && name && alias.toLowerCase() !== name.toLowerCase() ? ` — ${name}` : '';
+  return `${primary}${context} (${clan.clanTag})`.slice(0, 100);
 }
 
 function readNumber(value: unknown, key: string): number | undefined {
