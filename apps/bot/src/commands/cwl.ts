@@ -99,6 +99,13 @@ export interface CwlStore {
     warKey: string;
     clanTag?: string;
   }) => Promise<CwlWarSnapshotRecord[]>;
+  readonly listRetainedEndedWarSnapshotsForGuild?: (input: {
+    guildId: string;
+    clanTag?: string;
+    since?: Date;
+    until?: Date;
+    limit?: number;
+  }) => Promise<CwlWarSnapshotRecord[]>;
   readonly getLinkedPlayerTags: (guildId: string, discordUserId: string) => Promise<string[]>;
   readonly listWarAttackHistoryForGuild: (input: {
     guildId: string;
@@ -246,11 +253,12 @@ async function executeCwl(
     return;
   }
 
-  const snapshots = clan
-    ? [await options.store.getLatestWarSnapshot(clan.clanTag)].filter(
-        (value): value is CwlWarSnapshotRecord => Boolean(value),
-      )
-    : await options.store.getLatestWarSnapshotsForGuild(interaction.guildId);
+  const snapshots = await listCwlSnapshotCandidates({
+    store: options.store,
+    guildId: interaction.guildId,
+    clan,
+    seasonRange,
+  });
   const seasonalSnapshots = filterCwlSnapshotsBySeason(snapshots, season);
   const snapshotContext = buildSnapshotSourceContext(seasonalSnapshots, season, clans.length);
   const entries = seasonalSnapshots
@@ -559,6 +567,30 @@ function chooseCwlEntry(entries: readonly CwlEntry[]): CwlEntry | null {
     entries[0] ??
     null
   );
+}
+
+async function listCwlSnapshotCandidates(input: {
+  readonly store: CwlStore;
+  readonly guildId: string;
+  readonly clan: CwlLinkedClan | null;
+  readonly seasonRange: { readonly start: Date; readonly end: Date } | null;
+}): Promise<CwlWarSnapshotRecord[]> {
+  if (input.seasonRange && input.store.listRetainedEndedWarSnapshotsForGuild) {
+    return input.store.listRetainedEndedWarSnapshotsForGuild({
+      guildId: input.guildId,
+      ...(input.clan ? { clanTag: input.clan.clanTag } : {}),
+      since: input.seasonRange.start,
+      until: input.seasonRange.end,
+      limit: 100,
+    });
+  }
+
+  if (input.clan) {
+    const snapshot = await input.store.getLatestWarSnapshot(input.clan.clanTag);
+    return snapshot ? [snapshot] : [];
+  }
+
+  return input.store.getLatestWarSnapshotsForGuild(input.guildId);
 }
 
 function filterCwlSnapshotsBySeason(

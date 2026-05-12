@@ -1409,6 +1409,8 @@ export interface GuildRetainedWarSnapshot extends GuildLatestWarSnapshot {
 export interface ListRetainedEndedWarSnapshotsInput {
   guildId: string;
   clanTag?: string;
+  since?: Date;
+  until?: Date;
   limit?: number;
 }
 
@@ -7386,6 +7388,8 @@ export function createWarSnapshotStore(database: Database): WarSnapshotStore {
         sql`lower(replace(${schema.warSnapshots.state}, '_', '')) = 'warended'`,
       ];
       if (clanTag) conditions.push(eq(schema.trackedClans.clanTag, clanTag));
+      if (input.since) conditions.push(gte(schema.warSnapshots.fetchedAt, input.since));
+      if (input.until) conditions.push(lte(schema.warSnapshots.fetchedAt, input.until));
 
       const rows = await database
         .select({
