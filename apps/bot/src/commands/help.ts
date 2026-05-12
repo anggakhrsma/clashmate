@@ -322,8 +322,9 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     category: 'Player & Clan',
     details: [
       'Leaderboard and stats read linked-clan member snapshots without querying the Clash API.',
-      '`/legend stats reference_date:<YYYY-MM-DD>` accepts and displays the date, but current persisted snapshots are still used.',
-      'Attacks and days use current persisted snapshots to resolve accepted clan/player filters, then return honest no-data messages until Legend attack/day history is persisted.',
+      'Leaderboard shows rows considered, snapshot freshness, stored league-name coverage, and the current Legend thresholds from persisted member data.',
+      'Attacks and days use persisted snapshots only to resolve accepted clan/player/user/day filters, then return honest no-data guidance until Legend attack/day history is stored.',
+      '`/legend stats reference_date:<YYYY-MM-DD>` accepts the date label for parity, but current persisted snapshots are still used.',
       'Live Legend feeds, exports, auto-updating boards, external feeds, and polling enrollment are not implemented.',
     ],
   },

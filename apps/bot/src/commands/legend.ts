@@ -16,9 +16,9 @@ const LEGEND_TROPHY_FLOOR = 5000;
 const NEAR_LEGEND_TROPHY_FLOOR = 4900;
 const LEGEND_SEASON_CHOICE_MONTHS = 18;
 const LEGEND_SNAPSHOT_SOURCE_NOTE =
-  'Uses the latest persisted player/member snapshots from clans linked to this server.';
+  'Uses persisted player/member snapshots from clans linked to this server.';
 const LEGEND_HISTORY_UNAVAILABLE_NOTE =
-  'ClashMate does not yet store a live or historical Legend feed: attacks, defenses, day totals, trophy deltas, season archives, and end-of-day ranks are unavailable.';
+  'ClashMate does not store Legend attack or day history yet, so attacks, defenses, day totals, trophy deltas, season archives, and end-of-day ranks are unavailable.';
 const LEGEND_NO_LIVE_SOURCE_NOTE =
   'No live Clash API Legend lookup, external feed, export, auto-updating board, or polling enrollment is performed by this command.';
 const MONTH_NAMES = [
@@ -45,7 +45,7 @@ export const legendCommandData = new SlashCommandBuilder()
   .addSubcommand((subcommand) =>
     subcommand
       .setName('attacks')
-      .setDescription('Show Legend attacks from stored data when available.')
+      .setDescription('Show snapshot-backed Legend attack diagnostics when available.')
       .addStringOption((option) =>
         option
           .setName('clans')
@@ -70,7 +70,7 @@ export const legendCommandData = new SlashCommandBuilder()
   .addSubcommand((subcommand) =>
     subcommand
       .setName('days')
-      .setDescription('Show Legend day history from stored data when available.')
+      .setDescription('Show snapshot-backed Legend day diagnostics when available.')
       .addStringOption((option) =>
         option
           .setName('player')
@@ -329,7 +329,7 @@ export function buildLegendLeaderboardEmbed(
   const embed = new EmbedBuilder()
     .setTitle('Legend Leaderboard')
     .setDescription(
-      'Current snapshot leaderboard for linked-clan players at or near Legend League.',
+      'Current snapshot leaderboard for linked-clan players at or near Legend League. This view is limited to persisted member snapshots only.',
     );
 
   embed.addFields({
@@ -339,7 +339,7 @@ export function buildLegendLeaderboardEmbed(
   });
 
   embed.addFields({
-    name: 'Linked-clan coverage',
+    name: 'Rows considered',
     value: formatLegendSnapshotCoverage(snapshotCoverage),
     inline: false,
   });
@@ -351,7 +351,7 @@ export function buildLegendLeaderboardEmbed(
   });
 
   embed.addFields({
-    name: 'Filter clarity',
+    name: 'Accepted filters',
     value: formatLegendSnapshotFilterClarity(clanFilter),
     inline: false,
   });
@@ -364,7 +364,7 @@ export function buildLegendLeaderboardEmbed(
     });
 
   embed.addFields({
-    name: 'Selected coverage',
+    name: 'Snapshot scope',
     value:
       'Leaderboard output is limited to current linked-clan member snapshots that are at or near Legend League; live leaderboard, season history, and auto-updating views are unavailable.',
     inline: false,
@@ -380,7 +380,7 @@ export function buildLegendLeaderboardEmbed(
     return embed.addFields({
       name: 'No data',
       value:
-        'No current linked-clan member snapshots at or near Legend League are available yet. Link/configure clans and wait for clan polling to store member trophies and league names.',
+        'No stored member snapshots at or near Legend League are available yet. Link/configure clans, wait for clan polling to store member trophies and league names, and try again after the next snapshot update.',
       inline: false,
     });
   }
@@ -441,7 +441,7 @@ export function buildLegendStatsEmbed(
   });
 
   embed.addFields({
-    name: 'Linked-clan coverage',
+    name: 'Rows considered',
     value: formatLegendSnapshotCoverage(snapshotCoverage),
     inline: false,
   });
@@ -459,7 +459,7 @@ export function buildLegendStatsEmbed(
   });
 
   embed.addFields({
-    name: 'Selected coverage',
+    name: 'Snapshot scope',
     value:
       'Stats are limited to persisted current snapshots: trophy counts, legend thresholds, league labels, and freshness can be summarized, but day-by-day or end-of-season history is unavailable.',
     inline: false,
@@ -475,7 +475,7 @@ export function buildLegendStatsEmbed(
     return embed.addFields({
       name: 'No data',
       value:
-        'No stored member trophy snapshots are available yet. Link/configure clans and wait for clan polling to observe member trophies and league names.',
+        'No stored member trophy snapshots are available yet. Link/configure clans, wait for clan polling to observe member trophies and league names, and retry after the next snapshot is stored.',
       inline: false,
     });
   }
@@ -524,7 +524,7 @@ export function buildLegendUnsupportedEmbed(
   const embed = new EmbedBuilder()
     .setTitle(title)
     .setDescription(
-      'This view needs persisted Legend feed history, which ClashMate does not store yet.',
+      'This view is snapshot-backed only; ClashMate does not store Legend attack or day history yet.',
     );
 
   embed.addFields({
@@ -534,13 +534,13 @@ export function buildLegendUnsupportedEmbed(
   });
 
   embed.addFields({
-    name: 'Selected coverage',
+    name: 'Resolved filters',
     value: coverageLines.join('\n'),
     inline: false,
   });
 
   embed.addFields({
-    name: 'Unavailable history',
+    name: 'Persisted history',
     value: LEGEND_HISTORY_UNAVAILABLE_NOTE,
     inline: false,
   });
