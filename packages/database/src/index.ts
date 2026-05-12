@@ -1593,6 +1593,10 @@ export interface MissedWarAttackEventStore {
   listMissedWarAttackSummaryForGuild: (input: {
     guildId: string;
     clanTags?: readonly string[];
+    warKeyPrefix?: string;
+    excludeWarKeyPrefix?: string;
+    since?: Date;
+    until?: Date;
   }) => Promise<MissedWarAttackSummaryRow[]>;
   listMissedWarAttacksForWar?: (
     guildId: string,
@@ -7904,6 +7908,22 @@ export function createMissedWarAttackEventStore(database: Database): MissedWarAt
 
       if (input.clanTags?.length) {
         filters.push(inArray(schema.missedWarAttackEvents.clanTag, [...input.clanTags]));
+      }
+      if (input.warKeyPrefix) {
+        filters.push(
+          sql`lower(${schema.missedWarAttackEvents.warKey}) like ${`${input.warKeyPrefix.toLowerCase()}%`}`,
+        );
+      }
+      if (input.excludeWarKeyPrefix) {
+        filters.push(
+          sql`lower(${schema.missedWarAttackEvents.warKey}) not like ${`${input.excludeWarKeyPrefix.toLowerCase()}%`}`,
+        );
+      }
+      if (input.since) {
+        filters.push(gte(schema.missedWarAttackEvents.occurredAt, input.since));
+      }
+      if (input.until) {
+        filters.push(lte(schema.missedWarAttackEvents.occurredAt, input.until));
       }
 
       const rows = await database

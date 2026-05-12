@@ -255,6 +255,15 @@ function getSummarySeasonRange(
   return { start, end };
 }
 
+function getSummaryWarKeyFilters(warType: string | null): {
+  readonly warKeyPrefix?: string;
+  readonly excludeWarKeyPrefix?: string;
+} {
+  if (warType === 'cwl') return { warKeyPrefix: 'cwl:' };
+  if (warType === 'regular') return { excludeWarKeyPrefix: 'cwl:' };
+  return {};
+}
+
 function formatRaidWeekChoiceName(date: Date): string {
   return new Intl.DateTimeFormat('en-GB', {
     day: '2-digit',
@@ -363,6 +372,10 @@ export interface SummaryStore {
   readonly listMissedWarAttackSummaryForGuild: (input: {
     guildId: string;
     clanTags?: readonly string[];
+    warKeyPrefix?: string;
+    excludeWarKeyPrefix?: string;
+    since?: Date;
+    until?: Date;
   }) => Promise<SummaryMissedWarAttackRow[]>;
 }
 
@@ -580,9 +593,13 @@ export async function executeSummary(
     return;
   }
   if (subcommand === 'missed-wars') {
+    const seasonRange = getSummarySeasonRange(interaction.options.getString('season'));
+    const warKeyFilters = getSummaryWarKeyFilters(interaction.options.getString('war_type'));
     const rows = await options.store.listMissedWarAttackSummaryForGuild({
       guildId: interaction.guildId,
       ...(clanTag ? { clanTags: [clanTag] } : {}),
+      ...warKeyFilters,
+      ...(seasonRange ? { since: seasonRange.start, until: seasonRange.end } : {}),
     });
     await interaction.editReply(
       buildSummaryMissedWarsPayload(
@@ -736,7 +753,7 @@ export function buildSummaryMissedWarsPayload(
             inline: false,
           },
           sourceField(
-            'Missed-war source: persisted missed_war_attack_events derived by the war poller. Season and war_type are accepted for parity but are not applied because stored missed-war events are not season- or type-scoped yet.',
+            'Missed-war source: persisted missed_war_attack_events derived by the war poller. Season filters use stored missed-event occurrence times; regular/CWL filters use persisted war keys. Friendly war labels remain reference-parity only.',
           ),
           coverageField(coverage),
         )
