@@ -57,6 +57,14 @@ export interface NotificationDeliveryIterationResult {
   readonly sent: number;
   readonly failed: number;
   readonly skipped: number;
+  readonly diagnostics: NotificationDeliveryIterationDiagnostics;
+}
+
+export interface NotificationDeliveryIterationDiagnostics {
+  readonly invalidPayloadSkips: number;
+  readonly retryScheduled: number;
+  readonly maxAttemptFailures: number;
+  readonly senderCapabilityFallbacks: number;
 }
 
 const DISCORD_NOTIFICATION_CONTENT_LIMIT = 2000;
@@ -264,6 +272,8 @@ export async function runNotificationDeliveryIteration(
   let unsupported = 0;
   let retryableFailures = 0;
   let exhaustedFailures = 0;
+  let invalidPayloadSkips = 0;
+  let senderCapabilityFallbacks = 0;
   const failedOutboxEntries: NotificationBatchFailureSummary[] = [];
   const targetTypeCounts = summarizeNotificationTargetTypes(claimed);
   const skipped = 0;
@@ -275,7 +285,18 @@ export async function runNotificationDeliveryIteration(
 
   if (claimed.length === 0) {
     options.logger?.debug?.('No due notification outbox entries to deliver');
-    return { claimed: 0, sent, failed, skipped };
+    return {
+      claimed: 0,
+      sent,
+      failed,
+      skipped,
+      diagnostics: {
+        invalidPayloadSkips,
+        retryScheduled: retryableFailures,
+        maxAttemptFailures: exhaustedFailures,
+        senderCapabilityFallbacks,
+      },
+    };
   }
 
   for (const entry of claimed) {
@@ -304,11 +325,21 @@ export async function runNotificationDeliveryIteration(
               entry.targetId,
               formatNotificationOutboxMessage(entry),
             );
+            senderCapabilityFallbacks += 1;
+            options.logger?.debug?.(
+              { ...logContext, fallbackReason: 'rich_sender_failed', error: richSendError },
+              'Used notification sender fallback',
+            );
           } catch {
             throw richSendError;
           }
         }
       } else {
+        senderCapabilityFallbacks += 1;
+        options.logger?.debug?.(
+          { ...logContext, fallbackReason: 'rich_sender_unavailable' },
+          'Used notification sender fallback',
+        );
         await options.sender.sendChannelMessage(
           entry.targetId,
           formatNotificationOutboxMessage(entry),
@@ -333,6 +364,9 @@ export async function runNotificationDeliveryIteration(
       } else {
         retryableFailures += 1;
       }
+      if (isNotificationPayloadValidationFailure(error)) {
+        invalidPayloadSkips += 1;
+      }
       if (failedOutboxEntries.length < MAX_NOTIFICATION_BATCH_FAILURE_SUMMARY) {
         failedOutboxEntries.push({
           outboxId: entry.id,
@@ -347,6 +381,7 @@ export async function runNotificationDeliveryIteration(
           payloadValidationFailure: isNotificationPayloadValidationFailure(error),
           discordTargetReason: getDiscordTargetFailureReason(error),
           retryAt: retryAt.toISOString(),
+          retryDelaySeconds: Math.max(0, Math.round((retryAt.getTime() - Date.now()) / 1000)),
           nextAttempt: entry.attempts + 1,
           maxAttempts,
           exhausted,
@@ -361,6 +396,12 @@ export async function runNotificationDeliveryIteration(
     sent,
     failed,
     skipped,
+    diagnostics: {
+      invalidPayloadSkips,
+      retryScheduled: retryableFailures,
+      maxAttemptFailures: exhaustedFailures,
+      senderCapabilityFallbacks,
+    },
   };
 
   if (sent > 0) {
@@ -381,6 +422,8 @@ export async function runNotificationDeliveryIteration(
       unsupported,
       retryableFailures,
       exhaustedFailures,
+      invalidPayloadSkips,
+      senderCapabilityFallbacks,
       targetTypeCounts,
       failedOutboxEntries,
       ownerId: options.ownerId,
