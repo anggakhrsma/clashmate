@@ -598,6 +598,32 @@ export async function executeSummary(
     );
     return;
   }
+  if (subcommand === 'war-results') {
+    if (!options.store.listRetainedEndedWarSnapshotsForGuild) {
+      await interaction.editReply({ content: unavailableSummaryMessage(subcommand, baseFilters) });
+      return;
+    }
+    const seasonRange = getSummarySeasonRange(interaction.options.getString('season'));
+    const snapshots = await options.store.listRetainedEndedWarSnapshotsForGuild({
+      guildId: interaction.guildId,
+      ...(clanTag ? { clanTag } : {}),
+      ...(seasonRange ? { since: seasonRange.start, until: seasonRange.end } : {}),
+      limit: 100,
+    });
+    await interaction.editReply(
+      buildSummaryWarResultsPayload(
+        snapshots,
+        buildRowsCoverage(
+          clans.length,
+          clanTag ? 1 : clans.length,
+          snapshots.length,
+          latestWarSnapshotAt(snapshots),
+          baseFilters,
+        ),
+      ),
+    );
+    return;
+  }
   if (subcommand === 'compo') {
     const rows = await options.store.listClansForGuild(interaction.guildId);
     await interaction.editReply(
@@ -992,6 +1018,43 @@ export function buildSummaryCwlStatusPayload(
         )
         .setFooter({
           text: `Showing ${Math.min(sorted.length, SUMMARY_ROW_LIMIT)}/${sorted.length} CWL snapshots`,
+        }),
+    ],
+  };
+}
+
+export function buildSummaryWarResultsPayload(
+  snapshots: readonly SummaryWarSnapshotRecord[],
+  coverage?: SummaryCoverageContext,
+): { content?: string; embeds?: EmbedBuilder[] } {
+  if (snapshots.length === 0)
+    return {
+      content: noDataMessage('retained ended war snapshots', coverage),
+    };
+
+  const rows = snapshots.map(buildWarResultSummaryRow).sort((a, b) => {
+    const outcomeOrder = resultSortWeight(b.result) - resultSortWeight(a.result);
+    return outcomeOrder || b.fetchedAt.getTime() - a.fetchedAt.getTime();
+  });
+  const totals = countWarResults(rows);
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setTitle('War Results Summary')
+        .setDescription(truncate(formatWarResultRows(rows)))
+        .addFields(
+          {
+            name: 'Totals',
+            value: `wins ${totals.win} · losses ${totals.loss} · ties ${totals.tie} · unknown ${totals.unknown} · ${rows.length} retained wars`,
+            inline: false,
+          },
+          sourceField(
+            'War-results source: retained ended war snapshots captured by the war poller for linked clans. Season filters use stored snapshot fetch times; no live Clash API lookup, backfill, or polling enrollment is performed.',
+          ),
+          coverageField(coverage),
+        )
+        .setFooter({
+          text: `Showing ${Math.min(rows.length, SUMMARY_ROW_LIMIT)}/${rows.length} retained wars`,
         }),
     ],
   };
@@ -1517,6 +1580,86 @@ function formatSummaryWarState(value: string): string {
   return value || 'Unknown';
 }
 
+function buildWarResultSummaryRow(snapshot: SummaryWarSnapshotRecord): WarResultSummaryRow {
+  const data = extractSummaryWarData(snapshot.snapshot);
+  const clan = chooseSummaryPerspectiveClan(
+    data,
+    snapshot.trackedClan?.clanTag ?? snapshot.clanTag,
+  );
+  const opponent = clan === data?.clan ? data?.opponent : data?.clan;
+  return {
+    clanLabel:
+      snapshot.trackedClan?.alias ?? snapshot.trackedClan?.name ?? clan?.name ?? snapshot.clanTag,
+    clanTag: snapshot.clanTag,
+    opponentLabel: opponent?.name ?? opponent?.tag ?? 'unknown opponent',
+    result: resolveWarResult(clan, opponent),
+    clanStars: clan?.stars,
+    opponentStars: opponent?.stars,
+    clanDestruction: clan?.destructionPercentage,
+    opponentDestruction: opponent?.destructionPercentage,
+    fetchedAt: snapshot.fetchedAt,
+    ...(snapshot.warKey ? { warKey: snapshot.warKey } : {}),
+  };
+}
+
+function resolveWarResult(
+  clan: SummaryWarClan | undefined,
+  opponent: SummaryWarClan | undefined,
+): WarResultSummaryRow['result'] {
+  if (typeof clan?.stars !== 'number' || typeof opponent?.stars !== 'number') return 'unknown';
+  if (clan.stars > opponent.stars) return 'win';
+  if (clan.stars < opponent.stars) return 'loss';
+  if (
+    typeof clan.destructionPercentage === 'number' &&
+    typeof opponent.destructionPercentage === 'number'
+  ) {
+    if (clan.destructionPercentage > opponent.destructionPercentage) return 'win';
+    if (clan.destructionPercentage < opponent.destructionPercentage) return 'loss';
+  }
+  return 'tie';
+}
+
+function countWarResults(
+  rows: readonly WarResultSummaryRow[],
+): Record<WarResultSummaryRow['result'], number> {
+  const counts: Record<WarResultSummaryRow['result'], number> = {
+    win: 0,
+    loss: 0,
+    tie: 0,
+    unknown: 0,
+  };
+  for (const row of rows) counts[row.result] += 1;
+  return counts;
+}
+
+function resultSortWeight(result: WarResultSummaryRow['result']): number {
+  if (result === 'win') return 4;
+  if (result === 'tie') return 3;
+  if (result === 'loss') return 2;
+  return 1;
+}
+
+function formatWarResultRows(rows: readonly WarResultSummaryRow[]): string {
+  return rows
+    .slice(0, SUMMARY_ROW_LIMIT)
+    .map(
+      (row, index) =>
+        `${index + 1}. **${escapeMarkdown(row.clanLabel)}** (\`${row.clanTag}\`) · ${formatWarResultLabel(row.result)} · ${formatOptionalNumber(row.clanStars)}-${formatOptionalNumber(row.opponentStars)} ⭐ · ${formatOptionalPercent(row.clanDestruction)}/${formatOptionalPercent(row.opponentDestruction)} destruction · vs ${escapeMarkdown(row.opponentLabel)} · latest ${time(row.fetchedAt, 'R')}`,
+    )
+    .join('\n');
+}
+
+function formatWarResultLabel(result: WarResultSummaryRow['result']): string {
+  if (result === 'win') return 'Win';
+  if (result === 'loss') return 'Loss';
+  if (result === 'tie') return 'Tie';
+  return 'Unknown';
+}
+
+function formatOptionalPercent(value: number | undefined): string {
+  return typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(2)}%` : '?';
+}
+
 interface SummaryWarData {
   readonly clan?: SummaryWarClan;
   readonly opponent?: SummaryWarClan;
@@ -1527,6 +1670,20 @@ interface SummaryWarClan {
   readonly tag?: string;
   readonly name?: string;
   readonly stars?: number;
+  readonly destructionPercentage?: number;
+}
+
+interface WarResultSummaryRow {
+  readonly clanLabel: string;
+  readonly clanTag: string;
+  readonly opponentLabel: string;
+  readonly result: 'win' | 'loss' | 'tie' | 'unknown';
+  readonly clanStars: number | undefined;
+  readonly opponentStars: number | undefined;
+  readonly clanDestruction: number | undefined;
+  readonly opponentDestruction: number | undefined;
+  readonly fetchedAt: Date;
+  readonly warKey?: string;
 }
 
 function isSummaryCwlSnapshot(row: SummaryWarSnapshotRecord): boolean {
@@ -1554,10 +1711,12 @@ function readSummaryWarClan(value: unknown): SummaryWarClan | undefined {
   const tag = readRecordValue(clan, 'tag');
   const name = readRecordValue(clan, 'name');
   const stars = readRecordValue(clan, 'stars');
+  const destructionPercentage = readRecordValue(clan, 'destructionPercentage');
   return {
     ...(typeof tag === 'string' ? { tag } : {}),
     ...(typeof name === 'string' ? { name } : {}),
     ...(typeof stars === 'number' ? { stars } : {}),
+    ...(typeof destructionPercentage === 'number' ? { destructionPercentage } : {}),
   };
 }
 
