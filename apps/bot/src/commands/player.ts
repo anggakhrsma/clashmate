@@ -104,22 +104,47 @@ export function filterPlayerTagAutocompleteChoices(
   query: string,
 ): ApplicationCommandOptionChoiceData<string>[] {
   const normalizedQuery = query.trim().toUpperCase();
-  const queryWithoutHash = normalizedQuery.startsWith('#')
-    ? normalizedQuery.slice(1)
-    : normalizedQuery;
+  const queryWithoutHash = stripLeadingHash(normalizedQuery);
+  const choicesByTag = new Map<string, string>();
 
-  return tags
-    .filter((tag) => {
-      const normalizedTag = tag.toUpperCase();
-      const tagWithoutHash = normalizedTag.startsWith('#') ? normalizedTag.slice(1) : normalizedTag;
-      return (
-        normalizedTag.includes(normalizedQuery) ||
-        tagWithoutHash.includes(queryWithoutHash) ||
-        `#${tagWithoutHash}`.includes(normalizedQuery)
-      );
-    })
-    .slice(0, 25)
-    .map((tag) => ({ name: tag, value: tag }));
+  for (const tag of [...tags].sort(comparePlayerTagsForAutocomplete)) {
+    const normalizedTag = normalizePlayerTagForAutocomplete(tag);
+    if (!normalizedTagMatchesQuery(normalizedTag, normalizedQuery, queryWithoutHash)) continue;
+    if (!choicesByTag.has(normalizedTag.key)) choicesByTag.set(normalizedTag.key, tag);
+  }
+
+  return [...choicesByTag.values()].slice(0, 25).map((tag) => ({ name: tag, value: tag }));
+}
+
+function comparePlayerTagsForAutocomplete(left: string, right: string): number {
+  return left.localeCompare(right, 'en-US', { sensitivity: 'base' });
+}
+
+function normalizePlayerTagForAutocomplete(tag: string): {
+  readonly key: string;
+  readonly withHash: string;
+  readonly withoutHash: string;
+} {
+  const normalized = tag.trim().toUpperCase();
+  const withoutHash = stripLeadingHash(normalized);
+  return {
+    key: withoutHash,
+    withHash: `#${withoutHash}`,
+    withoutHash,
+  };
+}
+
+function normalizedTagMatchesQuery(
+  tag: ReturnType<typeof normalizePlayerTagForAutocomplete>,
+  normalizedQuery: string,
+  queryWithoutHash: string,
+): boolean {
+  if (!normalizedQuery) return true;
+  return tag.withHash.includes(normalizedQuery) || tag.withoutHash.includes(queryWithoutHash);
+}
+
+function stripLeadingHash(value: string): string {
+  return value.startsWith('#') ? value.slice(1) : value;
 }
 
 export async function executePlayer(
