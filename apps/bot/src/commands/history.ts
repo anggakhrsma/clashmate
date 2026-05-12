@@ -198,6 +198,7 @@ export interface HistoryStore {
     guildId: string;
     clanTags?: readonly string[];
     attackerTags?: readonly string[];
+    warKeyPrefix?: string;
     since?: Date;
   }) => Promise<WarAttackHistoryRow[]>;
   readonly listClanMemberJoinLeaveHistoryForGuild: (input: {
@@ -358,6 +359,7 @@ export async function executeHistory(
       guildId: interaction.guildId,
       ...(clanTags ? { clanTags } : {}),
       ...(playerTags ? { attackerTags: playerTags } : {}),
+      ...(option === 'cwl-attacks' ? { warKeyPrefix: 'cwl:' } : {}),
     });
 
     if (rows.length === 0) {
@@ -672,7 +674,7 @@ export function buildWarAttackHistoryEmbed(
           filters,
           coverage: formatHistoryCoverage(option),
           note: isCwlApproximation
-            ? 'Persisted war attack events only; CWL-only classification is approximate because CWL metadata is not stored separately yet. No live Clash API lookup or polling enrollment.'
+            ? 'Persisted CWL-keyed war attack events only; older rows captured before CWL keys existed may be absent. No live Clash API lookup or polling enrollment.'
             : 'Persisted war attack events only; no live Clash API lookup or polling enrollment.',
         }),
         inline: false,
@@ -1086,7 +1088,7 @@ function formatHistoryCoverage(
     case 'war-attacks':
       return 'Stored regular war attack events derived from war polling for linked/configured clans.';
     case 'cwl-attacks':
-      return 'Stored war attack events derived from war polling for linked/configured clans; CWL-only classification is approximate until separate CWL metadata is persisted.';
+      return 'Stored CWL-keyed attack events derived from war polling for linked/configured clans; older rows captured before CWL keys existed may be absent.';
     case 'join-leave':
       return 'Stored clan member join/leave events derived from clan polling for linked/configured clans.';
     case 'clan-games':

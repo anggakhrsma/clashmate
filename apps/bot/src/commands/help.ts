@@ -222,8 +222,8 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     details: [
       'Reads persisted retained/current war snapshots for roster, round, lineup, and members views.',
       'Reads persisted war attack history for stars, attacks, and stats views.',
-      'Accepts clan, user, and season display filters; no live Clash API lookup, export, feed, or enrollment behavior is performed.',
-      'CWL-only filtering is approximate until stored events include CWL metadata.',
+      'Accepts clan, user, and season filters; no live Clash API lookup, export, feed, or enrollment behavior is performed.',
+      'CWL attack history uses persisted CWL war keys; older rows captured before CWL keys existed may be absent.',
     ],
   },
   {
@@ -363,7 +363,7 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     category: 'Player & Clan',
     details: [
       'Reads persisted donation delta, war attack, clan member join/leave, and Clan Games snapshot history for linked clans without querying the Clash API.',
-      'CWL attacks reuse stored war attack history with approximate CWL-only classification until separate CWL metadata is stored.',
+      'CWL attacks reuse stored CWL-keyed war attack history; older rows captured before CWL keys existed may be absent.',
       'Unsupported filters return honest no-data embeds that echo accepted clan, player, user, season, and date context where applicable.',
       'Capital contribution, loot, Legend attacks, EOS trophies, and multiplayer attacks are stored snapshot-backed views when linked-clan member snapshots exist; raid-week logs, Legend day timelines, and true EOS trophy time series remain limited.',
     ],

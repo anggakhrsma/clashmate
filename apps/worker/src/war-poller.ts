@@ -355,6 +355,9 @@ export function detectMissedWarAttackEvents(
 export function buildCurrentWarKey(war: { clanTag?: unknown; data?: unknown }): string {
   const clanTag = resolveWarClanTag(war) ?? normalizeNonBlankString(war.clanTag) ?? 'unknown-clan';
   const data = extractWarData(war.data ?? war) ?? {};
+  const warTag = normalizeTag(data.warTag) ?? normalizeNonBlankString(data.warTag);
+  if (warTag) return `cwl:${warTag}`.toLowerCase();
+
   const start = normalizeNonBlankString(data.startTime) ?? 'unknown-start';
   const opponentTag = normalizeTag(data.opponent?.tag) ?? 'unknown-opponent';
   return `current:${(normalizeTag(clanTag) ?? clanTag).toUpperCase()}:${opponentTag}:${start}`.toLowerCase();
@@ -378,6 +381,7 @@ function chooseWarStateTransitionOccurredAt(
 }
 
 interface WarData {
+  readonly warTag?: unknown;
   readonly preparationStartTime?: unknown;
   readonly startTime?: unknown;
   readonly endTime?: unknown;
