@@ -25,6 +25,7 @@ describe('debug rendering', () => {
       botName: 'ClashMate',
       guildId: 'guild-1',
       channelId: 'channel-1',
+      readerAvailable: true,
       permissions: [
         { name: 'View Channel', granted: true },
         { name: 'Send Messages', granted: false },
@@ -43,13 +44,13 @@ describe('debug rendering', () => {
         {
           name: 'Alpha Clan',
           active: true,
-          lastSync: null,
+          lastSync: new Date(Date.now() - 5 * 60_000),
           warLog: 'Public',
         },
         {
           name: 'Beta Clan',
           active: true,
-          lastSync: null,
+          lastSync: new Date(Date.now() - 2 * 60 * 60_000),
           warLog: 'Unknown',
         },
       ],
@@ -62,12 +63,14 @@ describe('debug rendering', () => {
     expect(text).toContain('<#channel-1> (channel-1)');
     expect(text).toContain('☑️ View Channel');
     expect(text).toContain('❌ Send Messages');
-    expect(text).toContain('**Webhooks**\n2');
+    expect(text).toContain('Permissions: 1/2 covered');
+    expect(text).toContain('Webhooks: 2 available');
     expect(text).toContain('**Worker/Poller Diagnostics**');
-    expect(text).toContain('Clan leases: 3');
-    expect(text).toContain('Due leases: 1');
+    expect(text).toContain('Coverage: 3 clan, 4 player, 5 war');
+    expect(text).toContain('Due leases: 1/12 due');
     expect(text).toContain('**Config Diagnostics**');
     expect(text).toContain('Diagnostics enabled: Yes');
+    expect(text).toContain('Freshness: 1 fresh, 1 stale, 0 unknown');
     expect(text).toContain('Alpha Clan');
     expect(text).toContain('Public');
     expect(text).toContain('Unknown');
@@ -81,6 +84,7 @@ describe('debug rendering', () => {
       botName: 'ClashMate',
       guildId: 'guild-1',
       channelId: 'channel-1',
+      readerAvailable: false,
       permissions: [],
       webhookCount: 'Unavailable',
       pollers: undefined,
@@ -90,9 +94,10 @@ describe('debug rendering', () => {
 
     const text = renderDebugText(view);
 
-    expect(text).toContain('No clans configured.');
+    expect(text).toContain('No tracked clan data available (debug reader missing).');
     expect(text).toContain('**Worker/Poller Diagnostics**\nUnavailable');
-    expect(text).toContain('**Config Diagnostics**\nUnavailable');
+    expect(text).toContain('**Config Diagnostics**\nUnavailable (debug reader missing)');
+    expect(text).toContain('**Reconciliation Planning**\nUnavailable (debug reader missing)');
     expect(text).not.toMatch(/Shard|Cluster|cluster/i);
   });
 });

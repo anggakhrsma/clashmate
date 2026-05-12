@@ -114,6 +114,7 @@ export interface DebugView {
   botName: string;
   guildId: string;
   channelId: string;
+  readerAvailable: boolean;
   permissions: readonly DebugPermissionResult[];
   webhookCount: number | 'Unavailable';
   pollers: DebugPollerDiagnostics | undefined;
@@ -190,6 +191,7 @@ export async function collectDebugView(options: {
     botName: options.botName,
     guildId: options.guildId,
     channelId: options.channelId,
+    readerAvailable: Boolean(options.dataReader),
     permissions,
     webhookCount: await countWebhooks(options.channel, options.botUserId),
     pollers: await readPollerDiagnostics(options.dataReader, options.logger),
@@ -250,7 +252,9 @@ export function renderDebugText(view: DebugView): string {
   const clanSummary = summarizeClans(view.clans);
   const clanRows = view.clans.length
     ? view.clans.map(renderClanRow).join('\n')
-    : 'No clans configured.';
+    : view.readerAvailable
+      ? 'No clans configured.'
+      : 'No tracked clan data available (debug reader missing).';
 
   return [
     `**${view.botName} Debug Menu**`,
@@ -264,21 +268,22 @@ export function renderDebugText(view: DebugView): string {
     renderSummary(view, clanSummary),
     '',
     '**Channel Permissions**',
+    renderPermissionCoverage(view.permissions),
     view.permissions
       .map((permission) => `${permission.granted ? '☑️' : '❌'} ${permission.name}`)
       .join('\n'),
     '',
     '**Webhooks**',
-    `${view.webhookCount}`,
+    renderWebhookDiagnostics(view),
     '',
     '**Worker/Poller Diagnostics**',
     renderPollerDiagnostics(view.pollers),
     '',
     '**Config Diagnostics**',
-    renderConfigDiagnostics(view.config),
+    renderConfigDiagnostics(view.config, view.readerAvailable),
     '',
     '**Reconciliation Planning**',
-    renderReconciliationPlanning(view.reconciliation),
+    renderReconciliationPlanning(view.reconciliation, view.readerAvailable),
     '',
     '**Configured Clans**',
     renderClanSummary(clanSummary),
@@ -348,13 +353,13 @@ function summarizeClans(clans: readonly DebugClanRow[]): ClanSummary {
 
 function renderSummary(view: DebugView, clanSummary: ClanSummary): string {
   return [
-    `Permissions: ${countPassedPermissions(view.permissions)} passed / ${countFailedPermissions(
-      view.permissions,
-    )} failed`,
+    `Permissions: ${countPassedPermissions(view.permissions)}/${view.permissions.length} covered`,
+    `Webhooks: ${renderWebhookCoverageSummary(view.webhookCount)}`,
     `Clans: ${clanSummary.total} configured (${clanSummary.active} active, ${clanSummary.inactive} inactive)`,
-    `War logs: ${clanSummary.publicWarLogs} public, ${clanSummary.privateWarLogs} private, ${clanSummary.unknownWarLogs} unknown`,
+    `Freshness: ${renderFreshnessSummary(view.clans)}`,
     `Pollers: ${renderPollerSummary(view.pollers)}`,
-    `Config: ${renderConfigSummary(view.config)}`,
+    `Config: ${renderConfigSummary(view.config, view.readerAvailable)}`,
+    `Reconciliation: ${renderReconciliationSummary(view.reconciliation, view.readerAvailable)}`,
   ].join('\n');
 }
 
@@ -423,10 +428,8 @@ function renderPollerDiagnostics(pollers: DebugPollerDiagnostics | undefined): s
 
   return [
     `Total leases: ${totalLeases}`,
-    `Clan leases: ${pollers.clanLeases}`,
-    `Player leases: ${pollers.playerLeases}`,
-    `War leases: ${pollers.warLeases}`,
-    `Due leases: ${pollers.dueLeases} due / ${totalLeases} total (${activeLeases} not due)`,
+    `Coverage: ${pollers.clanLeases} clan, ${pollers.playerLeases} player, ${pollers.warLeases} war`,
+    `Due leases: ${pollers.dueLeases}/${totalLeases} due (${activeLeases} not due)`,
   ].join('\n');
 }
 
@@ -440,21 +443,28 @@ function countTotalLeases(pollers: DebugPollerDiagnostics): number {
   return pollers.clanLeases + pollers.playerLeases + pollers.warLeases;
 }
 
-function renderConfigDiagnostics(config: DebugConfigDiagnostics | undefined): string {
-  if (!config) return 'Unavailable';
+function renderConfigDiagnostics(
+  config: DebugConfigDiagnostics | undefined,
+  readerAvailable: boolean,
+): string {
+  if (!config) return readerAvailable ? 'Unavailable' : 'Unavailable (debug reader missing)';
 
   return `Diagnostics enabled: ${formatBooleanDiagnostic(config.diagnosticsEnabled)}`;
 }
 
-function renderConfigSummary(config: DebugConfigDiagnostics | undefined): string {
-  if (!config) return 'unavailable';
+function renderConfigSummary(
+  config: DebugConfigDiagnostics | undefined,
+  readerAvailable: boolean,
+): string {
+  if (!config) return readerAvailable ? 'unavailable' : 'unavailable (reader missing)';
   return `diagnostics ${formatBooleanDiagnostic(config.diagnosticsEnabled).toLowerCase()}`;
 }
 
 function renderReconciliationPlanning(
   outcomes: readonly DebugReconciliationPlanningOutcome[] | undefined,
+  readerAvailable: boolean,
 ): string {
-  if (!outcomes) return 'Unavailable';
+  if (!outcomes) return readerAvailable ? 'Unavailable' : 'Unavailable (debug reader missing)';
   if (outcomes.length === 0) return 'No recent planning outcomes.';
 
   const latest = outcomes.reduce((current, row) =>
@@ -520,12 +530,28 @@ function summarizeSkipReasons(outcomes: readonly DebugReconciliationPlanningOutc
     .join(', ');
 }
 
+function renderReconciliationSummary(
+  outcomes: readonly DebugReconciliationPlanningOutcome[] | undefined,
+  readerAvailable: boolean,
+): string {
+  if (!outcomes) return readerAvailable ? 'unavailable' : 'unavailable (reader missing)';
+  if (outcomes.length === 0) return '0 recent outcomes';
+
+  const runnable = outcomes.filter((outcome) => outcome.shouldRun).length;
+  const latest = outcomes.reduce((current, row) =>
+    row.plannedAt.getTime() > current.plannedAt.getTime() ? row : current,
+  );
+  return `${outcomes.length} recent, ${runnable} runnable, latest ${formatPlanningAge(latest.plannedAt)} (${latest.feature})`;
+}
+
 function countPassedPermissions(permissions: readonly DebugPermissionResult[]): number {
   return permissions.filter((permission) => permission.granted).length;
 }
 
-function countFailedPermissions(permissions: readonly DebugPermissionResult[]): number {
-  return permissions.length - countPassedPermissions(permissions);
+function renderPermissionCoverage(permissions: readonly DebugPermissionResult[]): string {
+  const passed = countPassedPermissions(permissions);
+  const failed = permissions.length - passed;
+  return `${passed}/${permissions.length} covered (${failed} missing)`;
 }
 
 function formatBooleanDiagnostic(value: boolean | 'Unknown'): string {
@@ -550,6 +576,19 @@ async function countWebhooks(
   }
 }
 
+function renderWebhookDiagnostics(view: DebugView): string {
+  if (view.webhookCount === 'Unavailable') {
+    return 'Unavailable (needs View Channel + Manage Webhooks)';
+  }
+
+  return `${view.webhookCount} available`;
+}
+
+function renderWebhookCoverageSummary(webhookCount: number | 'Unavailable'): string {
+  if (webhookCount === 'Unavailable') return 'unavailable';
+  return `${webhookCount} available`;
+}
+
 function renderClanRow(row: DebugClanRow): string {
   const healthy = row.active && row.warLog === 'Public';
   return `${healthy ? '☑️' : '❌'} \`‎${truncate(row.name, 15).padEnd(15, ' ')} ${formatElapsed(
@@ -560,6 +599,24 @@ function renderClanRow(row: DebugClanRow): string {
 function formatElapsed(value: Date | null): string {
   if (!value) return '...';
   return formatDurationMs(Date.now() - value.getTime());
+}
+
+function renderFreshnessSummary(clans: readonly DebugClanRow[]): string {
+  if (clans.length === 0) return 'none';
+
+  const counts = { fresh: 0, stale: 0, unknown: 0 };
+  for (const clan of clans) {
+    if (!clan.lastSync) {
+      counts.unknown += 1;
+      continue;
+    }
+
+    const ageMs = Date.now() - clan.lastSync.getTime();
+    if (ageMs <= 15 * 60_000) counts.fresh += 1;
+    else counts.stale += 1;
+  }
+
+  return `${counts.fresh} fresh, ${counts.stale} stale, ${counts.unknown} unknown`;
 }
 
 export function formatDurationMs(value: number | undefined): string {
