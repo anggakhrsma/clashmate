@@ -559,6 +559,7 @@ export interface WarAttackHistoryReader {
     clanTags?: readonly string[];
     attackerTags?: readonly string[];
     since?: Date;
+    until?: Date;
   }) => Promise<WarAttackHistoryListRow[]>;
   listWarDefenseHistoryForGuild: (input: {
     guildId: string;
@@ -567,6 +568,7 @@ export interface WarAttackHistoryReader {
     stars?: WarAttackHistoryStarsFilter | null;
     attempt?: WarAttackHistoryAttemptFilter | null;
     since?: Date;
+    until?: Date;
   }) => Promise<WarDefenseHistoryListRow[]>;
 }
 
@@ -4028,7 +4030,7 @@ export function createWarAttackHistoryReader(database: Database): WarAttackHisto
         eq(schema.warAttackEvents.guildId, input.guildId),
         eq(schema.trackedClans.guildId, input.guildId),
         eq(schema.trackedClans.isActive, true),
-        gte(schema.warAttackEvents.detectedAt, since),
+        gte(schema.warAttackEvents.occurredAt, since),
       ];
 
       if (input.clanTags?.length) {
@@ -4036,6 +4038,9 @@ export function createWarAttackHistoryReader(database: Database): WarAttackHisto
       }
       if (input.attackerTags?.length) {
         filters.push(inArray(schema.warAttackEvents.attackerTag, [...input.attackerTags]));
+      }
+      if (input.until) {
+        filters.push(lte(schema.warAttackEvents.occurredAt, input.until));
       }
 
       const rows = await database
@@ -4088,7 +4093,7 @@ export function createWarAttackHistoryReader(database: Database): WarAttackHisto
         eq(schema.warAttackEvents.guildId, input.guildId),
         eq(schema.trackedClans.guildId, input.guildId),
         eq(schema.trackedClans.isActive, true),
-        gte(schema.warAttackEvents.detectedAt, since),
+        gte(schema.warAttackEvents.occurredAt, since),
       ];
 
       if (input.clanTags?.length) {
@@ -4096,6 +4101,9 @@ export function createWarAttackHistoryReader(database: Database): WarAttackHisto
       }
       if (input.defenderTags?.length) {
         filters.push(inArray(schema.warAttackEvents.defenderTag, [...input.defenderTags]));
+      }
+      if (input.until) {
+        filters.push(lte(schema.warAttackEvents.occurredAt, input.until));
       }
       if (input.stars === '==3') filters.push(eq(schema.warAttackEvents.stars, 3));
       if (input.stars === '==2') filters.push(eq(schema.warAttackEvents.stars, 2));

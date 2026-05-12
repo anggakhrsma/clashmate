@@ -104,6 +104,8 @@ export interface CwlStore {
     guildId: string;
     clanTags?: readonly string[];
     attackerTags?: readonly string[];
+    since?: Date;
+    until?: Date;
   }) => Promise<CwlWarAttackHistoryRow[]>;
 }
 
@@ -201,6 +203,8 @@ async function executeCwl(
   const playerTags = user
     ? await options.store.getLinkedPlayerTags(interaction.guildId, user.id)
     : [];
+  const season = interaction.options.getString('season');
+  const seasonRange = getCwlSeasonRange(season);
   if (user && playerTags.length === 0) {
     await interaction.editReply(
       'No linked player tags were found for that user. Use `/link create` to link a Clash account first; `/cwl` can only filter users through linked Clash accounts.',
@@ -213,6 +217,7 @@ async function executeCwl(
       guildId: interaction.guildId,
       ...(clan ? { clanTags: [clan.clanTag] } : {}),
       ...(playerTags.length > 0 ? { attackerTags: playerTags } : {}),
+      ...(seasonRange ? { since: seasonRange.start, until: seasonRange.end } : {}),
     });
     const ranked = rankCwlAttackRows(rows);
     if (ranked.length === 0) {
@@ -220,7 +225,7 @@ async function executeCwl(
         noDataMessage('war attack history', {
           clan,
           user,
-          season: interaction.options.getString('season'),
+          season,
           linkedPlayerTagCount: playerTags.length,
           linkedClanCount: clans.length,
         }),
@@ -232,7 +237,7 @@ async function executeCwl(
         buildCwlHistoryEmbed(subcommand, ranked, {
           clan,
           user,
-          season: interaction.options.getString('season'),
+          season,
           linkedPlayerTagCount: playerTags.length,
           linkedClanCount: clans.length,
         }),
@@ -246,12 +251,9 @@ async function executeCwl(
         (value): value is CwlWarSnapshotRecord => Boolean(value),
       )
     : await options.store.getLatestWarSnapshotsForGuild(interaction.guildId);
-  const snapshotContext = buildSnapshotSourceContext(
-    snapshots,
-    interaction.options.getString('season'),
-    clans.length,
-  );
-  const entries = snapshots
+  const seasonalSnapshots = filterCwlSnapshotsBySeason(snapshots, season);
+  const snapshotContext = buildSnapshotSourceContext(seasonalSnapshots, season, clans.length);
+  const entries = seasonalSnapshots
     .map((snapshot) => ({ snapshot, war: extractCwlWarData(snapshot.snapshot) }))
     .filter((entry): entry is CwlEntry => Boolean(entry.war))
     .filter((entry) => playerTags.length === 0 || warIncludesPlayer(entry.war, playerTags));
@@ -262,7 +264,7 @@ async function executeCwl(
       noDataMessage('war snapshots', {
         clan,
         user,
-        season: interaction.options.getString('season'),
+        season,
         linkedPlayerTagCount: playerTags.length,
         linkedClanCount: clans.length,
         snapshotContext: resolvedSnapshotContext,
@@ -278,7 +280,7 @@ async function executeCwl(
         {
           clan,
           user,
-          season: interaction.options.getString('season'),
+          season,
           linkedPlayerTagCount: playerTags.length,
           linkedClanCount: clans.length,
         },
@@ -407,7 +409,7 @@ export function buildCwlHistoryEmbed(
           latestAttack ? `latest event ${formatFreshness(latestAttack)}` : '',
           filters ? `filters accepted: ${filters}` : 'filters resolved to all linked clans',
           input.season
-            ? 'season is display/filter context only; rows come from currently retained attack history'
+            ? 'season filter uses the selected UTC month against stored attack event times'
             : 'currently retained attack history only',
           'Exact CWL-only filtering may be approximate; classification and season filtering use persisted war data',
           'no live Clash API lookup, no on-demand polling, and no polling enrollment changes',
@@ -427,7 +429,7 @@ export function buildCwlHistoryEmbed(
   if (input.season)
     embed.addFields({
       name: 'Season filter',
-      value: `${formatSeasonLabel(input.season)} — display/filter label only until persisted CWL season metadata is available.`,
+      value: `${formatSeasonLabel(input.season)} — filters stored attack events and snapshots by the selected UTC month; CWL-only classification remains approximate until round metadata is persisted.`,
       inline: false,
     });
   if (input.user)
@@ -558,6 +560,42 @@ function chooseCwlEntry(entries: readonly CwlEntry[]): CwlEntry | null {
     null
   );
 }
+
+function filterCwlSnapshotsBySeason(
+  snapshots: readonly CwlWarSnapshotRecord[],
+  season: string | null,
+): CwlWarSnapshotRecord[] {
+  const range = getCwlSeasonRange(season);
+  if (!range) return [...snapshots];
+
+  return snapshots.filter((snapshot) => {
+    const war = extractCwlWarData(snapshot.snapshot);
+    const timestamp = readWarSeasonTimestamp(war, snapshot.fetchedAt);
+    return timestamp >= range.start && timestamp <= range.end;
+  });
+}
+
+function readWarSeasonTimestamp(war: WarData | null, fallback: Date): Date {
+  const value = war?.endTime ?? war?.startTime;
+  if (!value) return fallback;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? fallback : date;
+}
+
+function getCwlSeasonRange(
+  season: string | null,
+): { readonly start: Date; readonly end: Date } | null {
+  const match = /^(\d{4})-(\d{2})$/.exec(season?.trim() ?? '');
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) return null;
+
+  const start = new Date(Date.UTC(year, month - 1, 1));
+  const end = new Date(Date.UTC(year, month, 1));
+  end.setUTCMilliseconds(end.getUTCMilliseconds() - 1);
+  return { start, end };
+}
 function choosePerspectiveClan(war: WarData, clanTag: string): WarClan | undefined {
   const tag = clanTag.toUpperCase();
   return war.clan?.tag?.toUpperCase() === tag
@@ -602,7 +640,7 @@ function noDataMessage(
     : ` ${linkedClanSummary}; scanned 0 stored attack summary rows for this filter; showing 0 rows (display limit ${MAX_ROWS}).`;
   return [
     `No CWL ${source} data is available for the accepted filters${filters ? ` (${filters})` : ''}.`,
-    `${coverage}${season} Persisted-only: no live Clash API lookup, no on-demand polling, and no polling enrollment changes were used. CWL-only classification and season filtering are approximate until persisted CWL round metadata is available.`,
+    `${coverage}${season} Persisted-only: no live Clash API lookup, no on-demand polling, and no polling enrollment changes were used. Season filters use stored UTC event/snapshot times; CWL-only classification remains approximate until persisted CWL round metadata is available.`,
     'Link the clan, wait for existing scheduled war polling to retain a current snapshot/history, or try a broader clan/user/season filter.',
   ].join(' ');
 }
@@ -646,7 +684,7 @@ function buildSnapshotSourceField(
     `state ${formatState(entry.war.state ?? entry.snapshot.state)}`,
     ...formatRoundContext(entry.snapshot, entry.war),
     context.season
-      ? 'season is display/filter context; current snapshot selection still uses persisted latest snapshots'
+      ? 'season filter uses stored war start/end timestamps when available'
       : 'current latest snapshot data only',
     'CWL-only classification/season filtering is approximate from persisted war data',
     'no live Clash API lookup, no on-demand polling, and no polling enrollment changes',
