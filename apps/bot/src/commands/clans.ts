@@ -203,18 +203,7 @@ export function buildClansPayload(input: {
     : [...input.clans];
 
   if (hasCategoryFilter && clans.length === 0) {
-    return {
-      content: [
-        `No clans found for category ${filteredCategory?.displayName ?? input.categoryId}.`,
-        ...buildClansDiagnosticLines({
-          categories: input.categories,
-          clans: input.clans,
-          shownClans: clans,
-          categoryFilterLabel: filteredCategory?.displayName ?? 'not resolved',
-          isTruncated: false,
-        }),
-      ].join('\n'),
-    };
+    return { content: 'No clans found for the specified category.' };
   }
 
   const description = formatClanGroups(groupClansByCategory(clans, input.categories));
