@@ -212,7 +212,7 @@ async function executeLineup(
   const clan = clanOption ? resolveLineupClan(clanOption, linkedClans) : null;
   if (clanOption && !clan) {
     await interaction.editReply(
-      `No linked clan matched ${formatCode(clanOption.trim())}. This server has ${linkedClans.length} linked clan${linkedClans.length === 1 ? '' : 's'} available to ${formatCode('/lineup')}. The command only reads persisted snapshots for linked clans and does not perform a live Clash API lookup.`,
+      `No linked clan matched ${formatCode(clanOption.trim())}. This server has ${formatCount(linkedClans.length)} linked clan${linkedClans.length === 1 ? '' : 's'} available to ${formatCode('/lineup')}. The command only reads persisted snapshots for linked clans and does not perform a live Clash API lookup.`,
     );
     return;
   }
@@ -222,7 +222,7 @@ async function executeLineup(
     : [];
   if (user && playerTags.length === 0) {
     await interaction.editReply(
-      `No linked player tags were found for ${user.toString()}. ${formatCode('/lineup user:')} only filters persisted war snapshots by already linked player tags; use ${formatCode('/link create')} to link a Clash account first.`,
+      `No linked player tags were found for ${user.toString()}. ${formatCode('/lineup user:')} only filters persisted war snapshots by already linked player tags; use ${formatCode('/link create')} to link a Clash account first. User filter resolution: 0 linked tags, so no snapshot rows can match.`,
     );
     return;
   }
@@ -230,7 +230,7 @@ async function executeLineup(
   const snapshots = await loadLineupSnapshots(interaction.guildId, options.store, clan);
   if (snapshots.length === 0) {
     await interaction.editReply(
-      `No persisted current-war snapshot is available${clan ? ` for ${formatTrackedClanName(clan)}` : ' for this server'}. Link/configure a clan with ${formatCode('/setup clan')} and wait for the war poller to store a current-war snapshot; ${formatCode('/lineup')} does not perform a live Clash API lookup or refresh.`,
+      `No persisted current-war snapshot is available${clan ? ` for ${formatTrackedClanName(clan)}` : ' for this server'}. Linked clans available: ${formatCount(linkedClans.length)}. Link/configure a clan with ${formatCode('/setup clan')} and wait for the war poller to store a current-war snapshot; ${formatCode('/lineup')} does not perform a live Clash API lookup or refresh.`,
     );
     return;
   }
@@ -244,7 +244,7 @@ async function executeLineup(
 
   if (user && entries.length === 0) {
     await interaction.editReply(
-      `No readable persisted current-war snapshot includes linked player tags for ${user.toString()}${clan ? ` in ${formatTrackedClanName(clan)}` : ''}. Considered ${snapshots.length} persisted snapshot${snapshots.length === 1 ? '' : 's'} (${parsedEntries.length} readable) and ${playerTags.length} linked player tag${playerTags.length === 1 ? '' : 's'}. User filtering checks this server's linked player tags against stored war members only and does not refresh data live.`,
+      `No readable persisted current-war snapshot includes linked player tags for ${user.toString()}${clan ? ` in ${formatTrackedClanName(clan)}` : ''}. Considered ${formatCount(snapshots.length)} persisted snapshot${snapshots.length === 1 ? '' : 's'} (${formatCount(parsedEntries.length)} readable) and ${formatCount(playerTags.length)} linked player tag${playerTags.length === 1 ? '' : 's'}. User filter resolution: stored war members did not match any linked player tag, so no rows are visible.`,
     );
     return;
   }
@@ -252,7 +252,7 @@ async function executeLineup(
   const entry = chooseLineupEntry(entries);
   if (!entry) {
     await interaction.editReply(
-      `No readable persisted current-war snapshot is available${clan ? ` for ${formatTrackedClanName(clan)}` : ' for this server'} yet. Please try again after the next war poll; no live Clash API lookup or refresh is performed.`,
+      `No readable persisted current-war snapshot is available${clan ? ` for ${formatTrackedClanName(clan)}` : ' for this server'} yet. Linked clans available: ${formatCount(linkedClans.length)}. Please try again after the next war poll; no live Clash API lookup or refresh is performed.`,
     );
     return;
   }
@@ -267,7 +267,7 @@ async function executeLineup(
     rows.length === 0
   ) {
     await interaction.editReply(
-      `No member lineup is available in the latest persisted current-war snapshot${clan ? ` for ${formatTrackedClanName(clan)}` : ''}. War state: ${formatWarState(normalizeWarState(entry.war.state ?? entry.snapshot.state))}. Make sure war polling is enabled for a linked clan and wait for the next poll if war just started.`,
+      `No member lineup is available in the latest persisted current-war snapshot${clan ? ` for ${formatTrackedClanName(clan)}` : ''}. War state: ${formatWarState(normalizeWarState(entry.war.state ?? entry.snapshot.state))}. Linked clans available: ${formatCount(linkedClans.length)}. Make sure war polling is enabled for a linked clan and wait for the next poll if war just started.`,
     );
     return;
   }
@@ -489,9 +489,10 @@ export function buildLineupEmbed(
     '',
     '**Source**',
     `Persisted current-war snapshot for ${formatCode(trackedTag)} fetched ${formatDiscordTimestamp(entry.snapshot.fetchedAt)} (${formatSnapshotFreshness(entry.snapshot.fetchedAt)}).`,
-    `Linked clans in this server: ${context?.linkedClanCount ?? 'unknown'}. Snapshots are produced by the war poller for linked/configured clans.`,
+    'Snapshot freshness is derived from the stored fetch time only; no live refresh is performed.',
+    `Linked clans in this server: ${formatCount(context?.linkedClanCount ?? 0)}. Snapshots are produced by the war poller for linked/configured clans.`,
     'Persisted-only: no live Clash API lookup, manual refresh, or polling enrollment is performed by `/lineup`.',
-    `Snapshots considered: ${context?.snapshotsConsidered ?? 1}; readable: ${context?.readableSnapshots ?? 1}.`,
+    `Snapshots considered: ${formatCount(context?.snapshotsConsidered ?? 1)}; readable: ${formatCount(context?.readableSnapshots ?? 1)}.`,
     '',
     '**War State**',
     formatWarState(warState),
@@ -503,12 +504,12 @@ export function buildLineupEmbed(
       'User filter resolution: skipped; no Discord user filter was supplied.',
     '',
     '**Coverage**',
-    `Member rows considered: ${rowsConsidered}. Visible: ${rowsVisible}.`,
-    `Readable lineup pairs: ${pairedRows}/${rowsConsidered}; missing sides are shown as ${formatCode('—')}.`,
+    `Member rows considered: ${formatCount(rowsConsidered)}. Visible: ${formatCount(rowsVisible)}.`,
+    `Readable lineup pairs: ${formatCount(pairedRows)}/${formatCount(rowsConsidered)}; missing sides are shown as ${formatCode('—')}.`,
     rowsVisible < rowsConsidered
-      ? `Showing the first ${rowsVisible} map position${rowsVisible === 1 ? '' : 's'} to keep the Discord embed concise.`
+      ? `Showing the first ${formatCount(rowsVisible)} map position${rowsVisible === 1 ? '' : 's'} to keep the Discord embed concise.`
       : 'All available map positions are visible.',
-    'If this looks stale or empty, wait for the next war poll after linking/configuring the clan.',
+    'If this looks stale or empty, wait for the next war poll after linking/configuring the clan. If no rows appear, the stored snapshot may still be in preparation or not-in-war state.',
     '',
     '**Lineup**',
     ...rows.map(formatLineupRow),
@@ -544,6 +545,10 @@ function formatTrackedClanName(clan: LineupTrackedClan): string {
 
 function formatCode(value: string): string {
   return `\`${value.replaceAll('`', '')}\``;
+}
+
+function formatCount(value: number): string {
+  return new Intl.NumberFormat('en-US').format(value);
 }
 
 function formatDiscordTimestamp(date: Date): string {
