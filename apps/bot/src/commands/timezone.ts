@@ -43,8 +43,10 @@ export interface TimezoneView {
   localDateTime: string;
   gmtOffset: string;
   note: string;
+  previousTimezoneSummary: string;
   preferenceSaveStatus: string;
   preferenceSummary: string;
+  diagnosticSummary: string;
   botName: string;
   botAvatarUrl?: string;
   color?: ColorResolvable;
@@ -221,6 +223,11 @@ export async function executeTimezoneInteraction(
     return;
   }
 
+  const previousPreference = await options.store.getUserTimezonePreference(
+    interaction.guildId,
+    interaction.user.id,
+  );
+
   await options.store.setUserTimezonePreference({
     guildId: interaction.guildId,
     guildName: interaction.guild?.name ?? null,
@@ -230,7 +237,17 @@ export async function executeTimezoneInteraction(
   });
 
   await interaction.reply({
-    embeds: [buildTimezoneEmbed(collectTimezoneView(parsedTimezone, interaction, context))],
+    embeds: [
+      buildTimezoneEmbed(
+        collectTimezoneView(
+          parsedTimezone,
+          interaction,
+          context,
+          new Date(),
+          previousPreference?.timezone,
+        ),
+      ),
+    ],
     ephemeral: true,
   });
 }
@@ -240,6 +257,7 @@ export function collectTimezoneView(
   source: Pick<ChatInputCommandInteraction, 'guild'>,
   context: CommandContext,
   now = new Date(),
+  previousTimezone?: string | null,
 ): TimezoneView {
   const botAvatarUrl = context.client.user?.displayAvatarURL({ extension: 'png' });
   const timezoneView =
@@ -258,11 +276,18 @@ export function collectTimezoneView(
     localDateTime: formatLocalDateTime(timezoneView.timezone, now),
     gmtOffset: formatGmtOffset(timezoneView.timezone, now),
     note: TIMEZONE_FIRST_PASS_NOTE,
+    previousTimezoneSummary: formatPreviousTimezoneSummary(previousTimezone, timezoneView.timezone),
     preferenceSaveStatus: 'Saved successfully for this Discord server.',
     preferenceSummary: [
       `Canonical timezone: \`${timezoneView.timezone}\``,
-      'Scope: this Discord server only.',
+      'Target user: your Discord account in this server.',
+      'Scope: persisted for this Discord server only; other servers can keep different values.',
       'Persistence: saved in guild settings and audit logged as a timezone preference update.',
+    ].join('\n'),
+    diagnosticSummary: [
+      'Validation: stored values are canonical IANA timezones; choose autocomplete suggestions when unsure.',
+      'Autocomplete: suggests supported IANA zones and common city aliases, then saves the canonical zone.',
+      'Data source: uses the saved preference only; no live Clash API calls, polling, or tracking enrollment.',
     ].join('\n'),
     botName: context.client.user?.displayName ?? context.client.user?.username ?? 'ClashMate',
     ...(botAvatarUrl ? { botAvatarUrl } : {}),
@@ -282,6 +307,7 @@ export function buildTimezoneEmbed(view: TimezoneView): EmbedBuilder {
     )
     .addFields(
       { name: 'Saved server preference', value: view.preferenceSummary, inline: false },
+      { name: 'Previous value', value: view.previousTimezoneSummary, inline: false },
       { name: 'Preference save status', value: view.preferenceSaveStatus, inline: false },
       {
         name: 'Accepted input',
@@ -296,7 +322,18 @@ export function buildTimezoneEmbed(view: TimezoneView): EmbedBuilder {
         value: 'Events, reminders, and other server-aware ClashMate timestamps for you.',
         inline: false,
       },
+      { name: 'Diagnostics', value: view.diagnosticSummary, inline: false },
     );
+}
+
+function formatPreviousTimezoneSummary(
+  previousTimezone: string | null | undefined,
+  timezone: string,
+): string {
+  if (!previousTimezone) return 'No saved timezone was found before this update.';
+  if (previousTimezone === timezone)
+    return `Already saved as \`${timezone}\`; refreshed this value.`;
+  return `Changed from \`${previousTimezone}\` to \`${timezone}\`.`;
 }
 
 export function parseTimezoneInput(timezone: string): ParsedTimezoneInput | null {
