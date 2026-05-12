@@ -45,6 +45,7 @@ export interface EventsView {
   note: string;
   timezone?: string;
   timezoneSource: 'option' | 'preference' | 'utc';
+  timezoneFallbackReason?: EventsTimezoneFallbackReason;
 }
 
 export interface EventsCommandOptions {
@@ -126,6 +127,7 @@ export function collectEventsView(
     note: formatEventsNote(timezone),
     ...(timezone.timezone ? { timezone: timezone.timezone } : {}),
     timezoneSource: timezone.source,
+    ...(timezone.fallbackReason ? { timezoneFallbackReason: timezone.fallbackReason } : {}),
   };
 }
 
@@ -143,6 +145,7 @@ export function buildEventsEmbed(view: EventsView): EmbedBuilder {
     .setTimestamp(view.generatedAt);
 
   if (view.events.length === 0) {
+    embed.addFields(...buildEventsDiagnosticFields(view));
     embed.addFields({
       name: 'No events found',
       value:
@@ -152,6 +155,7 @@ export function buildEventsEmbed(view: EventsView): EmbedBuilder {
     return embed;
   }
 
+  embed.addFields(...buildEventsDiagnosticFields(view));
   embed.addFields(
     view.events.map((event, index, events) => ({
       name: event.name,
@@ -166,7 +170,14 @@ export function buildEventsEmbed(view: EventsView): EmbedBuilder {
 interface EventsResolvedTimezone {
   readonly timezone?: string;
   readonly source: 'option' | 'preference' | 'utc';
+  readonly fallbackReason?: EventsTimezoneFallbackReason;
 }
+
+type EventsTimezoneFallbackReason =
+  | 'dm'
+  | 'missing-preference'
+  | 'invalid-preference'
+  | 'read-failed';
 
 async function resolveEventsTimezone(input: {
   readonly guildId: string | null;
@@ -175,7 +186,8 @@ async function resolveEventsTimezone(input: {
   readonly preferences?: Pick<DatabaseUserTimezonePreferenceStore, 'getUserTimezonePreference'>;
 }): Promise<EventsResolvedTimezone> {
   if (input.timezoneOption) return { timezone: input.timezoneOption, source: 'option' };
-  if (!input.guildId || !input.preferences) return { source: 'utc' };
+  if (!input.guildId) return { source: 'utc', fallbackReason: 'dm' };
+  if (!input.preferences) return { source: 'utc', fallbackReason: 'missing-preference' };
 
   try {
     const preference = await input.preferences.getUserTimezonePreference(
@@ -184,10 +196,11 @@ async function resolveEventsTimezone(input: {
     );
     const timezone = preference?.timezone.trim();
     const canonicalTimezone = timezone ? canonicalizeTimeZone(timezone) : null;
-    if (!canonicalTimezone) return { source: 'utc' };
+    if (!timezone) return { source: 'utc', fallbackReason: 'missing-preference' };
+    if (!canonicalTimezone) return { source: 'utc', fallbackReason: 'invalid-preference' };
     return { timezone: canonicalTimezone, source: 'preference' };
   } catch {
-    return { source: 'utc' };
+    return { source: 'utc', fallbackReason: 'read-failed' };
   }
 }
 
@@ -287,6 +300,57 @@ function nextSeasonReset(now: Date): EventCalendarItem {
   };
 }
 
+function buildEventsDiagnosticFields(
+  view: EventsView,
+): { name: string; value: string; inline: boolean }[] {
+  const activeCount = view.events.filter((event) => event.status === 'Ends').length;
+  const upcomingCount = view.events.length - activeCount;
+  const nextTransition = view.events[0];
+
+  return [
+    {
+      name: 'Diagnostics',
+      value: [
+        `Generated: ${formatEventTimestamp(view.generatedAt, view.timezone)}`,
+        `Timezone: ${formatTimezoneDiagnostic(view)}`,
+        `Events: ${activeCount} active, ${upcomingCount} upcoming`,
+        `Next transition: ${nextTransition ? formatNextTransition(nextTransition, view.timezone) : 'none'}`,
+        'Schedule: static estimates only; no live Supercell event feed was queried.',
+      ].join('\n'),
+      inline: false,
+    },
+  ];
+}
+
+function formatNextTransition(event: EventCalendarItem, timezone: string | undefined): string {
+  return `${event.name} ${event.status.toLowerCase()} ${formatEventTimestamp(event.startsAt, timezone)}`;
+}
+
+function formatTimezoneDiagnostic(view: EventsView): string {
+  if (view.timezone) {
+    const source = view.timezoneSource === 'option' ? 'option' : 'saved preference';
+    return `${view.timezone} (${source})`;
+  }
+
+  const reason = view.timezoneFallbackReason
+    ? `; ${formatTimezoneFallbackReason(view.timezoneFallbackReason)}`
+    : '';
+  return `UTC (fallback${reason})`;
+}
+
+function formatTimezoneFallbackReason(reason: EventsTimezoneFallbackReason): string {
+  switch (reason) {
+    case 'dm':
+      return 'server preferences are unavailable in DMs';
+    case 'missing-preference':
+      return 'no saved /timezone preference';
+    case 'invalid-preference':
+      return 'saved /timezone preference is invalid';
+    case 'read-failed':
+      return 'saved /timezone preference could not be read';
+  }
+}
+
 function formatCalendarItem(event: EventCalendarItem, timezone: string | undefined): string {
   const range = event.endsAt
     ? `${formatEventTimestamp(event.startsAt, timezone)} → ${formatEventTimestamp(event.endsAt, timezone)}`
@@ -302,12 +366,27 @@ function formatEventTimestamp(date: Date, timezone: string | undefined): string 
 
 function formatEventsNote(timezone: EventsResolvedTimezone): string {
   if (!timezone.timezone)
-    return `${EVENTS_FIRST_PASS_NOTE}\n${EVENTS_SCHEDULE_SOURCE}\nTimes use Discord timestamps and fall back to UTC because no timezone option or saved /timezone preference was available.`;
+    return `${EVENTS_FIRST_PASS_NOTE}\n${EVENTS_SCHEDULE_SOURCE}\nTimes use Discord timestamps and fall back to UTC${formatTimezoneFallbackNote(timezone.fallbackReason)}.`;
   const source =
     timezone.source === 'option'
       ? 'the timezone option for this response'
       : 'your saved /timezone preference';
   return `${EVENTS_FIRST_PASS_NOTE}\n${EVENTS_SCHEDULE_SOURCE}\nLocal times use ${source} (${timezone.timezone}); Discord timestamps still render in each viewer's locale.`;
+}
+
+function formatTimezoneFallbackNote(reason: EventsTimezoneFallbackReason | undefined): string {
+  switch (reason) {
+    case 'dm':
+      return ' because server timezone preferences are unavailable in DMs';
+    case 'missing-preference':
+      return ' because no timezone option or saved /timezone preference was available';
+    case 'invalid-preference':
+      return ' because the saved /timezone preference is invalid';
+    case 'read-failed':
+      return ' because the saved /timezone preference could not be read';
+    default:
+      return '';
+  }
 }
 
 function formatFooterDateTime(
