@@ -213,8 +213,8 @@ export function filterCommandChoices(
   commandNames: readonly string[],
   query: string,
 ): ApplicationCommandOptionChoiceData<string>[] {
-  const normalized = query.trim().toLowerCase().replace(/^\//, '');
-  return commandNames
+  const normalized = normalizeCommandName(query) ?? '';
+  return normalizedLoadedCommandNames(commandNames)
     .filter((name) => !normalized || name.includes(normalized))
     .slice(0, 25)
     .map((name) => ({ name: `/${name}`, value: name }));
@@ -277,7 +277,7 @@ function formatMention(id: string, isRole: boolean): string {
 }
 
 function isLoadedCommandName(commandName: string, loadedCommandNames: readonly string[]): boolean {
-  return loadedCommandNames.some((name) => normalizeCommandName(name) === commandName);
+  return normalizedLoadedCommandNames(loadedCommandNames).includes(commandName);
 }
 
 export function formatUnknownCommandFeedback(
@@ -296,14 +296,22 @@ export function findClosestCommandNames(
   loadedCommandNames: readonly string[],
 ): string[] {
   const normalized = commandName.trim().toLowerCase().replace(/^\//, '');
-  return loadedCommandNames
-    .map((name) => normalizeCommandName(name))
-    .filter((name): name is string => Boolean(name))
+  return normalizedLoadedCommandNames(loadedCommandNames)
     .map((name) => ({ name, score: commandSuggestionScore(normalized, name) }))
     .filter((candidate) => candidate.score < Number.POSITIVE_INFINITY)
     .sort((a, b) => a.score - b.score || a.name.localeCompare(b.name))
     .slice(0, 5)
     .map((candidate) => candidate.name);
+}
+
+function normalizedLoadedCommandNames(commandNames: readonly string[]): string[] {
+  return [...new Set(commandNames.map((name) => normalizeCommandName(name)).filter(isString))].sort(
+    (left, right) => left.localeCompare(right),
+  );
+}
+
+function isString(value: string | undefined): value is string {
+  return typeof value === 'string';
 }
 
 function commandSuggestionScore(query: string, commandName: string): number {
