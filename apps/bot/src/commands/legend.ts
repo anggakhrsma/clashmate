@@ -315,6 +315,7 @@ export function buildLegendLeaderboardEmbed(
   clanFilter?: LegendLinkedClan | undefined,
 ): EmbedBuilder {
   const snapshotCoverage = summarizeLegendSnapshotCoverage(snapshots);
+  const freshnessNote = formatLegendSnapshotFreshnessDetail(snapshotCoverage.latestFetchedAt);
   const rows = collectLegendRows(snapshots)
     .filter(
       (row) => row.member.trophies !== null && row.member.trophies >= NEAR_LEGEND_TROPHY_FLOOR,
@@ -338,8 +339,14 @@ export function buildLegendLeaderboardEmbed(
   });
 
   embed.addFields({
-    name: 'Snapshot coverage',
+    name: 'Linked-clan coverage',
     value: formatLegendSnapshotCoverage(snapshotCoverage),
+    inline: false,
+  });
+
+  embed.addFields({
+    name: 'Snapshot freshness',
+    value: freshnessNote,
     inline: false,
   });
 
@@ -357,8 +364,15 @@ export function buildLegendLeaderboardEmbed(
     });
 
   embed.addFields({
-    name: 'Unavailable history',
-    value: LEGEND_HISTORY_UNAVAILABLE_NOTE,
+    name: 'Selected coverage',
+    value:
+      'Leaderboard output is limited to current linked-clan member snapshots that are at or near Legend League; live leaderboard, season history, and auto-updating views are unavailable.',
+    inline: false,
+  });
+
+  embed.addFields({
+    name: 'No live feed',
+    value: LEGEND_NO_LIVE_SOURCE_NOTE,
     inline: false,
   });
 
@@ -403,6 +417,7 @@ export function buildLegendStatsEmbed(
   referenceDate: LegendReferenceDateSelection = { raw: null, parsed: null },
 ): EmbedBuilder {
   const snapshotCoverage = summarizeLegendSnapshotCoverage(snapshots);
+  const freshnessNote = formatLegendSnapshotFreshnessDetail(snapshotCoverage.latestFetchedAt);
   const rows = collectLegendRows(snapshots).filter((row) => row.member.trophies !== null);
   const legendCount = rows.filter(
     (row) => (row.member.trophies ?? 0) >= LEGEND_TROPHY_FLOOR,
@@ -426,20 +441,33 @@ export function buildLegendStatsEmbed(
   });
 
   embed.addFields({
+    name: 'Linked-clan coverage',
+    value: formatLegendSnapshotCoverage(snapshotCoverage),
+    inline: false,
+  });
+
+  embed.addFields({
+    name: 'Snapshot freshness',
+    value: freshnessNote,
+    inline: false,
+  });
+
+  embed.addFields({
     name: 'Reference date',
     value: formatLegendReferenceDate(referenceDate),
     inline: false,
   });
 
   embed.addFields({
-    name: 'Unavailable history',
-    value: LEGEND_HISTORY_UNAVAILABLE_NOTE,
+    name: 'Selected coverage',
+    value:
+      'Stats are limited to persisted current snapshots: trophy counts, legend thresholds, league labels, and freshness can be summarized, but day-by-day or end-of-season history is unavailable.',
     inline: false,
   });
 
   embed.addFields({
-    name: 'Snapshot coverage',
-    value: formatLegendSnapshotCoverage(snapshotCoverage),
+    name: 'No live feed',
+    value: LEGEND_NO_LIVE_SOURCE_NOTE,
     inline: false,
   });
 
@@ -492,6 +520,7 @@ export function buildLegendUnsupportedEmbed(
   filterContext: LegendUnsupportedFilterContext = {},
 ): EmbedBuilder {
   const filterLines = formatLegendUnsupportedFilterLines(filterContext);
+  const coverageLines = formatLegendUnsupportedCoverageLines(filterContext);
   const embed = new EmbedBuilder()
     .setTitle(title)
     .setDescription(
@@ -501,6 +530,12 @@ export function buildLegendUnsupportedEmbed(
   embed.addFields({
     name: 'Data source',
     value: `${LEGEND_SNAPSHOT_SOURCE_NOTE} Current snapshots are only used to resolve clan/player filters. ${LEGEND_NO_LIVE_SOURCE_NOTE}`,
+    inline: false,
+  });
+
+  embed.addFields({
+    name: 'Selected coverage',
+    value: coverageLines.join('\n'),
     inline: false,
   });
 
@@ -720,12 +755,50 @@ function formatLegendSnapshotCoverage(coverage: LegendSnapshotCoverage): string 
   return parts.join(' · ');
 }
 
+function formatLegendSnapshotFreshnessDetail(latestFetchedAt: Date | null): string {
+  if (!latestFetchedAt) return 'No persisted snapshots are available yet.';
+  return `Latest stored snapshot: ${formatLegendSnapshotFreshness(latestFetchedAt)}.`;
+}
+
 function formatLegendSnapshotFilterClarity(clanFilter?: LegendLinkedClan | undefined): string {
   if (!clanFilter) {
     return 'No clan filter provided; all currently linked clans with stored member snapshots for this server are considered.';
   }
 
   return `Clan filter: ${escapeMarkdown(labelForLegendClan(clanFilter))} (${clanFilter.clanTag}); only stored member snapshots for this linked clan are considered.`;
+}
+
+function formatLegendUnsupportedCoverageLines(
+  filterContext: LegendUnsupportedFilterContext,
+): string[] {
+  const lines: string[] = [];
+  if (filterContext.clan) {
+    lines.push(
+      `Clan filter resolved to ${escapeMarkdown(labelForLegendClan(filterContext.clan))} (${filterContext.clan.clanTag}).`,
+    );
+  } else {
+    lines.push('Clan filter: none resolved from stored snapshots.');
+  }
+
+  if (filterContext.player) {
+    lines.push(
+      `Player filter resolved to ${escapeMarkdown(filterContext.player.name)} (${filterContext.player.playerTag}) · ${escapeMarkdown(formatLegendLeague(filterContext.player))}.`,
+    );
+  } else {
+    lines.push('Player filter: none resolved from stored snapshots.');
+  }
+
+  if (filterContext.userMention) {
+    lines.push(
+      `User filter: ${filterContext.userMention}; no stored Legend history links Discord users to historical attacks or day totals.`,
+    );
+  }
+
+  if (filterContext.day !== null && filterContext.day !== undefined) {
+    lines.push(`Day filter: ${Math.trunc(filterContext.day).toLocaleString()} (parity-only).`);
+  }
+
+  return lines;
 }
 
 function formatLegendSnapshotFreshness(date: Date): string {
