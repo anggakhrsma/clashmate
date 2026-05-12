@@ -100,6 +100,7 @@ interface PollingOutcomeLeaseDetail {
   readonly durationMs?: number;
   readonly nextRunAt?: string;
   readonly errorMessage?: string;
+  readonly diagnostics?: Record<string, unknown>;
 }
 
 interface PollingOutcomeSummary {
@@ -110,10 +111,76 @@ interface PollingOutcomeSummary {
 
 const POLLING_OUTCOME_STATUSES: readonly PollingOutcomeStatus[] = ['processed', 'idle', 'failed'];
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function pickDefinedDiagnostics(
+  result: ProcessDuePollingLeaseResult,
+  fields: readonly string[],
+): Record<string, unknown> | undefined {
+  const source = result as unknown;
+  if (!isRecord(source)) return undefined;
+
+  const diagnostics = Object.fromEntries(
+    fields.flatMap((field) => (source[field] === undefined ? [] : [[field, source[field]]])),
+  );
+
+  return Object.keys(diagnostics).length > 0 ? diagnostics : undefined;
+}
+
+function createPollingOutcomeDiagnostics(
+  result: ProcessDuePollingLeaseResult,
+): Record<string, unknown> | undefined {
+  if (result.resourceType === 'clan') {
+    return pickDefinedDiagnostics(result, [
+      'clanTag',
+      'fetchedMemberCount',
+      'memberEventProcessingRan',
+      'memberEventSkipReason',
+      'joined',
+      'left',
+      'donationEvents',
+      'roleChangeEvents',
+    ]);
+  }
+
+  if (result.resourceType === 'player') {
+    return pickDefinedDiagnostics(result, [
+      'playerTag',
+      'clanTag',
+      'clanGamesConsidered',
+      'clanGamesSkipReason',
+      'clanGamesSeasonId',
+      'gamesChampionAchievementValue',
+      'clanGamesEventMaxPoints',
+      'clanGames',
+    ]);
+  }
+
+  return pickDefinedDiagnostics(result, [
+    'clanTag',
+    'state',
+    'warKey',
+    'attackEventsGenerated',
+    'attackEventsInserted',
+    'attackEventsSkipReason',
+    'stateEventsGenerated',
+    'stateEventsInserted',
+    'stateEventsSkipReason',
+    'missedAttackEventsGenerated',
+    'missedAttackEventsInserted',
+    'missedAttackEventsSkipReason',
+    'retentionRan',
+    'retentionSkipReason',
+  ]);
+}
+
 function createPollingOutcomeLeaseDetail(
   result: ProcessDuePollingLeaseResult,
 ): PollingOutcomeLeaseDetail | undefined {
   if (!result.resourceId) return undefined;
+  const diagnostics = createPollingOutcomeDiagnostics(result);
 
   return {
     resourceType: result.resourceType,
@@ -121,6 +188,7 @@ function createPollingOutcomeLeaseDetail(
     ...(result.durationMs !== undefined ? { durationMs: result.durationMs } : {}),
     ...(result.nextRunAt ? { nextRunAt: result.nextRunAt.toISOString() } : {}),
     ...(result.errorMessage ? { errorMessage: result.errorMessage } : {}),
+    ...(diagnostics ? { diagnostics } : {}),
   };
 }
 
