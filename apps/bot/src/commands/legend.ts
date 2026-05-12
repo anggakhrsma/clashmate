@@ -279,10 +279,17 @@ export async function executeLegend(
   }
 
   const clanOption = subcommand === 'leaderboard' ? interaction.options.getString('clans') : null;
-  const clanTag = await resolveLegendClanTag(interaction.guildId, clanOption, options.store);
+  const clan = await resolveLegendClan(interaction.guildId, clanOption, options.store);
+  if (clanOption && !clan) {
+    await interaction.editReply({
+      content:
+        'I could not resolve that clan from linked clans in this server. Pick a linked clan from autocomplete or use its exact tag, name, or alias.',
+    });
+    return;
+  }
   const snapshots = await options.store.listClanMemberSnapshotsForGuild({
     guildId: interaction.guildId,
-    ...(clanTag ? { clanTag } : {}),
+    ...(clan ? { clanTag: clan.clanTag } : {}),
   });
 
   if (subcommand === 'stats') {
@@ -296,13 +303,16 @@ export async function executeLegend(
     100,
   );
   const season = interaction.options.getString('season');
-  await interaction.editReply({ embeds: [buildLegendLeaderboardEmbed(snapshots, limit, season)] });
+  await interaction.editReply({
+    embeds: [buildLegendLeaderboardEmbed(snapshots, limit, season, clan)],
+  });
 }
 
 export function buildLegendLeaderboardEmbed(
   snapshots: readonly LegendClanSnapshots[],
   limit: number,
   season: string | null,
+  clanFilter?: LegendLinkedClan | undefined,
 ): EmbedBuilder {
   const snapshotCoverage = summarizeLegendSnapshotCoverage(snapshots);
   const rows = collectLegendRows(snapshots)
@@ -330,6 +340,12 @@ export function buildLegendLeaderboardEmbed(
   embed.addFields({
     name: 'Snapshot coverage',
     value: formatLegendSnapshotCoverage(snapshotCoverage),
+    inline: false,
+  });
+
+  embed.addFields({
+    name: 'Filter clarity',
+    value: formatLegendSnapshotFilterClarity(clanFilter),
     inline: false,
   });
 
@@ -578,23 +594,6 @@ function compareLegendPlayerChoiceRows(
   );
 }
 
-async function resolveLegendClanTag(
-  guildId: string,
-  clanOption: string | null,
-  store: LegendStore,
-): Promise<string | undefined> {
-  if (!clanOption) return undefined;
-  const clans = await store.listLinkedClans(guildId);
-  const normalizedOption = clanOption.trim().toLowerCase();
-  const normalizedTag = normalizeClashTag(clanOption);
-  return clans.find(
-    (clan) =>
-      clan.clanTag === normalizedTag ||
-      clan.alias?.toLowerCase() === normalizedOption ||
-      clan.name?.toLowerCase() === normalizedOption,
-  )?.clanTag;
-}
-
 async function resolveLegendClan(
   guildId: string,
   clanOption: string | null,
@@ -668,6 +667,7 @@ function countRowsWithStoredLeagueNames(
 }
 
 interface LegendSnapshotCoverage {
+  readonly clans: number;
   readonly total: number;
   readonly withTrophies: number;
   readonly legend: number;
@@ -694,11 +694,19 @@ function summarizeLegendSnapshotCoverage(
     if (trophies >= NEAR_LEGEND_TROPHY_FLOOR) nearLegend += 1;
   }
 
-  return { total: rows.length, withTrophies, legend, nearLegend, latestFetchedAt };
+  return {
+    clans: snapshots.length,
+    total: rows.length,
+    withTrophies,
+    legend,
+    nearLegend,
+    latestFetchedAt,
+  };
 }
 
 function formatLegendSnapshotCoverage(coverage: LegendSnapshotCoverage): string {
   const parts = [
+    `${coverage.clans.toLocaleString()} linked clan${coverage.clans === 1 ? '' : 's'} considered`,
     `${coverage.total.toLocaleString()} member snapshots`,
     `${coverage.withTrophies.toLocaleString()} with trophies`,
     `${coverage.legend.toLocaleString()} Legend (≥ 5,000)`,
@@ -710,6 +718,14 @@ function formatLegendSnapshotCoverage(coverage: LegendSnapshotCoverage): string 
   }
 
   return parts.join(' · ');
+}
+
+function formatLegendSnapshotFilterClarity(clanFilter?: LegendLinkedClan | undefined): string {
+  if (!clanFilter) {
+    return 'No clan filter provided; all currently linked clans with stored member snapshots for this server are considered.';
+  }
+
+  return `Clan filter: ${escapeMarkdown(labelForLegendClan(clanFilter))} (${clanFilter.clanTag}); only stored member snapshots for this linked clan are considered.`;
 }
 
 function formatLegendSnapshotFreshness(date: Date): string {
