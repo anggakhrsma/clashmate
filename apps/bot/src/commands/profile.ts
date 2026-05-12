@@ -144,23 +144,60 @@ export function filterProfilePlayerChoices(
   tags: readonly string[],
   query: string,
 ): ApplicationCommandOptionChoiceData<string>[] {
-  const normalizedQuery = query.trim().toUpperCase();
-  const queryWithoutHash = normalizedQuery.startsWith('#')
-    ? normalizedQuery.slice(1)
-    : normalizedQuery;
+  const normalizedQuery = normalizeAutocompleteQuery(query);
+  const queryWithoutHash = stripLeadingHash(normalizedQuery);
 
-  return tags
-    .filter((tag) => {
-      const normalizedTag = tag.toUpperCase();
-      const tagWithoutHash = normalizedTag.startsWith('#') ? normalizedTag.slice(1) : normalizedTag;
+  return dedupeProfilePlayerTags(tags)
+    .filter((choice) => {
+      const tagWithoutHash = stripLeadingHash(choice.normalizedTag);
       return (
-        normalizedTag.includes(normalizedQuery) ||
+        choice.normalizedTag.includes(normalizedQuery) ||
         tagWithoutHash.includes(queryWithoutHash) ||
         `#${tagWithoutHash}`.includes(normalizedQuery)
       );
     })
     .slice(0, 25)
-    .map((tag) => ({ name: tag, value: tag }));
+    .map((choice) => ({ name: choice.storedTag, value: choice.storedTag }));
+}
+
+function normalizeAutocompleteQuery(query: string): string {
+  return query.trim().toUpperCase();
+}
+
+function stripLeadingHash(value: string): string {
+  return value.startsWith('#') ? value.slice(1) : value;
+}
+
+function dedupeProfilePlayerTags(
+  tags: readonly string[],
+): Array<{ readonly normalizedTag: string; readonly storedTag: string }> {
+  const choices = tags.map((tag) => ({
+    normalizedTag: normalizeProfileChoiceTag(tag),
+    storedTag: tag,
+  }));
+  choices.sort((left, right) => {
+    const normalizedCompare = left.normalizedTag.localeCompare(right.normalizedTag);
+    if (normalizedCompare !== 0) return normalizedCompare;
+    return left.storedTag.localeCompare(right.storedTag);
+  });
+
+  const uniqueChoices: Array<{ readonly normalizedTag: string; readonly storedTag: string }> = [];
+  const seenTags = new Set<string>();
+  for (const choice of choices) {
+    if (seenTags.has(choice.normalizedTag)) continue;
+    seenTags.add(choice.normalizedTag);
+    uniqueChoices.push(choice);
+  }
+
+  return uniqueChoices;
+}
+
+function normalizeProfileChoiceTag(tag: string): string {
+  try {
+    return normalizeClashTag(tag);
+  } catch {
+    return tag.trim().toUpperCase().replace(/^#?/, '#');
+  }
 }
 
 export async function executeProfile(
