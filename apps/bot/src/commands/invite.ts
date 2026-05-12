@@ -39,7 +39,9 @@ export interface InviteView {
   botName: string;
   botAvatarUrl?: string;
   color?: ColorResolvable;
+  applicationId?: string;
   inviteUrl?: string;
+  visibleInGuild: boolean;
 }
 
 export function createInviteSlashCommand(): SlashCommandDefinition {
@@ -79,7 +81,9 @@ export function collectInviteView(
     botName: context.client.user?.displayName ?? context.client.user?.username ?? 'ClashMate',
     ...(botAvatarUrl ? { botAvatarUrl } : {}),
     color: source.guild?.members.me?.displayColor || DEFAULT_INVITE_EMBED_COLOR,
+    ...(applicationId ? { applicationId } : {}),
     ...(applicationId ? { inviteUrl: buildInviteUrl(applicationId) } : {}),
+    visibleInGuild: Boolean(source.guild),
   };
 }
 
@@ -91,13 +95,23 @@ export function buildInviteEmbed(view: InviteView): EmbedBuilder {
         `**[Add to Discord](${view.inviteUrl})**`,
         '',
         '**Scopes:** `bot`, `applications.commands`',
-        `**Requested permissions:** ${formatInvitePermissions()}`,
+        `**Application id:** ${view.applicationId ? `\`${view.applicationId}\`` : 'Unavailable'}`,
+        `**Visibility:** ${formatVisibility(view.visibleInGuild)}`,
+        `**Requested permissions:** ${formatInvitePermissionSummary()}`,
+        `**Permission categories:** ${formatInvitePermissionCategories()}`,
         '',
         `**Support Server:** ${CLASHMATE_SUPPORT_URL} | **Source Code:** ${CLASHMATE_SOURCE_URL}`,
         CLASHMATE_INVITE_NOTE,
       ]
     : [
         'I could not build an invite link because the bot application id is unavailable.',
+        'Use the support link below or verify the bot token/application configuration, then try `/invite` again.',
+        '',
+        '**Scopes:** `bot`, `applications.commands`',
+        '**Application id:** Unavailable',
+        `**Visibility:** ${formatVisibility(view.visibleInGuild)}`,
+        `**Requested permissions:** ${formatInvitePermissionSummary()}`,
+        `**Permission categories:** ${formatInvitePermissionCategories()}`,
         '',
         `**Support Server:** ${CLASHMATE_SUPPORT_URL} | **Source Code:** ${CLASHMATE_SOURCE_URL}`,
         CLASHMATE_INVITE_NOTE,
@@ -125,4 +139,18 @@ function formatInvitePermissions(): string {
   return INVITE_PERMISSIONS.toArray()
     .map((permission) => `\`${permission}\``)
     .join(', ');
+}
+
+function formatInvitePermissionSummary(): string {
+  return `${INVITE_PERMISSIONS.toArray().length} permissions (${formatInvitePermissions()})`;
+}
+
+function formatInvitePermissionCategories(): string {
+  return ['channel visibility', 'messaging', 'embeds/files', 'reactions', 'roles', 'webhooks']
+    .map((category) => `\`${category}\``)
+    .join(', ');
+}
+
+function formatVisibility(visibleInGuild: boolean): string {
+  return visibleInGuild ? 'Server command response (ephemeral)' : 'DM command response';
 }
