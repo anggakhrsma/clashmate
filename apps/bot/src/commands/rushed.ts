@@ -311,15 +311,24 @@ export function buildRushedClanEmbed(
         left.player.name.localeCompare(right.player.name),
     );
   const clanName = clan.alias ?? clan.name ?? 'Linked Clan';
+  const rowsShown = Math.min(rows.length, RUSHED_CLAN_ROW_LIMIT);
+  const coverageLine = `Snapshot coverage: ${snapshotMemberCount.toLocaleString('en-US')} stored members; considered ${players.length.toLocaleString('en-US')}/${analyzedCap.toLocaleString('en-US')} live lookups; rows shown ${rowsShown.toLocaleString('en-US')}/${rows.length.toLocaleString('en-US')}.`;
+  const lookupLimitLine =
+    snapshotMemberCount > RUSHED_CLAN_LOOKUP_LIMIT
+      ? `Lookup limit: only the first ${RUSHED_CLAN_LOOKUP_LIMIT.toLocaleString('en-US')} snapshot members are checked per run; ${skippedLookups.toLocaleString('en-US')} were not looked up.`
+      : 'Lookup limit: all stored snapshot members were eligible for this run.';
   return new EmbedBuilder()
     .setTitle(`Rushed Clan Summary: ${escapeMarkdown(clanName)} (${clan.clanTag})`)
     .setDescription(
       rows.length
-        ? rows
-            .slice(0, RUSHED_CLAN_ROW_LIMIT)
-            .map((row, index) => formatRushedClanRow(row, index))
-            .join('\n')
-        : `No incomplete units found in fetched member data. Analyzed ${players.length}/${analyzedCap} current members; skipped ${skippedLookups}; failed ${failedLookups}. ${RUSHED_NO_DATA_GUIDANCE}`,
+        ? [
+            coverageLine,
+            lookupLimitLine,
+            ...rows
+              .slice(0, RUSHED_CLAN_ROW_LIMIT)
+              .map((row, index) => formatRushedClanRow(row, index)),
+          ].join('\n')
+        : `No incomplete units found in fetched member data. ${coverageLine} ${lookupLimitLine} Failed lookups: ${failedLookups.toLocaleString('en-US')}. ${RUSHED_NO_DATA_GUIDANCE}`,
     )
     .setFooter({
       text: `Source: clan snapshot + current live player lookups; analyzed ${players.length}/${analyzedCap}; skipped ${skippedLookups}; failed ${failedLookups}; stored members ${snapshotMemberCount}; latest snapshot ${latestSnapshotLabel}. No polling enrollment or persisted rushed history.`,
@@ -453,6 +462,7 @@ export function buildRushedEmbed(
         [
           `Likely rushed or incomplete units${townHall ? ` for TH ${townHall}` : ''}${builderHall ? ` / BH ${builderHall}` : ''}.`,
           RUSHED_HEURISTIC_NOTE,
+          `Selected source: ${formatRushedPlayerSource(source)}; exactly one fetched player was considered.`,
           'This may include upgrades above the current hall level and should be treated as guidance, not a definitive rushed score.',
           `Incomplete: **${summary.incompleteUnits.toLocaleString('en-US')}/${summary.totalUnits.toLocaleString('en-US')}** units • **${incompletePercent}%** of API max levels remaining.`,
         ].join('\n'),
@@ -465,7 +475,7 @@ export function buildRushedEmbed(
   if (summary.incompleteUnits === 0) {
     embed.addFields({
       name: 'Rushed Units',
-      value: `No incomplete units found from API maxLevel values. Source: ${formatRushedPlayerSource(source)}; analyzed 1 player; failed 0. Current-only live lookup; no polling enrollment or persisted rushed history.`,
+      value: `No incomplete units found from API maxLevel values. Source: ${formatRushedPlayerSource(source)}; considered 1 lookup result; shown 0 rows; failed 0. ${RUSHED_NO_DATA_GUIDANCE}`,
       inline: false,
     });
   }
