@@ -68,12 +68,21 @@ export async function executeClan(
     return;
   }
 
-  await interaction.reply({ embeds: [buildClanEmbed(clan)] });
+  await interaction.reply({ embeds: [buildClanEmbed(clan, { requestedTag: tag, normalizedTag })] });
 }
 
-export function buildClanEmbed(clan: ClashClan): EmbedBuilder {
+export interface ClanEmbedDiagnostics {
+  readonly requestedTag?: string;
+  readonly normalizedTag?: string;
+}
+
+export function buildClanEmbed(
+  clan: ClashClan,
+  diagnostics: ClanEmbedDiagnostics = {},
+): EmbedBuilder {
   const data = readClanData(clan);
-  const normalizedTag = normalizeClanTagForDisplay(clan.tag);
+  const normalizedTag = diagnostics.normalizedTag ?? normalizeClanTagForDisplay(clan.tag);
+  const requestedTag = diagnostics.requestedTag?.trim() || normalizedTag;
   const embed = new EmbedBuilder()
     .setTitle(`${escapeMarkdown(clan.name)} (${normalizedTag})`)
     .setURL(getClanUrl(normalizedTag));
@@ -123,11 +132,12 @@ export function buildClanEmbed(clan: ClashClan): EmbedBuilder {
     {
       name: '**Coverage**',
       value: [
-        `Level/member stats: ${formatCoverage(data.clanLevel, data.members)}`,
-        `League stats: ${formatCoverage(data.warLeagueName, data.capitalLeagueName)}`,
-        `War stats: ${formatCoverage(data.warWins, data.warWinStreak)}`,
-        `Capital/trophy stats: ${formatCoverage(
-          data.capitalHallLevel,
+        `Members: ${formatMembers(data.members)} (${formatCoverage(data.members)} from API)`,
+        `Leagues: war ${formatCoverage(data.warLeagueName)}, capital ${formatCoverage(
+          data.capitalLeagueName,
+        )}`,
+        `War: ${formatCoverage(data.warWins, data.warWinStreak, data.warLosses, data.warTies)}`,
+        `Capital: ${formatCoverage(data.capitalHallLevel)}; trophies ${formatCoverage(
           data.clanPoints,
           data.clanBuilderBasePoints,
         )}`,
@@ -135,9 +145,11 @@ export function buildClanEmbed(clan: ClashClan): EmbedBuilder {
     },
     {
       name: '**Lookup Source**',
-      value: `Live Clash API clan profile for normalized tag ${escapeMarkdown(
-        normalizedTag,
-      )}. This one-off lookup does not link the clan, create history, or enroll it in ClashMate polling.`,
+      value: [
+        `Requested ${escapeMarkdown(requestedTag)} → normalized ${escapeMarkdown(normalizedTag)}.`,
+        'Source: public live Clash API clan profile returned by the existing one-off lookup.',
+        'No persistence: this does not link the clan, create history, or enroll it in polling.',
+      ].join('\n'),
     },
   );
 
