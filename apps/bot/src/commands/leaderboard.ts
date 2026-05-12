@@ -14,10 +14,12 @@ export const LEADERBOARD_COMMAND_DESCRIPTION =
 
 const MAX_ROWS = 25;
 const LEADERBOARD_SEASON_CHOICE_COUNT = 18;
-const SNAPSHOT_SOURCE_NOTE =
-  'Uses the latest persisted ClashMate snapshots for linked clans only; Discord does not expose a live Clash API leaderboard source here.';
-const SNAPSHOT_LIMITATION_NOTE =
-  'Season and location options are accepted for command parity, but results are not historical global leaderboards.';
+const LEADERBOARD_SOURCE_NOTE =
+  'Source: Clash of Clans public API response fields already available to ClashMate.';
+const LEADERBOARD_SCOPE_NOTE =
+  'This lookup only renders available response data; it does not create polling leases, enroll clans or players, or store new leaderboard history.';
+const LEADERBOARD_LIMITATION_NOTE =
+  'Season and location options are accepted for command parity; results are current available rows, not historical global leaderboard archives.';
 const MONTH_NAMES = [
   'January',
   'February',
@@ -235,7 +237,10 @@ export function buildClansLeaderboardEmbed(
     .sort((a, b) => (b.points ?? -1) - (a.points ?? -1) || (b.members ?? -1) - (a.members ?? -1));
   const coverage = buildClanCoverage(clans.length, filteredClans.length, rows.length);
 
-  const embed = baseEmbed('Linked Clan Leaderboard', 'clans', location, season);
+  const embed = baseEmbed('Linked Clan Leaderboard', 'clans', location, season, {
+    totalRows: rows.length,
+    rowsShown: Math.min(rows.length, MAX_ROWS),
+  });
   if (rows.length === 0) {
     const locationHadMatches = filteredClans.length > 0;
     return embed
@@ -291,7 +296,10 @@ export function buildPlayersLeaderboardEmbed(
         a.member.name.localeCompare(b.member.name),
     );
 
-  const embed = baseEmbed('Linked Player Leaderboard', 'players', location, season);
+  const embed = baseEmbed('Linked Player Leaderboard', 'players', location, season, {
+    totalRows: rows.length,
+    rowsShown: Math.min(rows.length, MAX_ROWS),
+  });
   const linkedClansConsidered = shouldFilterByLocation ? linkedClanTags.size : linkedClans.length;
   const coverage = buildMemberCoverage(
     linkedClans.length,
@@ -349,7 +357,10 @@ export function buildCapitalLeaderboardEmbed(
     .sort((a, b) => (b.points ?? -1) - (a.points ?? -1) || (b.hall ?? -1) - (a.hall ?? -1));
   const coverage = buildCapitalCoverage(clans.length, filteredClans.length, rows);
 
-  const embed = baseEmbed('Linked Capital Leaderboard', 'capital', location, season);
+  const embed = baseEmbed('Linked Capital Leaderboard', 'capital', location, season, {
+    totalRows: rows.length,
+    rowsShown: Math.min(rows.length, MAX_ROWS),
+  });
   if (rows.length === 0) {
     const locationHadMatches = filteredClans.length > 0;
     return embed
@@ -416,7 +427,7 @@ function buildClanCoverage(
   linkedClansConsidered: number,
   usableRows: number,
 ): string {
-  return `Coverage: ${totalLinkedClans.toLocaleString('en-US')} linked clan${totalLinkedClans === 1 ? '' : 's'} configured · ${linkedClansConsidered.toLocaleString('en-US')} considered after the current location filter · ${usableRows.toLocaleString('en-US')} row${usableRows === 1 ? '' : 's'} with usable current snapshot fields.`;
+  return `Counts: ${totalLinkedClans.toLocaleString('en-US')} linked clan${totalLinkedClans === 1 ? '' : 's'} configured · ${linkedClansConsidered.toLocaleString('en-US')} considered after filters · ${usableRows.toLocaleString('en-US')} result row${usableRows === 1 ? '' : 's'} with usable public API fields.`;
 }
 
 function buildMemberCoverage(
@@ -457,22 +468,45 @@ function baseEmbed(
   subcommand: LeaderboardSubcommand,
   location: string | null,
   season: string | null,
+  result: { readonly rowsShown: number; readonly totalRows: number },
 ): EmbedBuilder {
+  const categoryLabel = formatCategoryLabel(subcommand);
+  const locationLabel = formatLocationResolution(location);
+  const seasonLabel = season?.trim()
+    ? `${formatSeasonNote(season.trim())} (accepted for parity; current rows shown)`
+    : 'current available response rows';
+  const rankCoverage =
+    result.totalRows === 0
+      ? 'none'
+      : `#1-#${result.rowsShown.toLocaleString('en-US')} of ${result.totalRows.toLocaleString('en-US')}`;
   const notes = [
-    `Subcommand: /leaderboard ${subcommand}.`,
-    SNAPSHOT_SOURCE_NOTE,
-    SNAPSHOT_LIMITATION_NOTE,
+    `Resolution: /leaderboard ${subcommand} · ${categoryLabel} · ${locationLabel} · ${seasonLabel}.`,
+    `Results: ${result.totalRows.toLocaleString('en-US')} row${result.totalRows === 1 ? '' : 's'} · rank coverage ${rankCoverage}.`,
+    LEADERBOARD_SOURCE_NOTE,
+    LEADERBOARD_SCOPE_NOTE,
+    LEADERBOARD_LIMITATION_NOTE,
   ];
-  if (location?.trim() && !isAllLocations(location))
+  if (result.totalRows === 0) {
     notes.push(
-      `Location filter: ${location.trim()} (matched against stored linked-clan location only).`,
+      'No results: adjust the location filter or wait until linked/configured clans have usable public API response fields available.',
     );
-  if (isAllLocations(location)) notes.push('Location filter: all linked clans.');
-  if (season?.trim())
-    notes.push(
-      `Season option: ${formatSeasonNote(season.trim())} (accepted for parity; current snapshots are still shown).`,
-    );
-  return new EmbedBuilder().setTitle(title).addFields({ name: 'Source', value: notes.join('\n') });
+  }
+  return new EmbedBuilder()
+    .setTitle(title)
+    .addFields({ name: 'Diagnostics', value: notes.join('\n') });
+}
+
+function formatCategoryLabel(subcommand: LeaderboardSubcommand): string {
+  if (subcommand === 'capital') return 'clan capital';
+  if (subcommand === 'players') return 'players';
+  return 'clans';
+}
+
+function formatLocationResolution(location: string | null): string {
+  if (isAllLocations(location)) return 'all linked clans';
+  const trimmed = location?.trim();
+  if (!trimmed) return 'no location filter';
+  return `location ${trimmed} matched by stored public API location id, country code, or name`;
 }
 
 export function buildLocationChoices(
