@@ -146,6 +146,75 @@ const envSchema = z.object({
 
 export type ClashMateConfig = z.infer<typeof envSchema>;
 
+export interface ConfigValidationIssue {
+  readonly variable: string;
+  readonly message: string;
+  readonly value: string;
+}
+
+export interface ConfigValidationDiagnostics {
+  readonly message: string;
+  readonly issues: readonly ConfigValidationIssue[];
+}
+
+const secretLikeNamePattern = /(token|secret|password|credential|private|key|dsn)/i;
+
+const getIssueVariableName = (issue: z.core.$ZodIssue): string => {
+  const [firstPathSegment] = issue.path;
+  return typeof firstPathSegment === 'string' && firstPathSegment.length > 0
+    ? firstPathSegment
+    : '<unknown>';
+};
+
+export const redactConfigValue = (name: string, value: unknown): string => {
+  if (value === undefined) return '<unset>';
+  if (secretLikeNamePattern.test(name)) return '<redacted>';
+  if (typeof value === 'string') return value.length === 0 ? '<empty>' : value;
+
+  return String(value);
+};
+
+export const formatConfigValidationError = (
+  error: z.ZodError,
+  env: NodeJS.ProcessEnv = process.env,
+): ConfigValidationDiagnostics => {
+  const issues = error.issues.map((issue) => {
+    const variable = getIssueVariableName(issue);
+
+    return {
+      variable,
+      message: issue.message,
+      value: redactConfigValue(variable, env[variable]),
+    };
+  });
+
+  const issueLines = issues.map(
+    (issue) => `- ${issue.variable}: ${issue.message} (value: ${issue.value})`,
+  );
+
+  return {
+    message: ['Invalid ClashMate configuration:', ...issueLines].join('\n'),
+    issues,
+  };
+};
+
+export class ConfigValidationError extends Error {
+  override readonly name = 'ConfigValidationError';
+
+  readonly issues: readonly ConfigValidationIssue[];
+
+  constructor(readonly diagnostics: ConfigValidationDiagnostics) {
+    super(diagnostics.message);
+    this.issues = diagnostics.issues;
+  }
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ClashMateConfig {
-  return envSchema.parse(env);
+  const result = envSchema.safeParse(env);
+
+  if (!result.success) {
+    throw new ConfigValidationError(formatConfigValidationError(result.error, env));
+  }
+
+  return result.data;
 }
