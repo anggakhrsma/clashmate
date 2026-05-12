@@ -13,6 +13,8 @@ export const NICKNAME_FIRST_PASS_NOTE =
   'ClashMate stores these server nickname preferences and previews nickname reconciliation for the invoking member only. It changes your nickname only when `change_nicknames` is set to `Yes` in this invocation and every safety check passes.';
 export const NICKNAME_REFRESH_NOTE =
   'Stored nickname preferences can be planned for background reconciliation, but broad Discord nickname mutation remains safety-gated; this command only changes the invoking member when explicitly requested and all checks pass.';
+export const NICKNAME_BACKGROUND_RECONCILIATION_LIMITATION =
+  'Background reconciliation can only use already stored linked-account and family-clan data. Search-only lookups and this preview do not enroll players for polling or create new tracking records.';
 export const DISCORD_NICKNAME_MAX_LENGTH = 32;
 export const SUPPORTED_NICKNAME_PLACEHOLDERS = [
   '{NAME}',
@@ -258,6 +260,11 @@ export function buildNicknameConfigEmbed(
         inline: true,
       },
       {
+        name: 'Derived diagnostics',
+        value: formatDerivedNicknameDiagnostics(view),
+        inline: false,
+      },
+      {
         name: 'Supported placeholders',
         value: [
           '`{NAME}` / `{PLAYER_NAME}` — linked player name',
@@ -283,7 +290,7 @@ export function buildNicknameConfigEmbed(
       },
       {
         name: 'Refresh status',
-        value: NICKNAME_REFRESH_NOTE,
+        value: `${NICKNAME_REFRESH_NOTE}\n${NICKNAME_BACKGROUND_RECONCILIATION_LIMITATION}`,
         inline: false,
       },
       {
@@ -318,6 +325,7 @@ export interface NicknameReconciliationPlan {
   canRename: boolean;
   shouldRename: boolean;
   blockers: string[];
+  reason: string;
 }
 
 export interface ScheduledNicknameReconciliationPlan {
@@ -372,14 +380,36 @@ function planInvokingMemberNicknameReconciliation(
   }
 
   const canRename = blockers.length === 0;
+  const shouldRename = canRename && invocationUpdates.changeNicknames === 'true';
 
   return {
     currentNickname: member.nickname ?? member.displayName,
     desiredNickname,
     canRename,
-    shouldRename: canRename && invocationUpdates.changeNicknames === 'true',
+    shouldRename,
     blockers,
+    reason: formatNicknameReconciliationReason({
+      canRename,
+      shouldRename,
+      blockers,
+      invocationOptedIn: invocationUpdates.changeNicknames === 'true',
+    }),
   };
+}
+
+function formatNicknameReconciliationReason(input: {
+  canRename: boolean;
+  shouldRename: boolean;
+  blockers: readonly string[];
+  invocationOptedIn: boolean;
+}): string {
+  if (input.shouldRename)
+    return 'Applied because change_nicknames was set to Yes and all safety checks passed.';
+  if (input.blockers.length > 0) return `Not applied: ${input.blockers.join('; ')}.`;
+  if (!input.invocationOptedIn) {
+    return 'Preview only: set change_nicknames to Yes in this invocation to apply to the invoking member.';
+  }
+  return input.canRename ? 'Preview only.' : 'Not applied.';
 }
 
 function buildMemberNicknamePreview(format: string, member: GuildMember): string | null {
@@ -403,6 +433,7 @@ function formatReconciliationPlan(plan: NicknameReconciliationPlan): string {
     `Desired nickname preview: ${formatPlanValue(plan.desiredNickname)}`,
     `Could rename invoking member: ${plan.canRename ? 'Yes' : 'No'}`,
     `Actual rename this invocation: ${plan.shouldRename ? 'Yes' : 'No'}`,
+    `Result reason: ${plan.reason}`,
   ];
 
   if (plan.blockers.length > 0) {
@@ -470,6 +501,35 @@ function formatAccountPreference(value: NicknameAccountPreference | null): strin
     default:
       return 'Not set';
   }
+}
+
+function formatDerivedNicknameDiagnostics(view: NicknameConfigView): string {
+  const familyCoverage = formatPlaceholderCoverage('family', view.familyNicknameFormat);
+  const nonFamilyCoverage = formatPlaceholderCoverage('non-family', view.nonFamilyNicknameFormat);
+  const configuredFormats = [view.familyNicknameFormat, view.nonFamilyNicknameFormat].filter(
+    (format): format is string => format !== null,
+  ).length;
+
+  return [
+    `Configured formats: ${configuredFormats}/2 (${familyCoverage}; ${nonFamilyCoverage})`,
+    `Discord nickname limit: ${DISCORD_NICKNAME_MAX_LENGTH} characters; previews and safe applies are truncated to this limit.`,
+    `Account preference: ${formatAccountPreference(view.accountPreferenceForNaming)}.`,
+    `change_nicknames gate: ${view.changeNicknames === 'true' ? 'enabled for safe, explicit applies' : view.changeNicknames === 'false' ? 'disabled' : 'not set'}.`,
+  ].join('\n');
+}
+
+function formatPlaceholderCoverage(label: string, format: string | null): string {
+  if (!format) return `${label}: not configured`;
+  const placeholders = collectRecognizedNicknamePlaceholders(format);
+  if (placeholders.length === 0) return `${label}: static text/no recognized placeholders`;
+  return `${label}: ${placeholders.map((placeholder) => `\`${placeholder}\``).join(', ')}`;
+}
+
+function collectRecognizedNicknamePlaceholders(value: string): string[] {
+  const matches = value.matchAll(
+    /\{(?:NAME|PLAYER|PLAYER_NAME|player|player_name|playerName|name|TAG|tag|CLAN|CLAN_NAME|clan|ALIAS|CLAN_ALIAS|alias|TH|TOWN_HALL|townHall|town_hall|th|ROLE|CLAN_ROLE|role|DISCORD|DISCORD_NAME|USERNAME|DISCORD_USERNAME)\}/g,
+  );
+  return [...new Set([...matches].map((match) => match[0]))];
 }
 
 function formatNicknamePreview(view: NicknameConfigView): string {
