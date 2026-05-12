@@ -12,11 +12,13 @@ export const VERIFY_COMMAND_NAME = 'verify';
 export const VERIFY_COMMAND_DESCRIPTION = 'Verify and link a player account using an API token.';
 export const INVALID_PLAYER_MESSAGE = 'This player or clan tag is not valid.';
 export const INVALID_TOKEN_MESSAGE =
-  'You must provide a valid API Token from Clash of Clans settings for this exact player tag. Check the tag, copy the token again, and try `/verify` in this private reply.';
+  "Verification failed: Clash of Clans says that token does not match this player. Copy the API Token from that player's in-game settings, check the tag, and try `/verify` again. This private reply did not change your saved links.";
 export const TOKEN_CHECK_UNAVAILABLE_MESSAGE =
-  'Unable to verify that API token with Clash of Clans right now. Your account link was not changed; please try again later.';
+  'Verification failed: ClashMate could not check that API token with Clash of Clans right now. Your account link was not changed; please try again later.';
 export const VERIFY_CONTEXT_MESSAGE =
-  'This verification reply is only visible to you. ClashMate checks your in-game API token, saves a verified Discord link when it matches, and does not start new polling just because you verified.';
+  'This reply is private. ClashMate only uses your player tag and in-game API token to confirm ownership and does not store the token.';
+export const VERIFY_LIMITATION_MESSAGE =
+  'Verification links the player to your Discord account only; it does not enroll the player or clan into polling, tracking, or clan setup.';
 
 export const verifyCommandData = new SlashCommandBuilder()
   .setName(VERIFY_COMMAND_NAME)
@@ -168,9 +170,7 @@ export async function executeVerify(
   });
 
   if (result.status === 'max_accounts_reached') {
-    await interaction.editReply(
-      `The maximum account limit has been reached. (${result.maxAccounts} accounts/user)`,
-    );
+    await interaction.editReply(formatVerifyMaxAccountsFailure(player, result.maxAccounts));
     return;
   }
 
@@ -185,20 +185,37 @@ export function formatVerifySuccess(
   },
 ): string {
   const details: string[] = [];
+  details.push('Source: verified directly against the Clash of Clans API token endpoint.');
+
   if (result.transferredFromUserId) {
     details.push(
-      `Because the API token proves ownership, the verified link was transferred from <@${result.transferredFromUserId}> to you.`,
+      `Transfer: ownership proof moved the verified link from <@${result.transferredFromUserId}> to you.`,
     );
   } else {
-    details.push('Your verified link is saved for future ClashMate commands.');
+    details.push('Transfer: no existing verified owner was replaced.');
   }
 
   if (result.wasDefault) {
-    details.push('This is now your default account.');
+    details.push('Default: this is now your default account.');
+  } else {
+    details.push('Default: your existing default account was not changed.');
   }
 
   details.push(VERIFY_CONTEXT_MESSAGE);
+  details.push(VERIFY_LIMITATION_MESSAGE);
 
   const suffix = details.length ? ` ${details.join(' ')}` : '';
   return `Verification successful! **${player.name} (${player.tag})** ✅${suffix}`;
+}
+
+export function formatVerifyMaxAccountsFailure(
+  player: Pick<ClashPlayer, 'name' | 'tag'>,
+  maxAccounts: number,
+): string {
+  return [
+    `Verification succeeded for **${player.name} (${player.tag})**, but the link was not saved because you already have the maximum account limit (${maxAccounts} accounts/user).`,
+    'Remove an old link before verifying another account.',
+    VERIFY_CONTEXT_MESSAGE,
+    VERIFY_LIMITATION_MESSAGE,
+  ].join(' ');
 }
