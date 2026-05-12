@@ -631,7 +631,7 @@ export function buildSummaryMissedWarsPayload(
             inline: false,
           },
           sourceField(
-            'Persisted missed war attack events only. Season and war_type are accepted for parity but are not filtered because missed_war_attack_events are not season- or type-scoped.',
+            'Missed-war source: persisted missed_war_attack_events derived by the war poller. Season and war_type are accepted for parity but are not applied because stored missed-war events are not season- or type-scoped yet.',
           ),
           coverageField(coverage),
         )
@@ -709,7 +709,7 @@ export function buildSummaryBestPayload(
         .setDescription(truncate(formatDonationRows(sorted, clampSummaryLimit(limit))))
         .addFields(
           sourceField(
-            'Current persisted member donation snapshots; season is accepted for parity but historical season donation snapshots are not stored yet.',
+            'Donation source: current persisted clan member snapshots. Season is accepted for parity but not applied because historical season donation snapshots are not stored yet.',
           ),
           coverageField(coverage),
         )
@@ -753,7 +753,7 @@ export function buildSummaryDonationsPayload(
             inline: false,
           },
           sourceField(
-            'Current persisted member donation snapshots; season is accepted for parity but historical season donation snapshots are not stored yet.',
+            'Donation source: current persisted clan member snapshots. Season is accepted for parity but not applied because historical season donation snapshots are not stored yet.',
           ),
           coverageField(coverage),
         ),
@@ -832,7 +832,7 @@ export function buildSummaryAttacksPayload(
             inline: false,
           },
           sourceField(
-            'Persisted war attack history rows from tracked linked clans; season is accepted for parity and coverage but not used unless the stored history source is already season-scoped.',
+            'War source: persisted war attack history rows derived from tracked linked clans. Season is accepted for parity but only reflected when the stored history source is already season-scoped.',
           ),
           coverageField(coverage),
         ),
@@ -985,7 +985,7 @@ export function buildSummaryCapitalRaidsPayload(
         .addFields(
           {
             name: 'Source',
-            value: `${weekNote}Raid-week attack logs are not persisted in ClashMate yet; showing current linked-clan capital snapshots only.`,
+            value: `${weekNote}Capital source: current persisted linked-clan capital snapshot fields. Raid-week attack logs are not persisted in ClashMate yet.`,
             inline: false,
           },
           coverageField(coverage),
@@ -1075,7 +1075,7 @@ export function buildSummaryCapitalContributionPayload(
           },
           {
             name: 'Source',
-            value: `${weekNote}Shows stored member \`capitalContribution\` and \`capitalGold\` separately when available. Coverage after filters: capitalContribution ${capitalContributionRows}/${members.length}, capitalGold ${capitalGoldRows}/${members.length}. Raid-week contribution history is not persisted in ClashMate yet; showing current persisted member snapshot fields only.`,
+            value: `${weekNote}Capital source: current persisted member snapshot fields. Shows \`capitalContribution\` and \`capitalGold\` separately when available. Field coverage: capitalContribution ${capitalContributionRows}/${members.length}, capitalGold ${capitalGoldRows}/${members.length}. Raid-week contribution history is not persisted in ClashMate yet.`,
             inline: false,
           },
           coverageField(coverage),
@@ -1222,19 +1222,20 @@ function coverageField(coverage: SummaryCoverageContext | undefined): {
     return {
       name: 'Coverage',
       value:
-        'Persisted snapshots/events only; no live Clash API lookup. Output is limited to rows ClashMate has already collected.',
+        'Source freshness unknown · accepted filters: none · visible/hidden rows depend on persisted snapshots/events only; no live Clash API lookup or polling enrollment.',
       inline: false,
     };
   }
   const rowLimit = coverage.rowLimit ?? SUMMARY_ROW_LIMIT;
   const displayedRowCount =
     coverage.displayedRowCount ?? Math.min(coverage.usableRowCount, rowLimit);
+  const hiddenRowCount = Math.max(coverage.usableRowCount - displayedRowCount, 0);
   const parts = [
-    `linked clans ${coverage.consideredClanCount}/${coverage.linkedClanCount}`,
-    `usable rows ${coverage.usableRowCount}`,
-    `shown ${displayedRowCount}/${coverage.usableRowCount} (limit ${rowLimit})`,
-    `latest snapshot/event ${coverage.latestAt ? time(coverage.latestAt, 'R') : 'unknown'}`,
-    `filters: ${coverage.filters?.length ? coverage.filters.join('; ') : 'none'}`,
+    `accepted filters: ${coverage.filters?.length ? coverage.filters.join('; ') : 'none'}`,
+    `linked clans considered ${coverage.consideredClanCount}/${coverage.linkedClanCount}`,
+    `visible rows ${displayedRowCount}/${coverage.usableRowCount}`,
+    `hidden rows ${hiddenRowCount} by limit ${rowLimit}`,
+    `freshest persisted row ${coverage.latestAt ? time(coverage.latestAt, 'R') : 'unknown'}`,
     'persisted-only; no live Clash API lookup or polling enrollment',
   ];
   return { name: 'Coverage', value: parts.join(' · '), inline: false };
@@ -1246,7 +1247,7 @@ function sourceField(value: string): { name: string; value: string; inline: fals
 
 function noDataMessage(subject: string, coverage: SummaryCoverageContext | undefined): string {
   const field = coverageField(coverage).value;
-  return `No ${subject} are available for the accepted filters. ${field}. This summary is persisted-only: it will not query Clash live or start tracking new clans. Link/configure clans with \`/setup clan\`, keep the relevant poller enabled, and wait for new snapshots/events to be persisted.`;
+  return `No ${subject} are available for the accepted filters. ${field}. Guidance: link/configure clans with \`/setup clan\`, keep the relevant poller enabled, and wait for matching snapshots/events to be persisted.`;
 }
 
 function latestMemberSnapshotAt(members: readonly SummaryMemberSnapshotRow[]): Date | undefined {
