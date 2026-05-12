@@ -4488,6 +4488,10 @@ export function createClanSnapshotStore(database: Database): ClanSnapshotStore {
   };
 }
 
+function isClanMemberSnapshotActive(snapshot: { lastSeenAt: Date; lastFetchedAt: Date }): boolean {
+  return snapshot.lastSeenAt.getTime() >= snapshot.lastFetchedAt.getTime();
+}
+
 export function createClanMemberEventStore(database: Database): ClanMemberEventStore {
   return {
     processClanMemberSnapshots: async (input) => {
@@ -4531,10 +4535,10 @@ export function createClanMemberEventStore(database: Database): ClanMemberEventS
             donationsReceived: schema.clanMemberSnapshots.donationsReceived,
             rawMember: schema.clanMemberSnapshots.rawMember,
             lastSeenAt: schema.clanMemberSnapshots.lastSeenAt,
+            lastFetchedAt: schema.clanMemberSnapshots.lastFetchedAt,
           })
           .from(schema.clanMemberSnapshots)
           .where(eq(schema.clanMemberSnapshots.clanTag, clanTag));
-        const previousMemberTags = new Set(previousMembers.map((member) => member.playerTag));
         const previousMembersByTag = new Map(
           previousMembers.map((member) => [member.playerTag, member]),
         );
@@ -4666,17 +4670,21 @@ export function createClanMemberEventStore(database: Database): ClanMemberEventS
 
         for (const member of members) {
           const previousMember = previousMembersByTag.get(member.playerTag);
-          if (!isInitialSnapshot && !previousMemberTags.has(member.playerTag)) {
+          const wasPreviouslyActive = previousMember
+            ? isClanMemberSnapshotActive(previousMember)
+            : false;
+          const isRejoinTransition = previousMember && !wasPreviouslyActive;
+          if (!isInitialSnapshot && (!previousMember || isRejoinTransition)) {
             joined += await insertEvents({
               playerTag: member.playerTag,
               playerName: member.name,
               eventType: 'joined',
-              previousSnapshot: null,
+              previousSnapshot: previousMember?.rawMember ?? null,
               currentSnapshot: member.rawMember,
             });
           }
 
-          if (previousMember) {
+          if (previousMember && wasPreviouslyActive) {
             const roleChangeEvent = computeClanRoleChangeDeltaEvent({
               previousRole: previousMember.role,
               currentRole: member.role,
@@ -4761,15 +4769,27 @@ export function createClanMemberEventStore(database: Database): ClanMemberEventS
         }
 
         for (const previousMember of previousMembers) {
-          if (memberTags.has(previousMember.playerTag) || previousMember.lastSeenAt >= fetchedAt)
-            continue;
-          left += await insertEvents({
-            playerTag: previousMember.playerTag,
-            playerName: previousMember.name,
-            eventType: 'left',
-            previousSnapshot: previousMember.rawMember,
-            currentSnapshot: null,
-          });
+          if (memberTags.has(previousMember.playerTag)) continue;
+
+          if (isClanMemberSnapshotActive(previousMember)) {
+            left += await insertEvents({
+              playerTag: previousMember.playerTag,
+              playerName: previousMember.name,
+              eventType: 'left',
+              previousSnapshot: previousMember.rawMember,
+              currentSnapshot: null,
+            });
+          }
+
+          await tx
+            .update(schema.clanMemberSnapshots)
+            .set({ lastFetchedAt: fetchedAt, updatedAt: fetchedAt })
+            .where(
+              and(
+                eq(schema.clanMemberSnapshots.clanTag, clanTag),
+                eq(schema.clanMemberSnapshots.playerTag, previousMember.playerTag),
+              ),
+            );
         }
 
         return { status: 'processed', joined, left, donationEvents, roleChangeEvents };
