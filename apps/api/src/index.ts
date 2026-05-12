@@ -33,6 +33,8 @@ const getUptimeSeconds = () => Math.round(process.uptime());
 
 const getDurationMs = (started: bigint) => Number((process.hrtime.bigint() - started) / 1_000_000n);
 
+const getExitCode = () => process.exitCode ?? 0;
+
 const createBuildMetadata = (env: NodeJS.ProcessEnv = process.env): BuildMetadata => {
   const { GIT_SHA: gitSha, SOURCE_REPOSITORY_URL: sourceRepositoryUrl } = env;
   const metadata: BuildMetadata = {};
@@ -114,30 +116,48 @@ app.setErrorHandler((error: FastifyError, request, reply) => {
 
 const registerShutdownHandlers = (fastify: { close: () => Promise<void> }) => {
   let closing = false;
+  let shutdownSignal: NodeJS.Signals | undefined;
 
   const handleShutdown = (signal: NodeJS.Signals) => {
     if (closing) {
-      logger.info({ signal }, 'API shutdown already in progress');
+      logger.info(
+        { signal, shutdownSignal, exitCode: getExitCode() },
+        'API shutdown signal ignored while close is in progress',
+      );
       return;
     }
 
     closing = true;
-    logger.info({ signal }, 'API shutdown started');
+    shutdownSignal = signal;
+    const started = process.hrtime.bigint();
+
+    logger.info({ signal, exitCode: getExitCode() }, 'API shutdown started');
 
     void fastify
       .close()
       .then(() => {
-        logger.info({ signal }, 'API shutdown completed');
         process.exitCode = 0;
+        logger.info(
+          { signal, closeDurationMs: getDurationMs(started), exitCode: process.exitCode },
+          'API shutdown completed',
+        );
       })
       .catch((error: unknown) => {
-        logger.error({ err: error, signal }, 'API shutdown failed');
         process.exitCode = 1;
+        logger.error(
+          {
+            err: error,
+            signal,
+            closeDurationMs: getDurationMs(started),
+            exitCode: process.exitCode,
+          },
+          'API shutdown failed',
+        );
       });
   };
 
-  process.once('SIGTERM', handleShutdown);
-  process.once('SIGINT', handleShutdown);
+  process.on('SIGTERM', handleShutdown);
+  process.on('SIGINT', handleShutdown);
 };
 
 registerShutdownHandlers(app);
@@ -147,17 +167,37 @@ const startApi = async () => {
     host: '0.0.0.0',
     port: config.PORT,
   } as const;
+  const started = process.hrtime.bigint();
+  const listenTarget = `${listenOptions.host}:${listenOptions.port}`;
+
+  logger.info({ listenTarget, ...listenOptions, service: serviceStatus.service }, 'API starting');
 
   try {
     const address = await app.listen(listenOptions);
 
-    logger.info({ address, ...listenOptions, service: serviceStatus.service }, 'API started');
+    logger.info(
+      {
+        address,
+        listenTarget,
+        startupDurationMs: getDurationMs(started),
+        ...listenOptions,
+        service: serviceStatus.service,
+      },
+      'API started',
+    );
   } catch (error) {
+    process.exitCode = 1;
     logger.error(
-      { err: error, ...listenOptions, service: serviceStatus.service },
+      {
+        err: error,
+        listenTarget,
+        startupDurationMs: getDurationMs(started),
+        exitCode: process.exitCode,
+        ...listenOptions,
+        service: serviceStatus.service,
+      },
       'API startup failed',
     );
-    process.exitCode = 1;
     throw error;
   }
 };
