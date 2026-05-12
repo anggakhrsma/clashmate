@@ -207,7 +207,10 @@ async function executeAlias(
         actorDiscordUserId: interaction.user.id,
         clanTag: clan.clanTag,
       });
-      await interaction.reply({ content: formatClearAliasMessage(result), ephemeral: true });
+      await interaction.reply({
+        content: formatClearAliasMessage(result, clans, clan),
+        ephemeral: true,
+      });
       return;
     }
 
@@ -227,7 +230,7 @@ async function executeAlias(
       alias: alias.value,
     });
     await interaction.reply({
-      content: formatSetAliasMessage(result, alias.value),
+      content: formatSetAliasMessage(result, alias.value, clans, clan),
       ephemeral: true,
     });
     return;
@@ -263,7 +266,10 @@ async function executeAlias(
       actorDiscordUserId: interaction.user.id,
       clanTag: clan.clanTag,
     });
-    await interaction.reply({ content: formatClearAliasMessage(result), ephemeral: true });
+    await interaction.reply({
+      content: formatClearAliasMessage(result, clans, clan),
+      ephemeral: true,
+    });
   }
 }
 
@@ -404,16 +410,26 @@ export function formatInvalidAliasMessage(
 export function formatSetAliasMessage(
   result: Awaited<ReturnType<AliasStore['setAlias']>>,
   alias: string,
+  clans?: readonly AliasTrackedClan[],
+  resolvedClan?: AliasTrackedClan,
 ): string {
   if (result.status === 'not_found') return 'That clan is no longer linked to this server.';
-  return `Clan alias or nickname updated: ${inlineCode(alias)} now points to **${escapeDiscordText(result.clan.name)}** (${inlineCode(result.clan.clanTag)}). Selected clan was resolved from persisted linked-clan configuration only. This server configuration change was saved and audited; it does not change polling enrollment beyond the already linked clan.`;
+  const context = clans
+    ? ` ${formatAliasConfigSummaryAfterChange(clans, result.clan.clanTag, alias)} ${formatResolvedClanContext(result.clan, resolvedClan)}`
+    : '';
+  return `Clan alias or nickname updated: ${inlineCode(alias)} now points to **${escapeDiscordText(result.clan.name)}** (${inlineCode(result.clan.clanTag)}).${context} This server configuration change was saved and audited; it uses persisted server scope only and does not perform live Clash API lookups or change polling enrollment beyond the already linked clan.`;
 }
 
 export function formatClearAliasMessage(
   result: Awaited<ReturnType<AliasStore['clearAlias']>>,
+  clans?: readonly AliasTrackedClan[],
+  resolvedClan?: AliasTrackedClan,
 ): string {
   if (result.status === 'not_found') return 'That clan is no longer linked to this server.';
-  return `Successfully deleted the clan alias for **${escapeDiscordText(result.clan.name)}** (${inlineCode(result.clan.clanTag)}). Selected clan was resolved from persisted linked-clan configuration only. This server configuration change was saved and audited; the linked clan remains configured.`;
+  const context = clans
+    ? ` ${formatAliasConfigSummaryAfterChange(clans, result.clan.clanTag, null)} ${formatResolvedClanContext(result.clan, resolvedClan)}`
+    : '';
+  return `Successfully deleted the clan alias for **${escapeDiscordText(result.clan.name)}** (${inlineCode(result.clan.clanTag)}).${context} This server configuration change was saved and audited using persisted server scope only; the linked clan remains configured and no live Clash API lookup was attempted.`;
 }
 
 function formatNoLinkedClansMessage(action: 'create' | 'delete'): string {
@@ -438,6 +454,32 @@ function formatAliasLookupFailureMessage(
 function formatAliasConfigSummary(clans: readonly AliasTrackedClan[]): string {
   const configured = clans.filter((clan) => clan.alias?.trim()).length;
   return `Considered ${clans.length} linked clan${clans.length === 1 ? '' : 's'}: ${configured} alias${configured === 1 ? '' : 'es'} configured, ${clans.length - configured} missing.`;
+}
+
+function formatAliasConfigSummaryAfterChange(
+  clans: readonly AliasTrackedClan[],
+  changedClanTag: string,
+  nextAlias: string | null,
+): string {
+  const configured = clans.filter((clan) => {
+    if (clan.clanTag === changedClanTag) return Boolean(nextAlias?.trim());
+    return Boolean(clan.alias?.trim());
+  }).length;
+  return `Server alias coverage is now ${configured}/${clans.length} linked clan${clans.length === 1 ? '' : 's'}.`;
+}
+
+function formatResolvedClanContext(
+  persistedClan: AliasTrackedClan,
+  resolvedClan: AliasTrackedClan | undefined,
+): string {
+  if (!resolvedClan) return 'Resolved against persisted linked-clan configuration.';
+  const previousAlias = resolvedClan.alias?.trim();
+  if (!previousAlias)
+    return 'Resolved against persisted linked-clan tag or name with no previous alias.';
+  if (persistedClan.clanTag === resolvedClan.clanTag) {
+    return `Resolved against persisted linked-clan tag, name, or previous alias ${inlineCode(previousAlias)}.`;
+  }
+  return 'Resolved against persisted linked-clan configuration.';
 }
 
 function formatConsideredClans(clans: readonly AliasTrackedClan[]): string {
