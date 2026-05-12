@@ -321,6 +321,15 @@ export interface SummaryClanMemberSnapshots {
   readonly members: readonly SummaryMemberSnapshotRow[];
 }
 
+export interface SummaryDonationHistoryRow {
+  readonly playerTag: string;
+  readonly playerName: string;
+  readonly donated: number;
+  readonly received: number;
+  readonly eventCount: number;
+  readonly lastDetectedAt: Date;
+}
+
 export interface SummaryWarAttackHistoryRow {
   readonly attackerTag: string;
   readonly attackerName: string | null;
@@ -386,6 +395,13 @@ export interface SummaryStore {
     guildId: string;
     clanTag?: string;
   }) => Promise<SummaryClanMemberSnapshots[]>;
+  readonly listDonationHistoryForGuild?: (input: {
+    guildId: string;
+    clanTags?: readonly string[];
+    playerTags?: readonly string[];
+    since?: Date;
+    until?: Date;
+  }) => Promise<SummaryDonationHistoryRow[]>;
   readonly listClanMemberSnapshotsForGuild: (input: {
     guildId: string;
     clanTag?: string;
@@ -516,7 +532,37 @@ export async function executeSummary(
 
   const clanTag = clan?.clanTag;
   const baseFilters = collectSummaryFilters(interaction, clan);
+  const seasonRange = getSummarySeasonRange(interaction.options.getString('season'));
   if (subcommand === 'best') {
+    if (seasonRange && options.store.listDonationHistoryForGuild) {
+      const rows = await options.store.listDonationHistoryForGuild({
+        guildId: interaction.guildId,
+        ...(clanTag ? { clanTags: [clanTag] } : {}),
+        since: seasonRange.start,
+        until: seasonRange.end,
+      });
+      const limit = interaction.options.getInteger('limit') ?? SUMMARY_ROW_LIMIT;
+      const order = interaction.options.getString('order') === 'asc' ? 'asc' : 'desc';
+      await interaction.editReply(
+        buildSummaryDonationHistoryPayload(
+          rows,
+          limit,
+          order,
+          withRowLimit(
+            buildRowsCoverage(
+              clans.length,
+              clanTag ? 1 : clans.length,
+              rows.length,
+              latestDonationHistoryAt(rows),
+              baseFilters,
+            ),
+            limit,
+          ),
+          order === 'asc' ? 'Lowest Donation History Summary' : 'Best Donation History Summary',
+        ),
+      );
+      return;
+    }
     const snapshots = await options.store.listDonationSnapshotsForGuild({
       guildId: interaction.guildId,
       ...(clanTag ? { clanTag } : {}),
@@ -548,6 +594,30 @@ export async function executeSummary(
     return;
   }
   if (subcommand === 'donations') {
+    if (seasonRange && options.store.listDonationHistoryForGuild) {
+      const rows = await options.store.listDonationHistoryForGuild({
+        guildId: interaction.guildId,
+        ...(clanTag ? { clanTags: [clanTag] } : {}),
+        since: seasonRange.start,
+        until: seasonRange.end,
+      });
+      await interaction.editReply(
+        buildSummaryDonationHistoryPayload(
+          rows,
+          SUMMARY_ROW_LIMIT,
+          'desc',
+          buildRowsCoverage(
+            clans.length,
+            clanTag ? 1 : clans.length,
+            rows.length,
+            latestDonationHistoryAt(rows),
+            baseFilters,
+          ),
+          'Donation History Summary',
+        ),
+      );
+      return;
+    }
     const snapshots = await options.store.listDonationSnapshotsForGuild({
       guildId: interaction.guildId,
       ...(clanTag ? { clanTag } : {}),
@@ -927,7 +997,7 @@ export function buildSummaryBestPayload(
         .setDescription(truncate(formatDonationRows(sorted, clampSummaryLimit(limit))))
         .addFields(
           sourceField(
-            'Donation source: current persisted clan member snapshots. Season is accepted for parity but not applied because historical season donation snapshots are not stored yet.',
+            'Donation source: current persisted clan member snapshots; season filters use persisted donation history rows when available and current snapshots otherwise.',
           ),
           coverageField(coverage),
         )
@@ -971,7 +1041,46 @@ export function buildSummaryDonationsPayload(
             inline: false,
           },
           sourceField(
-            'Donation source: current persisted clan member snapshots. Season is accepted for parity but not applied because historical season donation snapshots are not stored yet.',
+            'Donation source: current persisted clan member snapshots; season filters use persisted donation history rows when available and current snapshots otherwise.',
+          ),
+          coverageField(coverage),
+        ),
+    ],
+  };
+}
+
+export function buildSummaryDonationHistoryPayload(
+  rows: readonly SummaryDonationHistoryRow[],
+  limit: number,
+  order: 'asc' | 'desc',
+  coverage?: SummaryCoverageContext,
+  title = 'Donation History Summary',
+): { content?: string; embeds?: EmbedBuilder[] } {
+  if (rows.length === 0)
+    return {
+      content: noDataMessage('donation history rows', coverage),
+    };
+
+  const direction = order === 'asc' ? -1 : 1;
+  const sorted = [...rows].sort(
+    (a, b) =>
+      direction * ((b.donated ?? 0) - (a.donated ?? 0) || (b.received ?? 0) - (a.received ?? 0)),
+  );
+  const donated = rows.reduce((sum, row) => sum + row.donated, 0);
+  const received = rows.reduce((sum, row) => sum + row.received, 0);
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setTitle(title)
+        .setDescription(truncate(formatDonationHistoryRows(sorted, clampSummaryLimit(limit))))
+        .addFields(
+          {
+            name: 'Totals',
+            value: `${donated} donated · ${received} received · ${rows.length} members`,
+            inline: false,
+          },
+          sourceField(
+            'Donation source: persisted donation history rows derived from tracked linked clans. Season filters use stored donation event times; no live Clash API lookup or backfill is performed.',
           ),
           coverageField(coverage),
         ),
@@ -1008,7 +1117,7 @@ export function buildSummaryActivityPayload(
             inline: false,
           },
           sourceField(
-            'Current persisted member activity snapshots; season is accepted for parity but per-season activity history is not stored yet.',
+            'Current persisted member activity snapshots; per-season activity history is not stored yet.',
           ),
           coverageField(coverage),
         ),
@@ -1563,6 +1672,19 @@ function formatDonationRows(
     .join('\n');
 }
 
+function formatDonationHistoryRows(
+  rows: readonly SummaryDonationHistoryRow[],
+  limit: number,
+): string {
+  return rows
+    .slice(0, limit)
+    .map(
+      (row, index) =>
+        `${index + 1}. **${escapeMarkdown(row.playerName)}** (\`${row.playerTag}\`) · ${row.donated} donated · ${row.received} received · ${row.eventCount} events · ${time(row.lastDetectedAt, 'R')}`,
+    )
+    .join('\n');
+}
+
 function collectSummaryFilters(
   interaction: ChatInputCommandInteraction,
   clan: SummaryLinkedClan | undefined,
@@ -1690,6 +1812,10 @@ function latestWarSnapshotAt(rows: readonly SummaryWarSnapshotRecord[]): Date | 
 
 function latestMissedWarAttackAt(rows: readonly SummaryMissedWarAttackRow[]): Date | undefined {
   return latestDate(rows.map((row) => row.latestOccurredAt));
+}
+
+function latestDonationHistoryAt(rows: readonly SummaryDonationHistoryRow[]): Date | undefined {
+  return latestDate(rows.map((row) => row.lastDetectedAt));
 }
 
 function latestCapitalRaidSeasonAt(rows: readonly SummaryCapitalRaidSeasonRow[]): Date | undefined {
