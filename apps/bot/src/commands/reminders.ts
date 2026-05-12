@@ -20,6 +20,7 @@ const REMINDER_TYPES = [
 ] as const;
 
 const DURATION_CHOICES = ['30m', '1h', '2h', '6h', '12h', '1d', '2d', '3d'];
+const MAX_AUTOCOMPLETE_CHOICES = 25;
 const MAX_REMINDER_DURATION_MINUTES = 30 * 24 * 60;
 const MAX_MENTIONS = 40;
 const MAX_MESSAGE_LENGTH = 1_800;
@@ -172,6 +173,10 @@ function addClanOption(option: StringOption): StringOption {
     .setAutocomplete(true);
 }
 
+function dedupeStrings(values: readonly string[]): string[] {
+  return Array.from(new Set(values));
+}
+
 export interface RemindersLinkedClan {
   readonly id: string;
   readonly clanTag: string;
@@ -293,10 +298,13 @@ async function autocompleteReminders(
   if (focused.name === 'duration') {
     const query = String(focused.value ?? '').toLowerCase();
     await interaction.respond(
-      DURATION_CHOICES.filter((value) => value.includes(query)).map((value) => ({
-        name: value,
-        value,
-      })),
+      dedupeStrings(DURATION_CHOICES)
+        .filter((value) => value.includes(query))
+        .slice(0, MAX_AUTOCOMPLETE_CHOICES)
+        .map((value) => ({
+          name: value,
+          value,
+        })),
     );
     return;
   }
@@ -331,7 +339,9 @@ export function filterReminderClanChoices(
   const normalizedQuery = query.trim().toLowerCase();
   return clans
     .filter((clan) => clanMatchesQuery(clan, normalizedQuery))
-    .slice(0, 25)
+    .toSorted(compareReminderClanChoices)
+    .filter(uniqueReminderClanChoice())
+    .slice(0, MAX_AUTOCOMPLETE_CHOICES)
     .map((clan) => ({ name: formatClanChoiceName(clan), value: clan.alias ?? clan.clanTag }));
 }
 
@@ -346,7 +356,9 @@ export function filterReminderIdChoices(
       (schedule) =>
         (!type || schedule.type === type) && scheduleMatchesIdQuery(schedule, normalizedQuery),
     )
-    .slice(0, 25)
+    .toSorted(compareReminderIdChoices)
+    .filter(uniqueReminderIdChoice())
+    .slice(0, MAX_AUTOCOMPLETE_CHOICES)
     .map((schedule) => ({ name: formatReminderIdChoiceName(schedule), value: schedule.id }));
 }
 
@@ -659,6 +671,28 @@ function clanMatchesQuery(clan: RemindersLinkedClan, query: string): boolean {
     .some((value) => value.toLowerCase().includes(query));
 }
 
+function compareReminderClanChoices(a: RemindersLinkedClan, b: RemindersLinkedClan): number {
+  return (
+    formatClanChoiceName(a).localeCompare(formatClanChoiceName(b)) ||
+    (a.alias ?? a.clanTag).localeCompare(b.alias ?? b.clanTag) ||
+    a.clanTag.localeCompare(b.clanTag) ||
+    a.id.localeCompare(b.id)
+  );
+}
+
+function uniqueReminderClanChoice(): (clan: RemindersLinkedClan) => boolean {
+  const acceptedValues = new Set<string>();
+  const clanTags = new Set<string>();
+  return (clan) => {
+    const acceptedValueKey = (clan.alias ?? clan.clanTag).trim().toLowerCase();
+    const clanTagKey = normalizeClashTag(clan.clanTag);
+    if (acceptedValues.has(acceptedValueKey) || clanTags.has(clanTagKey)) return false;
+    acceptedValues.add(acceptedValueKey);
+    clanTags.add(clanTagKey);
+    return true;
+  };
+}
+
 function formatClanChoiceName(clan: RemindersLinkedClan): string {
   const label = clan.alias
     ? `${clan.alias} — ${clan.name ?? clan.clanTag}`
@@ -678,6 +712,25 @@ function scheduleMatchesIdQuery(schedule: ReminderSchedule, query: string): bool
   ]
     .filter((value): value is string => Boolean(value))
     .some((value) => value.toLowerCase().includes(query));
+}
+
+function compareReminderIdChoices(a: ReminderSchedule, b: ReminderSchedule): number {
+  return (
+    a.id.localeCompare(b.id) ||
+    a.type.localeCompare(b.type) ||
+    a.channelId.localeCompare(b.channelId) ||
+    a.createdAt.localeCompare(b.createdAt)
+  );
+}
+
+function uniqueReminderIdChoice(): (schedule: ReminderSchedule) => boolean {
+  const ids = new Set<string>();
+  return (schedule) => {
+    const idKey = schedule.id.trim().toLowerCase();
+    if (ids.has(idKey)) return false;
+    ids.add(idKey);
+    return true;
+  };
 }
 
 function formatReminderIdChoiceName(schedule: ReminderSchedule): string {
