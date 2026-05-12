@@ -720,6 +720,48 @@ export interface ProcessClanGamesProgressResult {
   clanSnapshots: number;
 }
 
+export interface CapitalRaidMemberSnapshotInput {
+  playerTag: string;
+  playerName: string;
+  attacks: number;
+  attackLimit: number;
+  bonusAttackLimit: number;
+  capitalResourcesLooted: number;
+  rawMember: unknown;
+}
+
+export interface CapitalRaidSeasonSnapshotInput {
+  state: 'ongoing' | 'ended';
+  startTime: Date;
+  endTime: Date;
+  capitalTotalLoot: number;
+  raidsCompleted: number;
+  totalAttacks: number;
+  enemyDistrictsDestroyed: number;
+  offensiveReward: number;
+  defensiveReward: number;
+  rawSeason: unknown;
+  members: readonly CapitalRaidMemberSnapshotInput[];
+}
+
+export interface ProcessCapitalRaidSeasonsInput {
+  clanTag: string;
+  fetchedAt: Date;
+  seasons: readonly CapitalRaidSeasonSnapshotInput[];
+}
+
+export interface ProcessCapitalRaidSeasonsResult {
+  status: 'processed' | 'not_linked';
+  seasonsUpserted: number;
+  memberRowsUpserted: number;
+}
+
+export interface CapitalRaidSeasonStore {
+  processCapitalRaidSeasons: (
+    input: ProcessCapitalRaidSeasonsInput,
+  ) => Promise<ProcessCapitalRaidSeasonsResult>;
+}
+
 export interface ClanGamesProgressDeltaInput {
   initialPoints: number;
   previousCurrentPoints: number;
@@ -4927,6 +4969,132 @@ export function createClanMemberEventStore(database: Database): ClanMemberEventS
   };
 }
 
+export function createCapitalRaidSeasonStore(database: Database): CapitalRaidSeasonStore {
+  return {
+    processCapitalRaidSeasons: async (input) => {
+      const normalized = normalizeCapitalRaidSeasonsInput(input);
+
+      return database.transaction(async (tx) => {
+        const linkedClans = await tx
+          .select({ id: schema.trackedClans.id, guildId: schema.trackedClans.guildId })
+          .from(schema.trackedClans)
+          .where(
+            and(
+              eq(schema.trackedClans.clanTag, normalized.clanTag),
+              eq(schema.trackedClans.isActive, true),
+            ),
+          );
+
+        if (linkedClans.length === 0) {
+          return { status: 'not_linked', seasonsUpserted: 0, memberRowsUpserted: 0 };
+        }
+
+        let seasonsUpserted = 0;
+        let memberRowsUpserted = 0;
+
+        for (const linkedClan of linkedClans) {
+          for (const season of normalized.seasons) {
+            const seasonKey = buildCapitalRaidSeasonKey({
+              clanTag: normalized.clanTag,
+              startTime: season.startTime,
+              endTime: season.endTime,
+            });
+            const [seasonRow] = await tx
+              .insert(schema.capitalRaidSeasonSnapshots)
+              .values({
+                guildId: linkedClan.guildId,
+                trackedClanId: linkedClan.id,
+                clanTag: normalized.clanTag,
+                seasonKey,
+                state: season.state,
+                startTime: season.startTime,
+                endTime: season.endTime,
+                capitalTotalLoot: season.capitalTotalLoot,
+                raidsCompleted: season.raidsCompleted,
+                totalAttacks: season.totalAttacks,
+                enemyDistrictsDestroyed: season.enemyDistrictsDestroyed,
+                offensiveReward: season.offensiveReward,
+                defensiveReward: season.defensiveReward,
+                rawSeason: season.rawSeason,
+                sourceFetchedAt: normalized.fetchedAt,
+                updatedAt: normalized.fetchedAt,
+              })
+              .onConflictDoUpdate({
+                target: [
+                  schema.capitalRaidSeasonSnapshots.guildId,
+                  schema.capitalRaidSeasonSnapshots.seasonKey,
+                ],
+                set: {
+                  trackedClanId: linkedClan.id,
+                  state: season.state,
+                  startTime: season.startTime,
+                  endTime: season.endTime,
+                  capitalTotalLoot: season.capitalTotalLoot,
+                  raidsCompleted: season.raidsCompleted,
+                  totalAttacks: season.totalAttacks,
+                  enemyDistrictsDestroyed: season.enemyDistrictsDestroyed,
+                  offensiveReward: season.offensiveReward,
+                  defensiveReward: season.defensiveReward,
+                  rawSeason: season.rawSeason,
+                  sourceFetchedAt: normalized.fetchedAt,
+                  updatedAt: normalized.fetchedAt,
+                },
+              })
+              .returning({ id: schema.capitalRaidSeasonSnapshots.id });
+
+            if (!seasonRow) continue;
+            seasonsUpserted += 1;
+
+            for (const member of season.members) {
+              const rows = await tx
+                .insert(schema.capitalRaidMemberSnapshots)
+                .values({
+                  guildId: linkedClan.guildId,
+                  raidSeasonSnapshotId: seasonRow.id,
+                  trackedClanId: linkedClan.id,
+                  clanTag: normalized.clanTag,
+                  seasonKey,
+                  playerTag: member.playerTag,
+                  playerName: member.playerName,
+                  attacks: member.attacks,
+                  attackLimit: member.attackLimit,
+                  bonusAttackLimit: member.bonusAttackLimit,
+                  capitalResourcesLooted: member.capitalResourcesLooted,
+                  rawMember: member.rawMember,
+                  sourceFetchedAt: normalized.fetchedAt,
+                  updatedAt: normalized.fetchedAt,
+                })
+                .onConflictDoUpdate({
+                  target: [
+                    schema.capitalRaidMemberSnapshots.guildId,
+                    schema.capitalRaidMemberSnapshots.seasonKey,
+                    schema.capitalRaidMemberSnapshots.playerTag,
+                  ],
+                  set: {
+                    raidSeasonSnapshotId: seasonRow.id,
+                    trackedClanId: linkedClan.id,
+                    playerName: member.playerName,
+                    attacks: member.attacks,
+                    attackLimit: member.attackLimit,
+                    bonusAttackLimit: member.bonusAttackLimit,
+                    capitalResourcesLooted: member.capitalResourcesLooted,
+                    rawMember: member.rawMember,
+                    sourceFetchedAt: normalized.fetchedAt,
+                    updatedAt: normalized.fetchedAt,
+                  },
+                })
+                .returning({ id: schema.capitalRaidMemberSnapshots.id });
+              memberRowsUpserted += rows.length;
+            }
+          }
+        }
+
+        return { status: 'processed', seasonsUpserted, memberRowsUpserted };
+      });
+    },
+  };
+}
+
 export function createClanGamesEventStore(database: Database): ClanGamesEventStore {
   return {
     processClanGamesProgress: async (input) => {
@@ -7861,6 +8029,80 @@ interface InsertClanGamesEventsInput {
   previousSnapshot: unknown;
   currentSnapshot: unknown;
   fetchedAt: Date;
+}
+
+interface NormalizedCapitalRaidSeasonsInput extends ProcessCapitalRaidSeasonsInput {
+  clanTag: string;
+  seasons: readonly (CapitalRaidSeasonSnapshotInput & {
+    members: readonly (CapitalRaidMemberSnapshotInput & {
+      playerTag: string;
+      playerName: string;
+    })[];
+  })[];
+}
+
+function normalizeCapitalRaidSeasonsInput(
+  input: ProcessCapitalRaidSeasonsInput,
+): NormalizedCapitalRaidSeasonsInput {
+  const clanTag = input.clanTag.trim().toUpperCase();
+  if (!clanTag) throw new Error('Capital raid seasons require a clan tag.');
+
+  const seasons = input.seasons.map((season) => {
+    if (season.state !== 'ongoing' && season.state !== 'ended') {
+      throw new Error('Capital raid seasons require a supported season state.');
+    }
+    if (Number.isNaN(season.startTime.getTime()) || Number.isNaN(season.endTime.getTime())) {
+      throw new Error('Capital raid seasons require valid start and end timestamps.');
+    }
+    validateNonNegativeInteger(season.capitalTotalLoot, 'capital total loot');
+    validateNonNegativeInteger(season.raidsCompleted, 'raids completed');
+    validateNonNegativeInteger(season.totalAttacks, 'total attacks');
+    validateNonNegativeInteger(season.enemyDistrictsDestroyed, 'enemy districts destroyed');
+    validateNonNegativeInteger(season.offensiveReward, 'offensive reward');
+    validateNonNegativeInteger(season.defensiveReward, 'defensive reward');
+
+    const members = season.members.map((member) => {
+      const playerTag = member.playerTag.trim().toUpperCase();
+      const playerName = member.playerName.trim();
+      if (!playerTag || !playerName) {
+        throw new Error('Capital raid member snapshots require non-empty player tags and names.');
+      }
+      validateNonNegativeInteger(member.attacks, 'capital raid member attacks');
+      validateNonNegativeInteger(member.attackLimit, 'capital raid member attack limit');
+      validateNonNegativeInteger(member.bonusAttackLimit, 'capital raid member bonus attack limit');
+      validateNonNegativeInteger(
+        member.capitalResourcesLooted,
+        'capital raid member resources looted',
+      );
+      return { ...member, playerTag, playerName };
+    });
+    const playerTags = new Set(members.map((member) => member.playerTag));
+    if (playerTags.size !== members.length) {
+      throw new Error('Capital raid member snapshots require unique player tags per season.');
+    }
+
+    return { ...season, members };
+  });
+
+  return { ...input, clanTag, seasons };
+}
+
+function buildCapitalRaidSeasonKey(input: {
+  clanTag: string;
+  startTime: Date;
+  endTime: Date;
+}): string {
+  const clanTag = input.clanTag.trim().toUpperCase();
+  if (!clanTag) throw new Error('Capital raid season keys require a clan tag.');
+  return ['capital-raid', clanTag, input.startTime.toISOString(), input.endTime.toISOString()].join(
+    ':',
+  );
+}
+
+function validateNonNegativeInteger(value: number, label: string): void {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`Capital raid season snapshots require a non-negative integer ${label}.`);
+  }
 }
 
 function normalizeClanGamesProgressInput(

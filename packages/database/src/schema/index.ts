@@ -562,6 +562,85 @@ export const clanGamesEvents = pgTable(
   }),
 );
 
+export const capitalRaidSeasonSnapshots = pgTable(
+  'capital_raid_season_snapshots',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    guildId: text('guild_id')
+      .notNull()
+      .references(() => guilds.id, { onDelete: 'cascade' }),
+    trackedClanId: uuid('tracked_clan_id').references(() => trackedClans.id, {
+      onDelete: 'set null',
+    }),
+    clanTag: text('clan_tag').notNull(),
+    seasonKey: text('season_key').notNull(),
+    state: text('state').notNull(),
+    startTime: timestamp('start_time', { withTimezone: true }).notNull(),
+    endTime: timestamp('end_time', { withTimezone: true }).notNull(),
+    capitalTotalLoot: integer('capital_total_loot').notNull().default(0),
+    raidsCompleted: integer('raids_completed').notNull().default(0),
+    totalAttacks: integer('total_attacks').notNull().default(0),
+    enemyDistrictsDestroyed: integer('enemy_districts_destroyed').notNull().default(0),
+    offensiveReward: integer('offensive_reward').notNull().default(0),
+    defensiveReward: integer('defensive_reward').notNull().default(0),
+    rawSeason: jsonb('raw_season').notNull().default(sql`'{}'::jsonb`),
+    sourceFetchedAt: timestamp('source_fetched_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    capitalRaidSeasonGuildKeyUnique: uniqueIndex(
+      'capital_raid_season_snapshots_guild_season_key_unique',
+    ).on(table.guildId, table.seasonKey),
+    capitalRaidSeasonGuildClanStartIndex: index(
+      'capital_raid_season_snapshots_guild_clan_start_idx',
+    ).on(table.guildId, table.clanTag, table.startTime),
+    capitalRaidSeasonTrackedClanStartIndex: index(
+      'capital_raid_season_snapshots_tracked_clan_start_idx',
+    ).on(table.trackedClanId, table.startTime),
+  }),
+);
+
+export const capitalRaidMemberSnapshots = pgTable(
+  'capital_raid_member_snapshots',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    guildId: text('guild_id')
+      .notNull()
+      .references(() => guilds.id, { onDelete: 'cascade' }),
+    raidSeasonSnapshotId: uuid('raid_season_snapshot_id')
+      .notNull()
+      .references(() => capitalRaidSeasonSnapshots.id, { onDelete: 'cascade' }),
+    trackedClanId: uuid('tracked_clan_id').references(() => trackedClans.id, {
+      onDelete: 'set null',
+    }),
+    clanTag: text('clan_tag').notNull(),
+    seasonKey: text('season_key').notNull(),
+    playerTag: text('player_tag').notNull(),
+    playerName: text('player_name').notNull(),
+    attacks: integer('attacks').notNull().default(0),
+    attackLimit: integer('attack_limit').notNull().default(0),
+    bonusAttackLimit: integer('bonus_attack_limit').notNull().default(0),
+    capitalResourcesLooted: integer('capital_resources_looted').notNull().default(0),
+    rawMember: jsonb('raw_member').notNull().default(sql`'{}'::jsonb`),
+    sourceFetchedAt: timestamp('source_fetched_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    capitalRaidMemberGuildSeasonPlayerUnique: uniqueIndex(
+      'capital_raid_member_snapshots_guild_season_player_unique',
+    ).on(table.guildId, table.seasonKey, table.playerTag),
+    capitalRaidMemberGuildClanSeasonIndex: index(
+      'capital_raid_member_snapshots_guild_clan_season_idx',
+    ).on(table.guildId, table.clanTag, table.seasonKey),
+    capitalRaidMemberPlayerSeasonIndex: index('capital_raid_member_snapshots_player_season_idx').on(
+      table.playerTag,
+      table.seasonKey,
+    ),
+  }),
+);
+
 export const notificationFanoutCursors = pgTable(
   'notification_fanout_cursors',
   {
