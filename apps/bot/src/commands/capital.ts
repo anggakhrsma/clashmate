@@ -308,6 +308,7 @@ export function buildCapitalRaidsEmbed(
   const embed = baseCapitalEmbed('Capital Raids', {
     ...filters,
     linkedClanSnapshots: clans.filter((clan) => hasSnapshotRecord(clan.snapshot)).length,
+    linkedClansShown: rows.length,
     usableRows: rows.length,
   });
   if (rows.length === 0) {
@@ -350,12 +351,14 @@ export function buildCapitalContributionEmbed(
     readonly linkedClansConsidered?: number;
   },
 ): EmbedBuilder {
-  const tagFilter = filters.playerTags ? new Set(filters.playerTags) : undefined;
+  const tagFilter = filters.playerTags
+    ? new Set(filters.playerTags.map((tag) => tag.toUpperCase()))
+    : undefined;
   const members = snapshots.flatMap((snapshot) =>
     snapshot.members.map((member) => ({ member, clan: snapshot.clan })),
   );
   const filteredMembers = members.filter(
-    (row) => !tagFilter || tagFilter.has(row.member.playerTag),
+    (row) => !tagFilter || tagFilter.has(row.member.playerTag.toUpperCase()),
   );
   const rows = filteredMembers
     .map((row) => ({
@@ -384,6 +387,7 @@ export function buildCapitalContributionEmbed(
   const embed = baseCapitalEmbed('Capital Contribution', {
     ...filters,
     latestMemberSnapshotAt: latestMemberSnapshotDate(snapshots),
+    memberSnapshotClans: snapshots.length,
     memberSnapshotRows: members.length,
     filteredMemberRows: filteredMembers.length,
     usableRows: rows.length,
@@ -467,6 +471,8 @@ function baseCapitalEmbed(
     readonly linkedClansConsidered?: number;
     readonly latestMemberSnapshotAt?: Date | null;
     readonly linkedClanSnapshots?: number;
+    readonly linkedClansShown?: number;
+    readonly memberSnapshotClans?: number;
     readonly memberSnapshotRows?: number;
     readonly filteredMemberRows?: number;
     readonly usableRows?: number;
@@ -486,6 +492,14 @@ function baseCapitalEmbed(
       `Linked-clan snapshots with stored payloads: ${filters.linkedClanSnapshots.toLocaleString(
         'en-US',
       )}.`,
+    );
+  if (typeof filters.linkedClansShown === 'number')
+    notes.push(`Linked clans shown: ${filters.linkedClansShown.toLocaleString('en-US')}.`);
+  if (typeof filters.memberSnapshotClans === 'number')
+    notes.push(
+      `Member snapshot coverage: ${filters.memberSnapshotClans.toLocaleString(
+        'en-US',
+      )} linked clans with member rows.`,
     );
   if (typeof filters.memberSnapshotRows === 'number')
     notes.push(`Member snapshot rows read: ${filters.memberSnapshotRows.toLocaleString('en-US')}.`);
