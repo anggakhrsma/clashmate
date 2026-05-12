@@ -32,8 +32,30 @@ export interface ReminderSchedulerLoopController {
 export interface ReminderSchedulerIterationResult {
   readonly schedulesScanned: number;
   readonly schedulesDue: number;
+  readonly schedulesSkippedNonDue: number;
   readonly outboxInserted: number;
+  readonly outboxDuplicate: number;
   readonly failures?: number;
+  readonly diagnostics: ReminderSchedulerIterationDiagnostics;
+}
+
+export interface ReminderSchedulerIterationDiagnostics {
+  readonly dueBuckets: readonly { bucket: string; due: number; overdue: number }[];
+  readonly skippedNonDueSchedules: number;
+  readonly outbox: {
+    readonly inserted: number;
+    readonly duplicate: number;
+  };
+  readonly failureSummaries: readonly ReminderSchedulerFailureSummary[];
+}
+
+export interface ReminderSchedulerFailureSummary {
+  readonly scheduleId: string;
+  readonly guildId: string;
+  readonly channelId: string | null;
+  readonly reminderType: string;
+  readonly bucket: string;
+  readonly reason: string;
 }
 
 interface DueReminder {
@@ -69,7 +91,9 @@ export async function runReminderSchedulerIteration(
   const due = schedules.flatMap((schedule) => collectDueReminder(schedule, now));
   const limitedDue = due.slice(0, options.batchSize ?? 50);
   let outboxInserted = 0;
+  let outboxDuplicate = 0;
   let failures = 0;
+  const failureSummaries: ReminderSchedulerFailureSummary[] = [];
 
   for (const item of limitedDue) {
     try {
@@ -81,9 +105,21 @@ export async function runReminderSchedulerIteration(
         payload,
         now,
       });
-      if (inserted) outboxInserted += 1;
+      if (inserted) {
+        outboxInserted += 1;
+      } else {
+        outboxDuplicate += 1;
+      }
     } catch (error) {
       failures += 1;
+      failureSummaries.push({
+        scheduleId: item.schedule.id,
+        guildId: item.schedule.guildId,
+        channelId: item.schedule.channelId,
+        reminderType: item.schedule.type,
+        bucket: item.bucket,
+        reason: formatReminderSchedulerError(error),
+      });
       options.logger?.error?.(
         {
           error,
@@ -104,15 +140,28 @@ export async function runReminderSchedulerIteration(
     due,
     limitedDue,
     outboxInserted,
+    outboxDuplicate,
     failures,
+    failureSummaries,
   );
   options.logger?.debug?.(summary, 'Reminder scheduler iteration completed');
+
+  const diagnostics = buildReminderSchedulerIterationDiagnostics(
+    schedules,
+    due,
+    outboxInserted,
+    outboxDuplicate,
+    failureSummaries,
+  );
 
   return {
     schedulesScanned: schedules.length,
     schedulesDue: due.length,
+    schedulesSkippedNonDue: diagnostics.skippedNonDueSchedules,
     outboxInserted,
+    outboxDuplicate,
     ...(failures > 0 ? { failures } : {}),
+    diagnostics,
   };
 }
 
@@ -310,19 +359,63 @@ function buildReminderSchedulerIterationSummary(
   due: readonly DueReminder[],
   limitedDue: readonly DueReminder[],
   outboxInserted: number,
+  outboxDuplicate: number,
   failures: number,
+  failureSummaries: readonly ReminderSchedulerFailureSummary[],
 ): Record<string, unknown> {
-  const skipped = Math.max(0, limitedDue.length - outboxInserted - failures);
+  const skippedNonDueSchedules = Math.max(0, schedules.length - due.length);
   return {
     schedulesScanned: schedules.length,
     schedulesDue: due.length,
+    schedulesSkippedNonDue: skippedNonDueSchedules,
     schedulesProcessed: limitedDue.length,
     outboxInserted,
-    outboxSkipped: skipped,
+    outboxDuplicate,
     failures,
+    dueBuckets: buildReminderSchedulerDueBuckets(due),
+    failureSummaries,
     reminderBreakdown: buildReminderSchedulerBreakdown(limitedDue),
     nextRunAtCoverage: buildReminderSchedulerNextRunCoverage(due),
   };
+}
+
+function buildReminderSchedulerIterationDiagnostics(
+  schedules: readonly ReminderScheduleDeliveryRecord[],
+  due: readonly DueReminder[],
+  outboxInserted: number,
+  outboxDuplicate: number,
+  failureSummaries: readonly ReminderSchedulerFailureSummary[],
+): ReminderSchedulerIterationDiagnostics {
+  return {
+    dueBuckets: buildReminderSchedulerDueBuckets(due),
+    skippedNonDueSchedules: Math.max(0, schedules.length - due.length),
+    outbox: {
+      inserted: outboxInserted,
+      duplicate: outboxDuplicate,
+    },
+    failureSummaries,
+  };
+}
+
+function buildReminderSchedulerDueBuckets(
+  due: readonly DueReminder[],
+): readonly { bucket: string; due: number; overdue: number }[] {
+  const buckets = new Map<string, { due: number; overdue: number }>();
+  for (const item of due) {
+    const current = buckets.get(item.bucket) ?? { due: 0, overdue: 0 };
+    current.due += 1;
+    if (Number.parseInt(item.bucket, 10) > 1) current.overdue += 1;
+    buckets.set(item.bucket, current);
+  }
+  return [...buckets.entries()]
+    .sort(([left], [right]) => Number.parseInt(left, 10) - Number.parseInt(right, 10))
+    .map(([bucket, counts]) => ({ bucket, due: counts.due, overdue: counts.overdue }));
+}
+
+function formatReminderSchedulerError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  return 'Unknown reminder scheduler error';
 }
 
 function buildReminderSchedulerBreakdown(due: readonly DueReminder[]): {
