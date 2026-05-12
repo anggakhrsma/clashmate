@@ -307,21 +307,17 @@ export function buildActivityEmbed(
     .sort((a, b) => b.activeMembers - a.activeMembers || a.clanName.localeCompare(b.clanName));
   const context = collectActivitySnapshotContext(snapshots, summaries, options);
 
-  const embed = new EmbedBuilder()
+  return new EmbedBuilder()
     .setTitle('Clan Activity')
-    .setDescription(
-      truncateEmbedDescription(formatActivityDescription(summaries, options.timezone)),
-    )
+    .setDescription(truncateEmbedDescription(formatActivityDescription(summaries, context)))
     .addFields({
-      name: 'Source & coverage',
+      name: 'Snapshot context',
       value: formatActivitySourceContext(context),
       inline: false,
     })
     .setFooter({
-      text: `Window: ${options.days} day(s) · Display timezone: ${formatActivityTimezoneLabel(options)}`,
+      text: `Window: ${options.days} day(s) · Limit: ${options.limit} · Timezone: ${context.timezoneLabel}`,
     });
-
-  return embed;
 }
 
 interface ActivitySnapshotContext {
@@ -338,6 +334,7 @@ interface ActivitySnapshotContext {
   readonly snapshotFreshnessGuidance: string;
   readonly filters: readonly string[];
   readonly timezoneLabel: string;
+  readonly timezoneValue?: string;
   readonly windowLabel: string;
 }
 
@@ -370,45 +367,42 @@ function collectActivitySnapshotContext(
     snapshotFreshnessGuidance: formatSnapshotFreshnessGuidance(latestFetchedAt, now),
     filters: formatActivityFilters(options),
     timezoneLabel: formatActivityTimezoneLabel(options),
+    ...(options.timezone ? { timezoneValue: options.timezone } : {}),
     windowLabel: formatActivityWindowLabel(options.days),
   };
 }
 
 function formatActivitySourceContext(context: ActivitySnapshotContext): string {
-  const configuredClans =
+  const linkedClans =
     typeof context.linkedClanCount === 'number' ? `${context.linkedClanCount}` : 'unknown';
+  const latestSnapshot = formatLatestSnapshotLabel(context);
   return [
-    'Source: persisted ClashMate clan-member snapshots written by clan polling. This command does not call the Clash API live, backfill history, or render the old image chart.',
-    `Activity calculation: members with last-seen timestamps inside ${context.windowLabel} count as active; other stored members count as inactive for the percentage.`,
-    `Derived totals: ${context.activeMembers} active · ${context.inactiveMembers} inactive · ${context.activePercentage}% active.`,
-    `Linked clans configured: ${configuredClans} · Snapshot clans returned: ${context.snapshotsConsidered} · With member rows: ${context.clansWithSnapshots}`,
-    `Member rows considered: ${context.memberRowsConsidered} · Visible rows: ${context.visibleRows}`,
-    `Latest stored snapshot fetch: ${formatLatestSnapshotLabel(context)} · ${context.snapshotFreshnessGuidance}`,
-    `Active filters: ${context.filters.join(' · ')} · user=not filtered by /activity`,
-    `Timezone: ${context.timezoneLabel}`,
-    'Polling prerequisite: clan polling must run after the clan is linked/configured; search-only lookups and Discord user links do not create activity snapshots.',
+    'Source: persisted clan-member snapshots only; no live Clash API lookup or history backfill.',
+    `Linked clans: ${linkedClans} configured · ${context.snapshotsConsidered} snapshot set(s) returned · ${context.clansWithSnapshots} with member rows.`,
+    `Snapshot rows: ${context.memberRowsConsidered} considered · ${context.visibleRows} shown in the recent-members list.`,
+    `Activity: ${context.activeMembers} active · ${context.inactiveMembers} inactive · ${context.activePercentage}% active within ${context.windowLabel}.`,
+    `Filters: ${context.filters.join(' · ')} · timezone=${context.timezoneLabel}.`,
+    `Freshness: ${latestSnapshot} · ${context.snapshotFreshnessGuidance}.`,
+    'Guidance: if no rows appear, link/configure a clan, wait for clan polling, and confirm the selected filter matches a linked clan.',
   ].join('\n');
 }
 
 function formatActivityNoDataMessage(context: ActivitySnapshotContext): string {
   const linkedClanText =
     typeof context.linkedClanCount === 'number'
-      ? `Linked clans configured: ${context.linkedClanCount}.`
+      ? `Linked clans: ${context.linkedClanCount}.`
       : 'Linked clan coverage is unavailable.';
   return [
     ACTIVITY_NO_SNAPSHOT_MESSAGE,
-    `${linkedClanText} Snapshot clans returned: ${context.snapshotsConsidered}; member rows considered: ${context.memberRowsConsidered}.`,
-    `Derived totals for selected filters: ${context.activeMembers} active; ${context.inactiveMembers} inactive; ${context.activePercentage}% active.`,
-    `Latest stored snapshot fetch: ${formatLatestSnapshotLabel(context)}. ${context.snapshotFreshnessGuidance}.`,
-    `Selected filters: ${context.filters.join(' · ')} · user=not filtered by /activity · timezone=${context.timezoneLabel}.`,
-    `Activity calculation: ${context.windowLabel}; members seen inside the window are active, stored members outside it are inactive.`,
-    'Source coverage: persisted linked-clan member snapshots only; no live Clash API fallback, backfill, historical ClickHouse activity table, or image chart renderer is used.',
-    'Action: verify the clan is linked/configured for this server, check that the selected clan filter matches a linked clan, keep the worker running, and wait for clan polling to fetch fresh snapshots.',
-  ].join('\n');
+    `${linkedClanText} Snapshots returned: ${context.snapshotsConsidered}; member rows considered: ${context.memberRowsConsidered}.`,
+    `Filters: ${context.filters.join(' · ')} · timezone=${context.timezoneLabel}.`,
+    `Freshness: ${formatLatestSnapshotLabel(context)} · ${context.snapshotFreshnessGuidance}.`,
+    'This command uses persisted snapshots only; there is no live Clash API fallback.',
+  ].join(' ');
 }
 
 function formatLatestSnapshotLabel(context: ActivitySnapshotContext): string {
-  if (!context.latestFetchedAt) return 'none; wait for polling or check linked clan setup';
+  if (!context.latestFetchedAt) return 'none yet';
   return `${time(context.latestFetchedAt, 'R')} (${context.latestSnapshotAge ?? 'age unknown'} old)`;
 }
 
@@ -429,7 +423,7 @@ function formatSnapshotAge(snapshotAt: Date, now: Date): string {
 }
 
 function formatSnapshotFreshnessGuidance(snapshotAt: Date | undefined, now: Date): string {
-  if (!snapshotAt) return 'No stored fetch is available yet; wait for the next clan polling pass';
+  if (!snapshotAt) return 'No stored fetch yet; wait for the next clan polling pass';
 
   const ageMs = Math.max(0, now.getTime() - snapshotAt.getTime());
   if (ageMs > 24 * 60 * 60 * 1000) {
@@ -484,17 +478,21 @@ interface ActivityClanSummary {
 
 function formatActivityDescription(
   summaries: readonly ActivityClanSummary[],
-  timezone: string | undefined,
+  context: ActivitySnapshotContext,
 ): string {
-  if (summaries.length === 0)
-    return 'No persisted member activity rows matched the linked clan filter yet; wait for clan polling to store snapshots.';
+  if (summaries.length === 0) {
+    return [
+      'No persisted member activity rows matched the linked clan filter yet.',
+      'Wait for clan polling to store snapshots, or verify the clan filter matches a linked clan.',
+    ].join(' ');
+  }
   return summaries
     .map((summary) => {
       const recent = summary.recentMembers.length
         ? summary.recentMembers
             .map(
               (member, index) =>
-                `${index + 1}. ${escapeMarkdown(member.name)} (\`${member.playerTag}\`) · last seen ${formatActivityTimestamp(member.lastSeenAt, timezone)}`,
+                `${index + 1}. ${escapeMarkdown(member.name)} (\`${member.playerTag}\`) · last seen ${formatActivityTimestamp(member.lastSeenAt, context.timezoneValue)}`,
             )
             .join('\n')
         : 'No recent member rows in the stored snapshot.';
