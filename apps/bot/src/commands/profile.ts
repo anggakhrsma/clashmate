@@ -80,6 +80,7 @@ type ProfileResolution =
       readonly status: 'user_links';
       readonly targetUser: User;
       readonly isSelf: boolean;
+      readonly targetLinkCount: number;
       readonly links: readonly ProfilePlayerLinkRecord[];
       readonly timezone: ProfileTimezonePreferenceRecord | null;
     }
@@ -87,6 +88,7 @@ type ProfileResolution =
       readonly status: 'player_link';
       readonly playerTag: string;
       readonly link: ProfilePlayerLinkRecord;
+      readonly targetLinkCount: number;
       readonly timezone: ProfileTimezonePreferenceRecord | null;
     }
   | { readonly status: 'invalid_tag' }
@@ -94,6 +96,7 @@ type ProfileResolution =
       readonly status: 'no_user_links';
       readonly targetUser: User;
       readonly isSelf: boolean;
+      readonly targetLinkCount: number;
       readonly timezone: ProfileTimezonePreferenceRecord | null;
     }
   | { readonly status: 'no_player_link'; readonly playerTag: string };
@@ -225,7 +228,7 @@ export async function executeProfile(
   if (resolution.status === 'invalid_tag') {
     await interaction.reply({
       content:
-        'That player tag is not valid. Enter a full Clash player tag such as `#2PP`, or choose one of your stored links from autocomplete.',
+        'That player tag is not valid. Enter a full Clash player tag such as `#2PP`, or choose one of your stored links from autocomplete. `/profile` only checks saved links; it does not call live Clash data, start polling, or link clans.',
       ephemeral: true,
     });
     return;
@@ -268,13 +271,20 @@ async function resolveProfile(input: {
       return { status: 'invalid_tag' };
     }
 
-    const [link] = await input.links.listPlayerLinksByTags([playerTag]);
+    const matchingLinks = await input.links.listPlayerLinksByTags([playerTag]);
+    const [link] = matchingLinks;
     if (!link) return { status: 'no_player_link', playerTag };
     const timezone = await input.timezones.getUserTimezonePreference(
       input.guildId,
       link.discordUserId,
     );
-    return { status: 'player_link', playerTag, link, timezone };
+    return {
+      status: 'player_link',
+      playerTag,
+      link,
+      targetLinkCount: matchingLinks.length,
+      timezone,
+    };
   }
 
   const targetUser = input.userOption ?? input.invokingUser;
@@ -285,6 +295,7 @@ async function resolveProfile(input: {
       status: 'no_user_links',
       targetUser,
       isSelf: targetUser.id === input.invokingUser.id,
+      targetLinkCount: playerTags.length,
       timezone,
     };
   }
@@ -296,6 +307,7 @@ async function resolveProfile(input: {
       status: 'no_user_links',
       targetUser,
       isSelf: targetUser.id === input.invokingUser.id,
+      targetLinkCount: playerTags.length,
       timezone,
     };
   }
@@ -304,6 +316,7 @@ async function resolveProfile(input: {
     status: 'user_links',
     targetUser,
     isSelf: targetUser.id === input.invokingUser.id,
+    targetLinkCount: playerTags.length,
     links: orderedLinks,
     timezone,
   };
@@ -326,12 +339,13 @@ function formatNoUserLinksMessage(
     ? 'self'
     : `user ${sanitizeEmbedText(result.targetUser.displayName, 'This user')}`;
   const context = `Target: **${target}** • linked accounts: **0**.`;
+  const timezoneContext = `Timezone: **${result.timezone ? 'saved' : 'not saved'}**.`;
   const storedOnlyNote =
     '`/profile` reads saved ClashMate links/profile preferences only; it is not a live Clash API lookup and does not show current player/clan data.';
   if (result.isSelf) {
-    return `${context} You do not have linked player accounts. ${storedOnlyNote} Use \`/link create\` first; this one-off check will not start polling players/clans or link clans.`;
+    return `${context} ${timezoneContext} You do not have linked player accounts. ${storedOnlyNote} Use \`/link create\` first; this one-off check will not start polling players/clans or link clans.`;
   }
-  return `${context} That user has no linked player accounts. ${storedOnlyNote} Ask them to use \`/link create\`; this one-off check will not start polling players/clans or link clans.`;
+  return `${context} ${timezoneContext} That user has no linked player accounts. ${storedOnlyNote} Ask them to use \`/link create\`; this one-off check will not start polling players/clans or link clans.`;
 }
 
 function formatNoPlayerLinkMessage(
@@ -353,6 +367,8 @@ export function buildProfileEmbed(
       buildProfileSourceField({
         target: 'player',
         linkedAccountCount: 1,
+        targetLinkCount: resolution.targetLinkCount,
+        timezoneAvailable: Boolean(resolution.timezone),
         selected: `tag ${resolution.playerTag}`,
       }),
       buildProfileSummaryField({ links: [resolution.link], timezone: resolution.timezone }),
@@ -407,6 +423,8 @@ export function buildProfileEmbed(
       buildProfileSourceField({
         target: 'user',
         linkedAccountCount: resolution.status === 'user_links' ? resolution.links.length : 0,
+        targetLinkCount: resolution.targetLinkCount,
+        timezoneAvailable: Boolean(resolution.timezone),
         selected:
           resolution.status === 'user_links' && resolution.isSelf
             ? 'self'
@@ -435,6 +453,8 @@ export function buildProfileEmbed(
 function buildProfileSourceField(input: {
   readonly target: 'user' | 'player';
   readonly linkedAccountCount: number;
+  readonly targetLinkCount: number;
+  readonly timezoneAvailable: boolean;
   readonly selected: string;
 }): {
   name: string;
@@ -445,7 +465,7 @@ function buildProfileSourceField(input: {
     input.target === 'player'
       ? 'Target source: `player` option; `user` is ignored when `player` is provided.'
       : 'Target source: `user` option, or self when omitted.';
-  const selectedDetails = `Selected target: **${sanitizeEmbedText(input.selected, 'unknown')}** • linked accounts: **${input.linkedAccountCount}**.`;
+  const selectedDetails = `Selected target: **${sanitizeEmbedText(input.selected, 'unknown')}** • matched links: **${input.linkedAccountCount}/${input.targetLinkCount}** • timezone: **${input.timezoneAvailable ? 'saved' : 'not saved'}**.`;
 
   return {
     name: formatEmbedFieldName('Source and Coverage'),
