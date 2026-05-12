@@ -235,7 +235,7 @@ export function buildClansLeaderboardEmbed(
     .sort((a, b) => (b.points ?? -1) - (a.points ?? -1) || (b.members ?? -1) - (a.members ?? -1));
   const coverage = buildClanCoverage(clans.length, filteredClans.length, rows.length);
 
-  const embed = baseEmbed('Linked Clan Leaderboard', location, season);
+  const embed = baseEmbed('Linked Clan Leaderboard', 'clans', location, season);
   if (rows.length === 0) {
     const locationHadMatches = filteredClans.length > 0;
     return embed
@@ -263,7 +263,9 @@ export function buildClansLeaderboardEmbed(
         )
         .join('\n')}`,
     )
-    .setFooter({ text: `Showing ${Math.min(rows.length, MAX_ROWS)}/${rows.length} linked clans` });
+    .setFooter({
+      text: formatRowsShownFooter(Math.min(rows.length, MAX_ROWS), rows.length, 'linked clans'),
+    });
 }
 
 export function buildPlayersLeaderboardEmbed(
@@ -289,7 +291,7 @@ export function buildPlayersLeaderboardEmbed(
         a.member.name.localeCompare(b.member.name),
     );
 
-  const embed = baseEmbed('Linked Player Leaderboard', location, season);
+  const embed = baseEmbed('Linked Player Leaderboard', 'players', location, season);
   const linkedClansConsidered = shouldFilterByLocation ? linkedClanTags.size : linkedClans.length;
   const coverage = buildMemberCoverage(
     linkedClans.length,
@@ -325,7 +327,9 @@ export function buildPlayersLeaderboardEmbed(
         )
         .join('\n')}`,
     )
-    .setFooter({ text: `Showing ${Math.min(rows.length, MAX_ROWS)}/${rows.length} members` });
+    .setFooter({
+      text: formatRowsShownFooter(Math.min(rows.length, MAX_ROWS), rows.length, 'members'),
+    });
 }
 
 export function buildCapitalLeaderboardEmbed(
@@ -345,7 +349,7 @@ export function buildCapitalLeaderboardEmbed(
     .sort((a, b) => (b.points ?? -1) - (a.points ?? -1) || (b.hall ?? -1) - (a.hall ?? -1));
   const coverage = buildCapitalCoverage(clans.length, filteredClans.length, rows);
 
-  const embed = baseEmbed('Linked Capital Leaderboard', location, season);
+  const embed = baseEmbed('Linked Capital Leaderboard', 'capital', location, season);
   if (rows.length === 0) {
     const locationHadMatches = filteredClans.length > 0;
     return embed
@@ -373,7 +377,13 @@ export function buildCapitalLeaderboardEmbed(
         )
         .join('\n')}`,
     )
-    .setFooter({ text: `Showing ${Math.min(rows.length, MAX_ROWS)}/${rows.length} linked clans` });
+    .setFooter({
+      text: formatRowsShownFooter(Math.min(rows.length, MAX_ROWS), rows.length, 'linked clans'),
+    });
+}
+
+function formatRowsShownFooter(rowsShown: number, totalRows: number, label: string): string {
+  return `Showing ${rowsShown.toLocaleString('en-US')}/${totalRows.toLocaleString('en-US')} ${label} (limit ${MAX_ROWS.toLocaleString('en-US')})`;
 }
 
 function formatCapitalRankContext(row: {
@@ -406,7 +416,7 @@ function buildClanCoverage(
   linkedClansConsidered: number,
   usableRows: number,
 ): string {
-  return `Coverage: ${totalLinkedClans.toLocaleString('en-US')} linked clan${totalLinkedClans === 1 ? '' : 's'} configured · ${linkedClansConsidered.toLocaleString('en-US')} matched by the current location filter · ${usableRows.toLocaleString('en-US')} row${usableRows === 1 ? '' : 's'} with usable current snapshot fields.`;
+  return `Coverage: ${totalLinkedClans.toLocaleString('en-US')} linked clan${totalLinkedClans === 1 ? '' : 's'} configured · ${linkedClansConsidered.toLocaleString('en-US')} considered after the current location filter · ${usableRows.toLocaleString('en-US')} row${usableRows === 1 ? '' : 's'} with usable current snapshot fields.`;
 }
 
 function buildMemberCoverage(
@@ -442,8 +452,17 @@ function formatSnapshotRecency(snapshotAt: Date | null): string {
   return `${elapsedDays} day${elapsedDays === 1 ? '' : 's'} ago`;
 }
 
-function baseEmbed(title: string, location: string | null, season: string | null): EmbedBuilder {
-  const notes = [SNAPSHOT_SOURCE_NOTE, SNAPSHOT_LIMITATION_NOTE];
+function baseEmbed(
+  title: string,
+  subcommand: LeaderboardSubcommand,
+  location: string | null,
+  season: string | null,
+): EmbedBuilder {
+  const notes = [
+    `Subcommand: /leaderboard ${subcommand}.`,
+    SNAPSHOT_SOURCE_NOTE,
+    SNAPSHOT_LIMITATION_NOTE,
+  ];
   if (location?.trim() && !isAllLocations(location))
     notes.push(
       `Location filter: ${location.trim()} (matched against stored linked-clan location only).`,
