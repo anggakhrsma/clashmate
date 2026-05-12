@@ -47,6 +47,13 @@ export function computeWorkerLoopDelayMs(
   intervals: Record<PollingResourceType, PollingIntervalConfig>,
   random = Math.random,
 ): number {
+  return computeWorkerLoopDelayDiagnostics(intervals, random).delayMs;
+}
+
+function computeWorkerLoopDelayDiagnostics(
+  intervals: Record<PollingResourceType, PollingIntervalConfig>,
+  random = Math.random,
+): { baseSeconds: number; jitterSeconds: number; jitterAppliedSeconds: number; delayMs: number } {
   validateWorkerPollingLoopIntervals(intervals);
 
   const baseSeconds = Math.min(
@@ -59,9 +66,14 @@ export function computeWorkerLoopDelayMs(
     intervals.player.jitterSeconds,
     intervals.war.jitterSeconds,
   );
-  const jitter = Math.floor(random() * (jitterSeconds + 1));
+  const jitterAppliedSeconds = Math.floor(random() * (jitterSeconds + 1));
 
-  return (baseSeconds + jitter) * 1000;
+  return {
+    baseSeconds,
+    jitterSeconds,
+    jitterAppliedSeconds,
+    delayMs: (baseSeconds + jitterAppliedSeconds) * 1000,
+  };
 }
 
 function validateWorkerPollingLoopIntervals(
@@ -105,6 +117,10 @@ interface PollingOutcomeLeaseDetail {
 
 interface PollingOutcomeSummary {
   readonly counts: Record<PollingOutcomeStatus, number>;
+  readonly families: readonly PollingResourceType[];
+  readonly successful: boolean;
+  readonly totalDurationMs: number;
+  readonly nextRunAt?: string;
   readonly processed: PollingOutcomeLeaseDetail[];
   readonly failed: PollingOutcomeLeaseDetail[];
 }
@@ -213,6 +229,11 @@ export function summarizePollingOutcomes(
   };
   const processed: PollingOutcomeLeaseDetail[] = [];
   const failed: PollingOutcomeLeaseDetail[] = [];
+  const families = results.map((result) => result.resourceType);
+  const totalDurationMs = results.reduce((total, result) => total + (result.durationMs ?? 0), 0);
+  const nextRunAt = results
+    .flatMap((result) => (result.nextRunAt ? [result.nextRunAt] : []))
+    .sort((left, right) => left.getTime() - right.getTime())[0];
 
   for (const result of results) {
     counts[result.status] += 1;
@@ -232,6 +253,10 @@ export function summarizePollingOutcomes(
     counts: Object.fromEntries(
       POLLING_OUTCOME_STATUSES.map((status) => [status, counts[status]]),
     ) as Record<PollingOutcomeStatus, number>,
+    families,
+    successful: counts.failed === 0,
+    totalDurationMs,
+    ...(nextRunAt ? { nextRunAt: nextRunAt.toISOString() } : {}),
     processed,
     failed,
   };
@@ -309,26 +334,62 @@ export function startWorkerPollingLoop(
 
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let consecutiveIterationFailures = 0;
   const scheduleTimeout = options.setTimeout ?? setTimeout;
   const clearScheduledTimeout = options.clearTimeout ?? clearTimeout;
 
-  const runOnce = () => runWorkerPollingIteration(options);
+  const runOnce = async () => {
+    const results = await runWorkerPollingIteration(options);
+    const failed = results.length === 0 || results.some((result) => result.status === 'failed');
+    consecutiveIterationFailures = failed ? consecutiveIterationFailures + 1 : 0;
+    options.logger.debug(
+      { ownerId: options.ownerId, consecutiveIterationFailures },
+      'Worker polling loop iteration diagnostics updated',
+    );
+    return results;
+  };
 
   const scheduleNext = () => {
-    if (stopped) return;
-    const delayMs = computeWorkerLoopDelayMs(options.intervals, options.random);
+    if (stopped) {
+      options.logger.debug(
+        { ownerId: options.ownerId },
+        'Worker polling loop scheduling skipped after stop',
+      );
+      return;
+    }
+    const delay = computeWorkerLoopDelayDiagnostics(options.intervals, options.random);
+    options.logger.debug(
+      { ownerId: options.ownerId, delay },
+      'Worker polling loop scheduled next iteration',
+    );
     timer = scheduleTimeout(() => {
       void runOnce()
         .catch((error: unknown) => {
-          options.logger.error({ error }, 'Scheduled worker polling iteration failed');
+          consecutiveIterationFailures += 1;
+          options.logger.error(
+            { error, ownerId: options.ownerId, consecutiveIterationFailures },
+            'Scheduled worker polling iteration failed',
+          );
         })
         .finally(scheduleNext);
-    }, delayMs);
+    }, delay.delayMs);
   };
 
   void runOnce()
+    .then((results) => {
+      const failed = results.length === 0 || results.some((result) => result.status === 'failed');
+      if (!failed) return;
+      options.logger.error(
+        { ownerId: options.ownerId, consecutiveIterationFailures, results },
+        'Initial worker polling iteration completed with failures',
+      );
+    })
     .catch((error: unknown) => {
-      options.logger.error({ error }, 'Initial worker polling iteration failed');
+      consecutiveIterationFailures += 1;
+      options.logger.error(
+        { error, ownerId: options.ownerId, consecutiveIterationFailures },
+        'Initial worker polling iteration failed',
+      );
     })
     .finally(scheduleNext);
   options.logger.info({ ownerId: options.ownerId }, 'Worker polling loop started');
@@ -337,7 +398,14 @@ export function startWorkerPollingLoop(
     ownerId: options.ownerId,
     stop: () => {
       stopped = true;
-      if (timer) clearScheduledTimeout(timer);
+      if (timer) {
+        clearScheduledTimeout(timer);
+        timer = undefined;
+      }
+      options.logger.info(
+        { ownerId: options.ownerId, consecutiveIterationFailures },
+        'Worker polling loop stopped',
+      );
     },
     runOnce,
   };
