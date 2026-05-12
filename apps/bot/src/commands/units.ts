@@ -139,7 +139,10 @@ export async function executeUnits(
   }
 
   if (resolution.status === 'no_link') {
-    await interaction.reply({ content: formatNoLinkedPlayerMessage(resolution), ephemeral: true });
+    await interaction.reply({
+      content: formatUnitsNoLinkedPlayerMessage(resolution),
+      ephemeral: true,
+    });
     return;
   }
 
@@ -200,6 +203,12 @@ export function buildUnitsEmbed(
   ];
 
   embed.addFields({
+    name: 'Lookup Context',
+    value: formatLookupContext(resolution, player.tag),
+    inline: false,
+  });
+
+  embed.addFields({
     name: 'Progress Summary',
     value: formatProgressSummary(summarizeUnitProgress(groups)),
     inline: false,
@@ -215,7 +224,7 @@ export function buildUnitsEmbed(
     inline: false,
   });
 
-  let fieldCount = 2;
+  let fieldCount = 3;
   let unitFieldCount = 0;
   for (const { title, units } of groups) {
     if (units.length === 0 || fieldCount >= EMBED_MAX_FIELDS) continue;
@@ -253,6 +262,18 @@ function formatInvalidUnitsLookupMessage(input: string): string {
   ].join(' ');
 }
 
+function formatUnitsNoLinkedPlayerMessage(
+  result: Parameters<typeof formatNoLinkedPlayerMessage>[0],
+): string {
+  return [
+    formatNoLinkedPlayerMessage(result),
+    result.isSelf
+      ? 'Use `/link create`, or use `player:#ABC123` for a live one-off units lookup.'
+      : 'Ask them to use `/link create`, or use `player:#ABC123` for a live one-off units lookup.',
+    'Live one-off lookups are not enrolled for polling and do not create stored unit history.',
+  ].join(' ');
+}
+
 function formatUnitsApiErrorMessage(playerTag: string, resolution: UnitsLookupResolution): string {
   return [
     `Clash API could not return current unit data for \`${playerTag}\` (${formatLookupSource(resolution.source, resolution.targetUser)}).`,
@@ -268,6 +289,20 @@ function formatLookupSource(
   if (source === 'explicit_tag') return 'player tag option';
   if (!targetUser) return 'linked Discord user';
   return `linked Discord user ${sanitize(targetUser.displayName)}`;
+}
+
+function formatLookupContext(resolution: UnitsLookupResolution, playerTag: string): string {
+  const target =
+    resolution.targetUser && resolution.source === 'stored_user_link'
+      ? `Target user: **${sanitize(resolution.targetUser.displayName)}**.`
+      : 'Target user: none; looked up the explicit player tag option.';
+
+  return [
+    `Lookup source: **${formatLookupSource(resolution.source, resolution.targetUser)}**.`,
+    target,
+    `Resolved player: \`${playerTag}\`.`,
+    'Live current-only Clash API snapshot; no polling enrollment, cached snapshot, or persisted unit history.',
+  ].join('\n');
 }
 
 function summarizeUnitProgress(groups: readonly UnitGroupView[]): UnitProgressSummary {
