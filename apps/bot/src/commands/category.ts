@@ -12,6 +12,7 @@ import {
 export const CATEGORY_COMMAND_NAME = 'category';
 export const CATEGORY_COMMAND_DESCRIPTION = 'Manage linked clan categories.';
 const MAX_CATEGORY_NAME_LENGTH = 36;
+const MAX_CATEGORY_LIST_ROWS = 20;
 
 export const categoryCommandData = new SlashCommandBuilder()
   .setName(CATEGORY_COMMAND_NAME)
@@ -217,7 +218,7 @@ async function executeCategory(
     );
     if (categoryLookup.status !== 'found') {
       await interaction.reply({
-        content: formatCategoryLookupFailureMessage(categoryLookup.status),
+        content: formatCategoryLookupFailureMessage(categoryLookup),
         ephemeral: true,
       });
       return;
@@ -235,7 +236,13 @@ async function executeCategory(
       categoryId: category.id,
       displayName: validation.displayName,
     });
-    await interaction.reply({ content: formatUpdateCategoryMessage(result), ephemeral: true });
+    await interaction.reply({
+      content: [
+        formatCategoryLookupContext(categoryLookup),
+        formatUpdateCategoryMessage(result),
+      ].join('\n'),
+      ephemeral: true,
+    });
     return;
   }
 
@@ -247,7 +254,7 @@ async function executeCategory(
     );
     if (categoryLookup.status !== 'found') {
       await interaction.reply({
-        content: formatCategoryLookupFailureMessage(categoryLookup.status),
+        content: formatCategoryLookupFailureMessage(categoryLookup),
         ephemeral: true,
       });
       return;
@@ -258,7 +265,13 @@ async function executeCategory(
       actorDiscordUserId: interaction.user.id,
       categoryId: category.id,
     });
-    await interaction.reply({ content: formatDeleteCategoryMessage(result), ephemeral: true });
+    await interaction.reply({
+      content: [
+        formatCategoryLookupContext(categoryLookup),
+        formatDeleteCategoryMessage(result),
+      ].join('\n'),
+      ephemeral: true,
+    });
   }
 }
 
@@ -271,13 +284,17 @@ export function parseCategoryDisplayName(value: string | null): string | undefin
 export type CategoryNameValidationResult =
   | { readonly status: 'valid'; readonly displayName: string }
   | { readonly status: 'blank' }
-  | { readonly status: 'too_long'; readonly maxLength: number };
+  | { readonly status: 'too_long'; readonly maxLength: number; readonly actualLength: number };
 
 export function validateCategoryDisplayName(value: string): CategoryNameValidationResult {
   const trimmed = value.trim();
   if (!trimmed) return { status: 'blank' };
   if (trimmed.length > MAX_CATEGORY_NAME_LENGTH) {
-    return { status: 'too_long', maxLength: MAX_CATEGORY_NAME_LENGTH };
+    return {
+      status: 'too_long',
+      maxLength: MAX_CATEGORY_NAME_LENGTH,
+      actualLength: trimmed.length,
+    };
   }
   return { status: 'valid', displayName: trimmed };
 }
@@ -286,7 +303,7 @@ export function formatCategoryNameValidationMessage(
   result: Exclude<CategoryNameValidationResult, { readonly status: 'valid' }>,
 ): string {
   if (result.status === 'too_long') {
-    return `Category names must be ${result.maxLength} characters or fewer.`;
+    return `Category names must be ${result.maxLength} characters or fewer; your trimmed name is ${result.actualLength} characters.`;
   }
   return 'Provide a non-blank category name.';
 }
@@ -321,7 +338,7 @@ function formatCategoryChoiceName(category: CategoryRecord): string {
 
 export function formatCategoryList(categories: readonly CategoryRecord[]): string {
   const note =
-    'Categories are stored per server and only affect linked clan organization; they do not call the live Clash API or enroll extra polling.';
+    'Persisted-only: categories come from saved linked-clan configuration and do not call the live Clash API or enroll extra polling.';
   if (categories.length === 0) {
     return [
       'Stored clan categories: 0',
@@ -332,16 +349,21 @@ export function formatCategoryList(categories: readonly CategoryRecord[]): strin
   }
 
   const sortedCategories = [...categories].sort(compareCategoriesForList);
-  const rows = sortedCategories.map(
+  const visibleCategories = sortedCategories.slice(0, MAX_CATEGORY_LIST_ROWS);
+  const rows = visibleCategories.map(
     (category, index) =>
       `${index + 1}. ${escapeMarkdown(category.displayName)} — id ${inlineCode(category.id)}`,
   );
+  const hiddenCount = sortedCategories.length - visibleCategories.length;
 
   return [
     `Stored clan categories: ${categories.length}`,
-    'Sorted by saved configuration order, then name.',
+    `Showing ${visibleCategories.length} of ${categories.length}; sorted by saved configuration order, then name.`,
     note,
     ...rows,
+    ...(hiddenCount > 0
+      ? [`${hiddenCount} more saved categories are hidden here to keep the response concise.`]
+      : []),
   ].join('\n');
 }
 
@@ -366,9 +388,14 @@ export async function resolveCategory(
 }
 
 type CategoryLookupResult =
-  | { readonly status: 'found'; readonly category: CategoryRecord }
+  | {
+      readonly status: 'found';
+      readonly category: CategoryRecord;
+      readonly totalCategories: number;
+      readonly duplicateNameMatches: number;
+    }
   | { readonly status: 'no_categories' }
-  | { readonly status: 'not_found' };
+  | { readonly status: 'not_found'; readonly totalCategories: number };
 
 async function resolveCategoryLookup(
   store: Pick<CategoryStore, 'listClanCategories'>,
@@ -379,21 +406,39 @@ async function resolveCategoryLookup(
   if (categories.length === 0) return { status: 'no_categories' };
 
   const normalizedValue = normalizeCategoryName(value);
-  const category = categories.find(
-    (category) =>
-      category.id === value || normalizeCategoryName(category.displayName) === normalizedValue,
+  const idMatch = categories.find((category) => category.id === value);
+  const nameMatches = categories.filter(
+    (category) => normalizeCategoryName(category.displayName) === normalizedValue,
   );
-  return category ? { status: 'found', category } : { status: 'not_found' };
+  const category = idMatch ?? nameMatches[0];
+  return category
+    ? {
+        status: 'found',
+        category,
+        totalCategories: categories.length,
+        duplicateNameMatches: idMatch ? 0 : Math.max(0, nameMatches.length - 1),
+      }
+    : { status: 'not_found', totalCategories: categories.length };
 }
 
 function formatCategoryLookupFailureMessage(
-  status: Exclude<CategoryLookupResult['status'], 'found'>,
+  result: Exclude<CategoryLookupResult, { readonly status: 'found' }>,
 ): string {
-  if (status === 'no_categories') {
+  if (result.status === 'no_categories') {
     return 'No stored categories exist for this server yet. Use `/category create` before editing or deleting a category; ClashMate will not search the live Clash API for categories.';
   }
 
-  return 'No stored category matched that value. Pick a saved category from autocomplete or run `/category list`; autocomplete filters stored server categories by name only.';
+  return `No stored category matched that value across ${result.totalCategories} saved categories. Pick a saved category from autocomplete or run \`/category list\`; autocomplete filters persisted server categories by name only.`;
+}
+
+function formatCategoryLookupContext(
+  result: Extract<CategoryLookupResult, { readonly status: 'found' }>,
+): string {
+  const duplicateHint =
+    result.duplicateNameMatches > 0
+      ? ` ${result.duplicateNameMatches} other saved categories share that normalized name; autocomplete IDs disambiguate duplicates.`
+      : '';
+  return `Selected category: ${escapeMarkdown(result.category.displayName)} (${inlineCode(result.category.id)}) from ${result.totalCategories} saved categories.${duplicateHint}`;
 }
 
 export function formatCreateCategoryMessage(
