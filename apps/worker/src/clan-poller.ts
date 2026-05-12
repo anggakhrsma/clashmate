@@ -21,7 +21,8 @@ export type ClanMemberEventSkipReason = 'clan_not_linked' | 'member_event_store_
 export type CapitalRaidSeasonSkipReason =
   | 'clan_not_linked'
   | 'capital_raid_store_unavailable'
-  | 'capital_raid_api_unavailable';
+  | 'capital_raid_api_unavailable'
+  | 'capital_raid_api_error';
 
 export interface ClanPollerResult {
   readonly status: 'snapshot_updated' | 'not_linked';
@@ -41,6 +42,7 @@ export interface ClanPollerResult {
   readonly capitalRaidSeasonProcessingRan: boolean;
   readonly capitalRaidSeasonProcessingStatus: 'processed' | 'not_linked' | 'skipped';
   readonly capitalRaidSeasonSkipReason?: CapitalRaidSeasonSkipReason;
+  readonly capitalRaidSeasonError?: string;
   readonly capitalRaidSeasonsFetched?: number;
   readonly capitalRaidSeasonsUpserted?: number;
   readonly capitalRaidMemberRowsUpserted?: number;
@@ -109,17 +111,24 @@ export function createClanPollerHandler(options: ClanPollerHandlerOptions) {
             members,
           });
     const capitalRaidStore = options.capitalRaidSeasons;
-    const capitalRaidSkipReason = getCapitalRaidSeasonSkipReason({
+    let capitalRaidSkipReason = getCapitalRaidSeasonSkipReason({
       snapshotStatus: result.status,
       store: capitalRaidStore,
       getCapitalRaidSeasons: options.coc.getCapitalRaidSeasons,
     });
-    const capitalRaidSeasons =
-      capitalRaidSkipReason || !capitalRaidStore || !options.coc.getCapitalRaidSeasons
-        ? []
-        : extractCapitalRaidSeasonSnapshots(
-            await options.coc.getCapitalRaidSeasons({ clanTag: clan.tag, limit: 10 }),
-          );
+    let capitalRaidError: string | undefined;
+    let capitalRaidSeasons: CapitalRaidSeasonSnapshotInput[] = [];
+    if (!capitalRaidSkipReason && capitalRaidStore && options.coc.getCapitalRaidSeasons) {
+      try {
+        capitalRaidSeasons = extractCapitalRaidSeasonSnapshots(
+          await options.coc.getCapitalRaidSeasons({ clanTag: clan.tag, limit: 10 }),
+        );
+      } catch (error) {
+        capitalRaidSkipReason = 'capital_raid_api_error';
+        capitalRaidError =
+          error instanceof Error ? error.message : 'Unknown capital raid API error';
+      }
+    }
     const capitalRaidResult =
       capitalRaidSkipReason || !capitalRaidStore
         ? null
@@ -159,6 +168,7 @@ export function createClanPollerHandler(options: ClanPollerHandlerOptions) {
       capitalRaidSeasonProcessingRan: !capitalRaidSkipReason,
       capitalRaidSeasonProcessingStatus: capitalRaidResult?.status ?? 'skipped',
       ...(capitalRaidSkipReason ? { capitalRaidSeasonSkipReason: capitalRaidSkipReason } : {}),
+      ...(capitalRaidError ? { capitalRaidSeasonError: capitalRaidError } : {}),
       ...(!capitalRaidSkipReason ? { capitalRaidSeasonsFetched: capitalRaidSeasons.length } : {}),
       ...(capitalRaidResult
         ? {
