@@ -193,6 +193,7 @@ export async function executeCapital(
         await interaction.editReply({
           embeds: [
             buildCapitalRaidsEmbed([], {
+              subcommand: 'raids',
               linkedClansConsidered: raidClans.length,
               latestMemberSnapshotAt: latestMemberSnapshotDate(snapshots),
               ...(clan ? { clanLabel: labelForClan(clan) } : {}),
@@ -209,6 +210,7 @@ export async function executeCapital(
           buildCapitalRaidsEmbed(
             raidClans.filter((linkedClan) => matchedClanTags.has(linkedClan.clanTag)),
             {
+              subcommand: 'raids',
               linkedClansConsidered: raidClans.length,
               latestMemberSnapshotAt: latestMemberSnapshotDate(snapshots),
               ...(clan ? { clanLabel: labelForClan(clan) } : {}),
@@ -224,6 +226,7 @@ export async function executeCapital(
     await interaction.editReply({
       embeds: [
         buildCapitalRaidsEmbed(raidClans, {
+          subcommand: 'raids',
           linkedClansConsidered: raidClans.length,
           ...(clan ? { clanLabel: labelForClan(clan) } : {}),
           week,
@@ -241,6 +244,7 @@ export async function executeCapital(
   await interaction.editReply({
     embeds: [
       buildCapitalContributionEmbed(snapshots, {
+        subcommand: 'contribution',
         linkedClansConsidered: clan ? 1 : clans.length,
         ...(clan ? { clanLabel: labelForClan(clan) } : {}),
         week,
@@ -281,6 +285,7 @@ export function buildCapitalRaidsEmbed(
   clans: readonly CapitalLinkedClan[],
   filters: {
     readonly week: string | null;
+    readonly subcommand?: CapitalSubcommand;
     readonly userId?: string;
     readonly clanLabel?: string;
     readonly linkedClansConsidered?: number;
@@ -345,6 +350,7 @@ export function buildCapitalContributionEmbed(
   snapshots: readonly CapitalClanMemberSnapshots[],
   filters: {
     readonly week: string | null;
+    readonly subcommand?: CapitalSubcommand;
     readonly playerTags?: readonly string[];
     readonly userId?: string;
     readonly clanLabel?: string;
@@ -466,6 +472,7 @@ function baseCapitalEmbed(
   title: string,
   filters: {
     readonly week: string | null;
+    readonly subcommand?: CapitalSubcommand;
     readonly userId?: string;
     readonly clanLabel?: string;
     readonly linkedClansConsidered?: number;
@@ -481,25 +488,25 @@ function baseCapitalEmbed(
   },
 ): EmbedBuilder {
   const notes = [
-    'Persisted-only: uses current stored linked-clan/member snapshots for clans configured in this server; no Clash API lookup or fallback enrollment.',
+    `Source: /capital ${filters.subcommand ?? 'unknown'} from persisted linked-clan/member snapshots only; no live Clash API lookup, fallback, or polling enrollment.`,
   ];
+  const activeFilters = formatActiveCapitalFilters(filters);
+  notes.push(`Filters: ${activeFilters.length > 0 ? activeFilters.join(', ') : 'none'}.`);
   if (typeof filters.linkedClansConsidered === 'number')
     notes.push(
-      `Linked clans considered: ${filters.linkedClansConsidered.toLocaleString('en-US')}.`,
+      `Linked clans: ${filters.linkedClansConsidered.toLocaleString('en-US')} considered.`,
     );
   if (typeof filters.linkedClanSnapshots === 'number')
     notes.push(
-      `Linked-clan snapshots with stored payloads: ${filters.linkedClanSnapshots.toLocaleString(
-        'en-US',
-      )}.`,
+      `Capital coverage: ${filters.linkedClanSnapshots.toLocaleString('en-US')} clans with stored payloads.`,
     );
   if (typeof filters.linkedClansShown === 'number')
-    notes.push(`Linked clans shown: ${filters.linkedClansShown.toLocaleString('en-US')}.`);
+    notes.push(
+      `Rows shown source: ${filters.linkedClansShown.toLocaleString('en-US')} capital clan rows after filters.`,
+    );
   if (typeof filters.memberSnapshotClans === 'number')
     notes.push(
-      `Member snapshot coverage: ${filters.memberSnapshotClans.toLocaleString(
-        'en-US',
-      )} linked clans with member rows.`,
+      `Member coverage: ${filters.memberSnapshotClans.toLocaleString('en-US')} linked clans with member snapshots.`,
     );
   if (typeof filters.memberSnapshotRows === 'number')
     notes.push(`Member snapshot rows read: ${filters.memberSnapshotRows.toLocaleString('en-US')}.`);
@@ -526,15 +533,24 @@ function baseCapitalEmbed(
       'User filter uses this server’s linked Clash account tags and only matches players present in stored linked-clan member snapshots.',
     );
   notes.push(
-    'Accepted filters: clan tag/name/alias, linked Discord user, and recent raid-week label.',
-  );
-  notes.push(
     'Polling required: link/configure clans and allow clan polling to store capital and member snapshots before data appears.',
   );
   notes.push(
     'Raid-week attack logs and per-week contribution history are not persisted yet; week filters cannot load attack-log history.',
   );
   return new EmbedBuilder().setTitle(title).addFields({ name: 'Source', value: notes.join('\n') });
+}
+
+function formatActiveCapitalFilters(filters: {
+  readonly week: string | null;
+  readonly userId?: string;
+  readonly clanLabel?: string;
+}): string[] {
+  return [
+    filters.clanLabel ? `clan ${escapeMarkdown(filters.clanLabel)}` : undefined,
+    filters.userId ? `user <@${filters.userId}>` : undefined,
+    filters.week?.trim() ? `week ${formatRaidWeekFilter(filters.week)}` : undefined,
+  ].filter((value): value is string => Boolean(value));
 }
 
 function formatCapitalNoDataMessage(
