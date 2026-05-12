@@ -312,7 +312,7 @@ async function executeRemaining(
         buildPlayerRemainingEmbed(rows, user ?? undefined, {
           scannedSnapshots: snapshots.length,
           persistedOnly: true,
-          selectedSource: 'latest persisted current snapshot (not retained history)',
+          selectedSource: 'current latest snapshots (retained history not scanned)',
           ...buildLatestFetchedAtContext(snapshots),
           ...buildSnapshotCoverage(snapshots),
           rowsShown: rows.length,
@@ -368,7 +368,7 @@ async function executeRemaining(
     snapshot,
     false,
     {
-      selectedSource: 'latest persisted current snapshot (not retained history)',
+      selectedSource: 'current latest snapshot (retained history not scanned)',
       snapshotsConsidered: 1,
       linkedClansConsidered: clanContext.linkedClanCount,
       ...(clanOption ? { clanFilter: clanOption } : {}),
@@ -499,6 +499,24 @@ async function executeHistoricalRemaining(
       'The stored historical war/CWL snapshot does not include clan war members, so remaining or missed attacks cannot be calculated from it.',
     );
     return;
+  }
+
+  if (summary.state === 'warended' && options.store.listMissedWarAttacksForWar) {
+    const missedEvents = await options.store.listMissedWarAttacksForWar(
+      interaction.guildId,
+      snapshot.trackedClan?.clanTag ?? snapshot.clanTag,
+      input.warKey,
+    );
+    if (missedEvents.length > 0) {
+      await interaction.editReply({
+        embeds: [
+          buildClanRemainingEmbed(
+            withMissedAttackEventSource(applyMissedWarAttackEvents(summary, missedEvents), true),
+          ),
+        ],
+      });
+      return;
+    }
   }
 
   await interaction.editReply({ embeds: [buildClanRemainingEmbed(summary)] });
@@ -811,11 +829,11 @@ export function buildClanRemainingEmbed(summary: RemainingWarSummary): EmbedBuil
       value: [
         `Selected: ${summary.source.selectedSource}.`,
         `Freshness: fetched ${time(summary.source.fetchedAt, 'R')}${summary.source.updatedAt ? `; updated ${time(summary.source.updatedAt, 'R')}` : ''}.`,
-        `Considered: ${summary.source.snapshotsConsidered} persisted snapshot${summary.source.snapshotsConsidered === 1 ? '' : 's'}${summary.source.linkedClansConsidered === undefined ? '' : ` across ${summary.source.linkedClansConsidered} linked clan${summary.source.linkedClansConsidered === 1 ? '' : 's'}`}; roster rows shown: ${summary.source.rowsShown}/${summary.source.rosterMembers}.`,
-        `Attacks: ${summary.source.attacksUsed}/${summary.source.attacksPossible}; state: ${formatWarStateLabel(summary.source.snapshotState || summary.state)}.`,
+        `Considered: ${summary.source.snapshotsConsidered} persisted ${formatSnapshotScope(summary.source.selectedSource)} snapshot${summary.source.snapshotsConsidered === 1 ? '' : 's'}${summary.source.linkedClansConsidered === undefined ? '' : ` across ${summary.source.linkedClansConsidered} linked clan${summary.source.linkedClansConsidered === 1 ? '' : 's'}`}.`,
+        `Coverage: ${formatVisibleHiddenRows(summary.source.rowsShown, summary.source.rosterMembers)}; attacks ${summary.source.attacksUsed}/${summary.source.attacksPossible}; state ${formatWarStateLabel(summary.source.snapshotState || summary.state)}.`,
         formatFilterContext(summary.source),
-        'Persisted snapshots only; no live fallback or on-demand polling.',
-        `Ended-war missed events: ${missedEventsLabel}`,
+        `Ended-war missed events: ${missedEventsLabel}; snapshot rows are used when no matching events exist.`,
+        'No data? Link/configure the clan and wait for war polling; this command uses stored data only and never performs live lookup or polling enrollment.',
       ].join('\n'),
       inline: false,
     });
@@ -868,13 +886,13 @@ export function buildPlayerRemainingEmbed(
     embed.addFields({
       name: 'Source',
       value: [
-        `Scanned ${context.scannedSnapshots} persisted war/CWL snapshot${context.scannedSnapshots === 1 ? '' : 's'} from this server's linked/configured clans.`,
+        `Scanned ${context.scannedSnapshots} persisted ${formatSnapshotScope(context.selectedSource)} snapshot${context.scannedSnapshots === 1 ? '' : 's'} from this server's linked/configured clans.`,
         `Selected: ${context.selectedSource}.`,
         `Freshness: ${context.latestFetchedAt ? `latest fetched ${time(context.latestFetchedAt, 'R')}` : 'no readable fetched timestamp'}.`,
-        `Roster rows shown: ${context.rowsShown}/${context.rosterMembers}; attacks: ${context.attacksUsed}/${context.attacksPossible}.`,
+        `Coverage: ${formatVisibleHiddenRows(context.rowsShown, context.rosterMembers)}; attacks ${context.attacksUsed}/${context.attacksPossible}.`,
         formatFilterContext(context),
         context.persistedOnly
-          ? 'Persisted snapshots only; no live fallback or on-demand polling.'
+          ? 'No data? Confirm the player/user link and tracked clan, then wait for war polling; no live lookup or polling enrollment is performed.'
           : 'Live lookup status unknown.',
       ].join('\n'),
       inline: false,
@@ -912,6 +930,15 @@ function formatWarStateLabel(state: string): string {
       : state === 'inwar'
         ? 'Battle Day'
         : state || 'Unknown';
+}
+
+function formatSnapshotScope(selectedSource: string): string {
+  return selectedSource.includes('retained') ? 'retained' : 'current/latest';
+}
+
+function formatVisibleHiddenRows(rowsShown: number, rosterMembers: number): string {
+  const hiddenRows = Math.max(0, rosterMembers - rowsShown);
+  return `${rowsShown} visible / ${hiddenRows} hidden of ${rosterMembers} roster rows`;
 }
 
 function formatFilterContext(input: {
