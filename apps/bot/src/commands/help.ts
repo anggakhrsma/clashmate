@@ -45,7 +45,7 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     category: 'Player & Clan',
     details: [
       'Reads persisted last-seen member snapshots for linked clans without querying the Clash API.',
-      'First pass returns an embed summary instead of ClashPerk image charts.',
+      'First pass returns an embed summary instead of legacy image charts.',
     ],
   },
   {
@@ -415,7 +415,7 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     details: [
       'Performs one-off player lookups without tracking players.',
       '`clan` mode uses a linked clan member snapshot and caps analyzed current members for a compact summary.',
-      'Uses public API maxLevel values instead of ClashPerk static previous-town-hall max tables.',
+      'Uses public API maxLevel values instead of static previous-town-hall max tables.',
     ],
   },
   {
@@ -542,7 +542,7 @@ const CATEGORY_ORDER: readonly HelpCategory[] = [
 ];
 
 const HELP_SCOPE_NOTES = [
-  'ClashMate is the open-source successor-style implementation for self-hosted Clash of Clans Discord help; old ClashPerk names and cprk.us links are replaced with ClashMate and cmte.io.',
+  'ClashMate help is driven by the local catalog and keeps legacy migration notes focused on implemented commands only.',
   'Premium, Patreon, redemption, export, roster, flag, eval, suggestions, and bot-personalizer features are intentionally excluded.',
   'Some commands read persisted ClashMate snapshots from linked clans; others perform one-off live Clash API lookups and do not enroll new polling.',
 ] as const;
@@ -609,14 +609,14 @@ export function collectHelpView(
 }
 
 export function buildHelpOverviewEmbed(view: HelpView): EmbedBuilder {
-  const counts = getHelpCatalogCounts();
+  const catalogSummary = getHelpCatalogSummary();
   const embed = new EmbedBuilder()
     .setColor(view.color ?? DEFAULT_HELP_EMBED_COLOR)
     .setTitle('ClashMate Help')
     .setDescription(
       [
         'Use `/help command:<name>` for command details.',
-        'This help menu documents implemented ClashMate behavior, including migration limitations from ClashPerk.',
+        'This help menu is built from the local command catalog only, so the counts and guidance below reflect implemented help data.',
       ].join('\n'),
     )
     .setAuthor(
@@ -629,9 +629,14 @@ export function buildHelpOverviewEmbed(view: HelpView): EmbedBuilder {
     {
       name: 'Catalog coverage',
       value: [
-        `${counts.commands} commands across ${counts.categories} categories are documented from the local help catalog.`,
-        `Overview lists up to ${OVERVIEW_COMMANDS_PER_CATEGORY} commands per category; use \`/help command:<name>\` for exact details and source notes.`,
+        `${catalogSummary.commandCount} commands across ${catalogSummary.categoryCount} categories are represented in the local help catalog.`,
+        `${catalogSummary.commandCount} of ${catalogSummary.commandCount} catalog entries are covered by command detail views; overview cards show ${catalogSummary.visibleInOverview} entries and trim ${catalogSummary.hiddenInOverview} only when the per-category cap is exceeded.`,
       ].join('\n'),
+      inline: false,
+    },
+    {
+      name: 'Catalog grouping',
+      value: formatCatalogGroupingSummary(catalogSummary.groups),
       inline: false,
     },
     { name: 'Scope', value: HELP_SCOPE_NOTES.join('\n'), inline: false },
@@ -683,7 +688,11 @@ export function buildHelpCommandEmbed(view: HelpView, entry: HelpCatalogEntry): 
         value: `Exact catalog match for \`/${entry.name}\` in ${entry.category}.`,
         inline: false,
       },
-      { name: 'Details', value: entry.details.join('\n'), inline: false },
+      {
+        name: 'Details',
+        value: formatHelpDetails(entry),
+        inline: false,
+      },
       { name: 'ClashMate parity notes', value: parityNotes.join('\n'), inline: false },
     );
 }
@@ -699,10 +708,14 @@ export function formatUnknownHelpCommand(commandName: string): string {
   const suggestionText = suggestions.length
     ? ` Did you mean ${suggestions.map((entry) => `\`/${entry.name}\``).join(', ')}?`
     : '';
+  const firstMatch = suggestions[0];
+  const guidance = firstMatch
+    ? `Try the exact slash command name \`/${firstMatch.name}\` or use \`/help command:<name>\` to inspect the catalog entry.`
+    : 'Try the exact slash command name or use `/help` to browse the catalog groups and listed command names.';
 
   return [
     `I do not have an exact help catalog match for \`${commandName}\`.${suggestionText}`,
-    `Use \`/help\` for the catalog overview or \`/help command:<name>\` with one of the listed command names.`,
+    guidance,
     `Excluded features such as ${EXCLUDED_FEATURE_LABELS.slice(0, 4).join(', ')} are intentionally unavailable.`,
   ].join('\n');
 }
@@ -711,10 +724,26 @@ function normalizeHelpCommandName(commandName: string): string {
   return commandName.trim().toLowerCase().replace(/^\//, '');
 }
 
-function getHelpCatalogCounts(): { commands: number; categories: number } {
+function getHelpCatalogSummary(): {
+  commandCount: number;
+  categoryCount: number;
+  visibleInOverview: number;
+  hiddenInOverview: number;
+  groups: ReadonlyArray<{ category: HelpCategory; total: number; visible: number; hidden: number }>;
+} {
+  const groups = CATEGORY_ORDER.map((category) => {
+    const total = HELP_CATALOG.filter((entry) => entry.category === category).length;
+    const visible = Math.min(total, OVERVIEW_COMMANDS_PER_CATEGORY);
+
+    return { category, total, visible, hidden: total - visible };
+  });
+
   return {
-    commands: HELP_CATALOG.length,
-    categories: new Set(HELP_CATALOG.map((entry) => entry.category)).size,
+    commandCount: HELP_CATALOG.length,
+    categoryCount: new Set(HELP_CATALOG.map((entry) => entry.category)).size,
+    visibleInOverview: groups.reduce((sum, group) => sum + group.visible, 0),
+    hiddenInOverview: groups.reduce((sum, group) => sum + group.hidden, 0),
+    groups,
   };
 }
 
@@ -724,8 +753,33 @@ function formatOverviewCategory(commands: readonly HelpCatalogEntry[]): string {
   const lines = visibleCommands.map((entry) => `\`/${entry.name}\` — ${entry.description}`);
 
   if (hiddenCount > 0) {
-    lines.push(`…and ${hiddenCount} more. Use \`/help command:<name>\` for exact command details.`);
+    lines.push(
+      `…and ${hiddenCount} more are trimmed from this overview. Use \`/help command:<name>\` for exact command details.`,
+    );
   }
 
   return lines.join('\n');
+}
+
+function formatCatalogGroupingSummary(
+  groups: ReadonlyArray<{ category: HelpCategory; total: number; visible: number; hidden: number }>,
+): string {
+  return groups
+    .map((group) => {
+      const hiddenText = group.hidden ? `, ${group.hidden} trimmed in overview` : '';
+      return `\`${group.category}\`: ${group.total} commands (${group.visible} shown${hiddenText})`;
+    })
+    .join('\n');
+}
+
+function formatHelpDetails(entry: HelpCatalogEntry): string {
+  const detailLines = [...entry.details];
+
+  if (detailLines.length > 1) {
+    detailLines.push(
+      'Use `/help` to compare this command with the rest of the catalog categories.',
+    );
+  }
+
+  return detailLines.join('\n');
 }
