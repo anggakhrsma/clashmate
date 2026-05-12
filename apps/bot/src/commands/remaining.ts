@@ -133,9 +133,12 @@ export interface RemainingWarSourceContext {
   readonly snapshotState: string;
   readonly missedAttackEventsUsed: boolean;
   readonly selectedSource: string;
+  readonly linkedClansConsidered?: number;
+  readonly snapshotsConsidered: number;
   readonly rosterMembers: number;
   readonly attacksUsed: number;
   readonly attacksPossible: number;
+  readonly rowsShown: number;
   readonly clanFilter?: string;
   readonly userFilter?: string;
   readonly playerFilter?: string;
@@ -152,9 +155,11 @@ export interface RemainingPlayerEmbedContext {
   readonly scannedSnapshots: number;
   readonly persistedOnly: boolean;
   readonly selectedSource: string;
+  readonly latestFetchedAt?: Date;
   readonly rosterMembers: number;
   readonly attacksUsed: number;
   readonly attacksPossible: number;
+  readonly rowsShown: number;
   readonly clanFilter?: string;
   readonly userFilter?: string;
   readonly playerFilter?: string;
@@ -308,7 +313,9 @@ async function executeRemaining(
           scannedSnapshots: snapshots.length,
           persistedOnly: true,
           selectedSource: 'current',
+          ...buildLatestFetchedAtContext(snapshots),
           ...buildSnapshotCoverage(snapshots),
+          rowsShown: rows.length,
           ...(clanOption ? { clanFilter: clanOption } : {}),
           ...(user ? { userFilter: user.id } : {}),
           ...(player ? { playerFilter: player } : {}),
@@ -318,13 +325,14 @@ async function executeRemaining(
     return;
   }
 
-  const clan = await resolveRemainingClan(interaction.guildId, clanOption, options.store);
-  if (!clan) {
+  const clanContext = await resolveRemainingClan(interaction.guildId, clanOption, options.store);
+  if (!clanContext.clan) {
     await interaction.editReply(
       'No linked/configured clan was found for this server. Link one with `/setup clan` or provide a clan tag/alias already tracked by this server; `/remaining` only reads stored war snapshots for linked clans.',
     );
     return;
   }
+  const { clan } = clanContext;
 
   const snapshot = await options.store.getLatestWarSnapshot(clan.clanTag);
   if (!snapshot) {
@@ -359,7 +367,12 @@ async function executeRemaining(
     buildRemainingWarSummary(war, clan.clanTag),
     snapshot,
     false,
-    { selectedSource: 'current', ...(clanOption ? { clanFilter: clanOption } : {}) },
+    {
+      selectedSource: 'latest current snapshot',
+      snapshotsConsidered: 1,
+      linkedClansConsidered: clanContext.linkedClanCount,
+      ...(clanOption ? { clanFilter: clanOption } : {}),
+    },
   );
   if (!summary) {
     await interaction.editReply(
@@ -399,9 +412,10 @@ async function executeHistoricalRemaining(
     player: string | null;
   },
 ): Promise<void> {
-  const clan = input.clanOption
+  const clanContext = input.clanOption
     ? await resolveRemainingClan(interaction.guildId, input.clanOption, options.store)
     : null;
+  const clan = clanContext?.clan ?? null;
   if (input.clanOption && !clan) {
     await interaction.editReply(
       `No linked/configured clan matches \`${input.clanOption}\`. Historical lookups are persisted-only and can only filter retained war/CWL snapshots for clans tracked by this server.`,
@@ -444,7 +458,9 @@ async function executeHistoricalRemaining(
           scannedSnapshots: snapshots.length,
           persistedOnly: true,
           selectedSource: formatSelectedHistoricalSource(input.warKey),
+          ...buildLatestFetchedAtContext(snapshots),
           ...buildSnapshotCoverage(snapshots),
+          rowsShown: rows.length,
           ...(input.clanOption ? { clanFilter: input.clanOption } : {}),
           ...(input.user ? { userFilter: input.user.id } : {}),
           ...(input.player ? { playerFilter: input.player } : {}),
@@ -474,6 +490,7 @@ async function executeHistoricalRemaining(
     false,
     {
       selectedSource: formatSelectedHistoricalSource(input.warKey),
+      snapshotsConsidered: snapshots.length,
       ...(input.clanOption ? { clanFilter: input.clanOption } : {}),
     },
   );
@@ -491,9 +508,9 @@ async function resolveRemainingClan(
   guildId: string,
   clanOption: string | null,
   store: RemainingStore,
-): Promise<RemainingTrackedClan | null> {
+): Promise<{ clan: RemainingTrackedClan | null; linkedClanCount: number }> {
   const clans = await store.listLinkedClans(guildId);
-  if (!clanOption) return clans[0] ?? null;
+  if (!clanOption) return { clan: clans[0] ?? null, linkedClanCount: clans.length };
 
   let normalizedTag: string | null = null;
   try {
@@ -503,13 +520,13 @@ async function resolveRemainingClan(
   }
 
   const query = clanOption.trim().toLowerCase();
-  return (
+  const clan =
     clans.find((clan) => clan.clanTag === normalizedTag) ??
     clans.find(
       (clan) => clan.alias?.toLowerCase() === query || clan.name?.toLowerCase() === query,
     ) ??
-    null
-  );
+    null;
+  return { clan, linkedClanCount: clans.length };
 }
 
 function normalizeWarIdOption(warId: string | null): string | null {
@@ -573,6 +590,8 @@ function withWarSourceContext(
   missedAttackEventsUsed: boolean,
   context: {
     selectedSource: string;
+    snapshotsConsidered?: number;
+    linkedClansConsidered?: number;
     clanFilter?: string;
     userFilter?: string;
     playerFilter?: string;
@@ -588,7 +607,12 @@ function withWarSourceContext(
       snapshotState: normalizeWarState(snapshot.state || summary.state),
       missedAttackEventsUsed,
       selectedSource: context.selectedSource,
+      snapshotsConsidered: context.snapshotsConsidered ?? 1,
+      ...(context.linkedClansConsidered !== undefined
+        ? { linkedClansConsidered: context.linkedClansConsidered }
+        : {}),
       ...coverage,
+      rowsShown: summary.rows.length,
       ...(context.clanFilter ? { clanFilter: context.clanFilter } : {}),
       ...(context.userFilter ? { userFilter: context.userFilter } : {}),
       ...(context.playerFilter ? { playerFilter: context.playerFilter } : {}),
@@ -718,6 +742,16 @@ function buildSnapshotCoverage(snapshots: readonly RemainingLatestWarSnapshot[])
   );
 }
 
+function buildLatestFetchedAtContext(snapshots: readonly RemainingLatestWarSnapshot[]): {
+  latestFetchedAt?: Date;
+} {
+  const latestFetchedAt = snapshots.reduce<Date | undefined>((latest, snapshot) => {
+    if (!latest || snapshot.fetchedAt.getTime() > latest.getTime()) return snapshot.fetchedAt;
+    return latest;
+  }, undefined);
+  return latestFetchedAt ? { latestFetchedAt } : {};
+}
+
 function buildWarCoverage(
   members: readonly WarMember[],
   attacksPerMember: number,
@@ -776,7 +810,8 @@ export function buildClanRemainingEmbed(summary: RemainingWarSummary): EmbedBuil
       name: 'Source',
       value: [
         `Selected: ${summary.source.selectedSource}; fetched ${time(summary.source.fetchedAt, 'R')}${summary.source.updatedAt ? `; updated ${time(summary.source.updatedAt, 'R')}` : ''}.`,
-        `Roster: ${summary.source.rosterMembers}; attacks: ${summary.source.attacksUsed}/${summary.source.attacksPossible}; state: ${formatWarStateLabel(summary.source.snapshotState || summary.state)}.`,
+        `Considered: ${summary.source.snapshotsConsidered} snapshot${summary.source.snapshotsConsidered === 1 ? '' : 's'}${summary.source.linkedClansConsidered === undefined ? '' : ` across ${summary.source.linkedClansConsidered} linked clan${summary.source.linkedClansConsidered === 1 ? '' : 's'}`}; rows shown: ${summary.source.rowsShown}/${summary.source.rosterMembers}.`,
+        `Attacks: ${summary.source.attacksUsed}/${summary.source.attacksPossible}; state: ${formatWarStateLabel(summary.source.snapshotState || summary.state)}.`,
         formatFilterContext(summary.source),
         'Persisted snapshots only; no live fallback or on-demand polling.',
         `Ended-war missed events: ${missedEventsLabel}`,
@@ -833,7 +868,8 @@ export function buildPlayerRemainingEmbed(
       name: 'Source',
       value: [
         `Scanned ${context.scannedSnapshots} stored war/CWL snapshot${context.scannedSnapshots === 1 ? '' : 's'} from this server's linked/configured clans.`,
-        `Selected: ${context.selectedSource}; roster: ${context.rosterMembers}; attacks: ${context.attacksUsed}/${context.attacksPossible}.`,
+        `Selected: ${context.selectedSource}${context.latestFetchedAt ? `; latest fetched ${time(context.latestFetchedAt, 'R')}` : ''}.`,
+        `Rows shown: ${context.rowsShown}/${context.rosterMembers}; attacks: ${context.attacksUsed}/${context.attacksPossible}.`,
         formatFilterContext(context),
         context.persistedOnly
           ? 'Persisted snapshots only; no live fallback or on-demand polling.'
