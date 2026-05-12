@@ -99,9 +99,9 @@ export interface UsageView {
   loadedCommandCoverage?: UsageLoadedCommandCoverage;
   recentTrend?: UsageRecentTrend;
   totalUses: number;
-  visibleCommandCount: number;
-  totalCommandCount: number;
-  hiddenCommandCount: number;
+  visibleCommandCount?: number;
+  totalCommandCount?: number;
+  hiddenCommandCount?: number;
   metricSource?: string;
   usageOwnerLimitNote?: string;
 }
@@ -314,16 +314,24 @@ export function formatUsageDescription(
 }
 
 function formatCommandCoverageContext(
-  view: Pick<UsageView, 'visibleCommandCount' | 'totalCommandCount' | 'hiddenCommandCount'>,
+  view: Pick<
+    UsageView,
+    'commandTotals' | 'visibleCommandCount' | 'totalCommandCount' | 'hiddenCommandCount'
+  >,
 ): string {
-  if (view.totalCommandCount === 0) {
+  const visibleCommandCount = view.visibleCommandCount ?? view.commandTotals.length;
+  const totalCommandCount = view.totalCommandCount ?? view.commandTotals.length;
+  const hiddenCommandCount =
+    view.hiddenCommandCount ?? Math.max(0, totalCommandCount - visibleCommandCount);
+
+  if (totalCommandCount === 0) {
     return 'Command coverage: no command totals are available from the metric source yet.';
   }
 
-  const hidden = view.hiddenCommandCount
-    ? `; ${formatCount(view.hiddenCommandCount)} lower-usage commands are hidden by the top-50 display limit`
+  const hidden = hiddenCommandCount
+    ? `; ${formatCount(hiddenCommandCount)} lower-usage commands are hidden by the top-50 display limit`
     : '';
-  return `Command coverage: showing ${formatCount(view.visibleCommandCount)}/${formatCount(view.totalCommandCount)} commands with recorded usage${hidden}.`;
+  return `Command coverage: showing ${formatCount(visibleCommandCount)}/${formatCount(totalCommandCount)} commands with recorded usage${hidden}.`;
 }
 
 function formatLoadedCommandCoverage(coverage: UsageLoadedCommandCoverage | undefined): string {

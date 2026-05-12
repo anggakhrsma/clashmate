@@ -271,21 +271,6 @@ export function buildStatusEmbed(view: StatusView): EmbedBuilder {
       value: formatOptionalCount(view.metrics.links),
       inline: false,
     },
-    {
-      name: 'Cache Health',
-      value: formatCacheHealth(view.metrics),
-      inline: false,
-    },
-    {
-      name: 'Metric Coverage',
-      value: formatMetricCoverage(view.metrics),
-      inline: false,
-    },
-    {
-      name: 'Ready / Live',
-      value: formatReadyLiveCheck(view.metrics),
-      inline: false,
-    },
     ...(view.metrics.reconciliationPlanning
       ? [
           {
@@ -298,11 +283,6 @@ export function buildStatusEmbed(view: StatusView): EmbedBuilder {
     {
       name: 'Runtime',
       value: view.metrics.runtime,
-      inline: false,
-    },
-    {
-      name: 'Build Metadata',
-      value: formatBuildMetadata(view.metrics),
       inline: false,
     },
     {
