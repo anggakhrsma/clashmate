@@ -213,8 +213,8 @@ const commandRegistry = createBotCommandRegistry({
     store: {
       listLinkedClans: databaseTrackedClans.listLinkedClans,
       listPlayerTagsForUser: databasePlayerLinks.listPlayerTagsForUser,
+      listClanMemberSnapshotsForGuild: databaseClanMemberSnapshots.listClanMemberSnapshotsForGuild,
     },
-    coc: cocClient,
   },
   config: {
     store: databaseConfigStore,

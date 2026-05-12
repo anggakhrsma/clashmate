@@ -1,4 +1,3 @@
-import type { ClashClan } from '@clashmate/coc';
 import type { CommandContext, SlashCommandDefinition } from '@clashmate/discord';
 import { normalizeClashTag } from '@clashmate/shared';
 import {
@@ -8,6 +7,7 @@ import {
   EmbedBuilder,
   escapeMarkdown,
   SlashCommandBuilder,
+  time,
 } from 'discord.js';
 
 export const COMPO_COMMAND_NAME = 'compo';
@@ -15,11 +15,11 @@ export const COMPO_COMMAND_DESCRIPTION = 'Show town hall composition for a linke
 export const COMPO_NO_LINKED_CLANS_MESSAGE =
   'No clans are linked to this server yet. Use `/setup clan` to link one.';
 export const COMPO_NO_DATA_MESSAGE =
-  'No town hall composition could be derived from the current Clash API clan response. `/compo` only uses the selected linked clan’s live member list; make sure the clan has visible members with town hall levels, or choose another linked clan with `clan:`.';
+  'No town hall composition could be derived from persisted linked-clan member snapshots. `/compo` does not query Clash live or start polling; link/configure the clan with `/setup clan`, wait for clan polling to store member snapshots with town hall levels, or choose another linked clan with `clan:`.';
 export const COMPO_NO_LINKED_PLAYERS_MESSAGE =
   'That Discord user does not have any linked Clash accounts in this server. `/compo user:` only filters by Clash accounts linked in this server; use `/link create` first.';
 export const COMPO_NO_MATCHING_LINKED_CLAN_MESSAGE =
-  "None of that Discord user's linked Clash accounts were found in this server's linked clans. User filtering checks linked player tags against the selected server's linked-clan member lists and does not enroll new clans for polling.";
+  "None of that Discord user's linked Clash accounts were found in this server's persisted linked-clan member snapshots. User filtering checks linked player tags against stored snapshot rows and does not query Clash live or enroll new clans for polling.";
 
 export const compoCommandData = new SlashCommandBuilder()
   .setName(COMPO_COMMAND_NAME)
@@ -46,23 +46,43 @@ export interface CompoLinkedClan {
   readonly alias: string | null;
 }
 
+export interface CompoSnapshotMember {
+  readonly playerTag?: string;
+  readonly tag?: string;
+  readonly townHallLevel?: number | null;
+  readonly lastFetchedAt?: Date;
+}
+
+export interface CompoClanSnapshots {
+  readonly clan: CompoLinkedClan;
+  readonly members: readonly CompoSnapshotMember[];
+}
+
 export interface CompoStore {
   readonly listLinkedClans: (guildId: string) => Promise<CompoLinkedClan[]>;
   readonly listPlayerTagsForUser: (guildId: string, userId: string) => Promise<string[]>;
-}
-
-export interface CompoCocApi {
-  readonly getClan: (clanTag: string) => Promise<ClashClan>;
+  readonly listClanMemberSnapshotsForGuild: (input: {
+    guildId: string;
+    clanTag?: string;
+  }) => Promise<CompoClanSnapshots[]>;
 }
 
 export interface CompoCommandOptions {
   readonly store: CompoStore;
-  readonly coc: CompoCocApi;
 }
 
 export interface TownHallCompositionRow {
   readonly townHallLevel: number;
   readonly count: number;
+}
+
+interface CompoDiagnostics {
+  readonly clan: CompoLinkedClan;
+  readonly linkedClanCount: number;
+  readonly linkedClanWithRowsCount: number;
+  readonly storedMemberRowCount: number;
+  readonly latestSnapshotAt: Date | null;
+  readonly filter: string;
 }
 
 export function createCompoSlashCommand(options: CompoCommandOptions): SlashCommandDefinition {
@@ -149,18 +169,25 @@ export async function executeCompo(
   const userOption = interaction.options.getUser('user');
   const clan = clanOption ? resolveCompoClan(clans, clanOption) : undefined;
   if (clan) {
-    await replyWithSelectedClan(interaction, clan, options.coc, {
-      source:
-        'Selected by the `clan:` option from this server’s linked clans and read from the current Clash API clan response.',
-      filter: `Clan option: ${clanOption}`,
+    const [snapshot] = await options.store.listClanMemberSnapshotsForGuild({
+      guildId: interaction.guildId,
+      clanTag: clan.clanTag,
     });
+    await replyWithCompo(
+      interaction,
+      snapshot,
+      buildCompoDiagnostics(clans, snapshot ? [snapshot] : [], {
+        clan,
+        filter: `clan:${clanOption} resolved to ${formatLinkedClanDiagnosticLabel(clan)}`,
+      }),
+    );
     return;
   }
 
   if (clanOption) {
     await interaction.editReply({
       content:
-        'No linked clan was found for that clan option. `/compo` only searches clans already linked to this server; use `/setup clan` before requesting composition.',
+        'No linked clan was found for that clan option. `/compo` only searches clans already linked to this server; use `/setup clan` before requesting composition. Persisted snapshots only; no live Clash API lookup is performed.',
     });
     return;
   }
@@ -175,17 +202,23 @@ export async function executeCompo(
       return;
     }
 
-    const userClan = await findClanForLinkedPlayerTags(clans, linkedPlayerTags, options.coc);
+    const snapshots = await options.store.listClanMemberSnapshotsForGuild({
+      guildId: interaction.guildId,
+    });
+    const userClan = findClanForLinkedPlayerTags(snapshots, linkedPlayerTags);
     if (!userClan) {
       await interaction.editReply({ content: COMPO_NO_MATCHING_LINKED_CLAN_MESSAGE });
       return;
     }
 
-    await replyWithCompo(interaction, userClan.clashClan, {
-      source:
-        'Matched from this server’s linked Discord user accounts and linked-clan member lists, then read from the current Clash API clan response.',
-      filter: `${userOption.toString()} (${linkedPlayerTags.length} linked tag${linkedPlayerTags.length === 1 ? '' : 's'})`,
-    });
+    await replyWithCompo(
+      interaction,
+      userClan,
+      buildCompoDiagnostics(clans, snapshots, {
+        clan: userClan.clan,
+        filter: `${userOption.toString()} (${linkedPlayerTags.length} linked tag${linkedPlayerTags.length === 1 ? '' : 's'}) matched stored member snapshot rows`,
+      }),
+    );
     return;
   }
 
@@ -195,80 +228,50 @@ export async function executeCompo(
     return;
   }
 
-  await replyWithSelectedClan(interaction, defaultClan, options.coc, {
-    source:
-      'Defaulted to the first linked clan for this server and read from the current Clash API clan response.',
-    filter: 'None; showing the default linked clan.',
+  const [snapshot] = await options.store.listClanMemberSnapshotsForGuild({
+    guildId: interaction.guildId,
+    clanTag: defaultClan.clanTag,
   });
-}
-
-async function replyWithSelectedClan(
-  interaction: ChatInputCommandInteraction,
-  clan: CompoLinkedClan,
-  coc: CompoCocApi,
-  context?: { readonly source?: string; readonly filter?: string },
-): Promise<void> {
-  let clashClan: ClashClan;
-  try {
-    clashClan = await coc.getClan(clan.clanTag);
-  } catch {
-    await interaction.editReply({ content: 'This clan tag is not valid or was not found.' });
-    return;
-  }
-
-  await replyWithCompo(interaction, clashClan, context);
+  await replyWithCompo(
+    interaction,
+    snapshot,
+    buildCompoDiagnostics(clans, snapshot ? [snapshot] : [], {
+      clan: defaultClan,
+      filter: 'none; defaulted to first linked clan',
+    }),
+  );
 }
 
 async function replyWithCompo(
   interaction: ChatInputCommandInteraction,
-  clashClan: ClashClan,
-  context?: { readonly source?: string; readonly filter?: string },
+  snapshot: CompoClanSnapshots | undefined,
+  context: CompoDiagnostics,
 ): Promise<void> {
-  const composition = collectTownHallComposition(clashClan.data);
+  const composition = collectTownHallComposition(snapshot?.members ?? []);
   if (composition.length === 0) {
-    await interaction.editReply({ content: COMPO_NO_DATA_MESSAGE });
+    await interaction.editReply({
+      content: `${COMPO_NO_DATA_MESSAGE}\n${formatCompoNoDataDiagnostics(context)}`,
+    });
     return;
   }
 
-  await interaction.editReply({ embeds: [buildCompoEmbed(clashClan, composition, context)] });
+  await interaction.editReply({ embeds: [buildCompoEmbed(snapshot, composition, context)] });
 }
 
-async function findClanForLinkedPlayerTags(
-  clans: readonly CompoLinkedClan[],
+function findClanForLinkedPlayerTags(
+  snapshots: readonly CompoClanSnapshots[],
   linkedPlayerTags: readonly string[],
-  coc: CompoCocApi,
-): Promise<{ readonly clan: CompoLinkedClan; readonly clashClan: ClashClan } | undefined> {
+): CompoClanSnapshots | undefined {
   const normalizedPlayerTags = new Set(linkedPlayerTags.map((tag) => normalizeClashTag(tag)));
-
-  for (const clan of clans) {
-    let clashClan: ClashClan;
-    try {
-      clashClan = await coc.getClan(clan.clanTag);
-    } catch {
-      continue;
-    }
-
-    if (clanHasAnyMemberTag(clashClan.data, normalizedPlayerTags)) return { clan, clashClan };
-  }
-
-  return undefined;
+  return snapshots.find((snapshot) =>
+    snapshot.members.some((member) => {
+      const tag = member.playerTag ?? member.tag;
+      return typeof tag === 'string' && normalizedPlayerTags.has(normalizeClashTag(tag));
+    }),
+  );
 }
 
-function clanHasAnyMemberTag(data: unknown, playerTags: ReadonlySet<string>): boolean {
-  if (!isRecord(data)) return false;
-  const memberList = readValue(data, 'memberList');
-  if (!Array.isArray(memberList)) return false;
-
-  return memberList.some((member) => {
-    if (!isRecord(member)) return false;
-    const tag = readValue(member, 'tag');
-    return typeof tag === 'string' && playerTags.has(normalizeClashTag(tag));
-  });
-}
-
-export function collectTownHallComposition(data: unknown): TownHallCompositionRow[] {
-  if (!isRecord(data)) return [];
-  const memberList = readValue(data, 'memberList');
+export function collectTownHallComposition(memberList: unknown): TownHallCompositionRow[] {
   if (!Array.isArray(memberList)) return [];
 
   const counts = new Map<number, number>();
@@ -285,35 +288,30 @@ export function collectTownHallComposition(data: unknown): TownHallCompositionRo
 }
 
 export function buildCompoEmbed(
-  clan: Pick<ClashClan, 'name' | 'tag' | 'data'>,
+  snapshot: CompoClanSnapshots | undefined,
   composition: readonly TownHallCompositionRow[],
-  context?: { readonly source?: string; readonly filter?: string },
+  context: CompoDiagnostics,
 ): EmbedBuilder {
   const totalMembers = composition.reduce((total, row) => total + row.count, 0);
   const averageTownHall = totalMembers
     ? composition.reduce((total, row) => total + row.townHallLevel * row.count, 0) / totalMembers
     : 0;
-  const reportedMemberCount = readReportedMemberCount(clan.data);
-  const memberListCount = readMemberListCount(clan.data);
-  const coverageLabel = formatCoverageLabel(totalMembers, reportedMemberCount, memberListCount);
+  const storedRows = snapshot?.members.length ?? 0;
+  const coverageLabel = formatCoverageLabel(totalMembers, storedRows, storedRows);
   const townHallLevels = composition.map((row) => row.townHallLevel);
   const highestTownHall = Math.max(...townHallLevels);
   const lowestTownHall = Math.min(...townHallLevels);
-  const source =
-    context?.source ??
-    'Defaulted to the first linked clan for this server and read from the current Clash API clan response.';
-  const filter = context?.filter ?? 'None; showing the selected linked clan.';
-  const badgeUrl = readBadgeUrl(clan.data);
 
-  const embed = new EmbedBuilder()
-    .setAuthor({ name: `${clan.name} (${clan.tag})`, ...(badgeUrl ? { iconURL: badgeUrl } : {}) })
+  return new EmbedBuilder()
+    .setAuthor({ name: `${context.clan.name ?? 'Linked Clan'} (${context.clan.clanTag})` })
     .setTitle('Town Hall Composition')
     .setDescription(
       [
         '**Source**',
-        source,
-        'No persistent polling snapshot or manual refresh is created by `/compo`.',
-        `Filter: ${filter}`,
+        'Persisted clan-poller member snapshots only; no live Clash API lookup, manual refresh, or polling enrollment is performed by `/compo`.',
+        `Linked clans: ${context.linkedClanCount}; with stored rows: ${context.linkedClanWithRowsCount}; stored rows scanned: ${context.storedMemberRowCount}.`,
+        `Filter: ${context.filter}`,
+        `Snapshot freshness: ${formatLatestCompoSnapshot(context.latestSnapshotAt)}`,
         '',
         '**Coverage**',
         coverageLabel,
@@ -326,24 +324,8 @@ export function buildCompoEmbed(
       ].join('\n'),
     )
     .setFooter({
-      text: `Derived from live clan response • ${totalMembers} member${totalMembers === 1 ? '' : 's'} with TH data`,
+      text: `Persisted only • ${totalMembers} member${totalMembers === 1 ? '' : 's'} with TH data`,
     });
-
-  if (badgeUrl) embed.setThumbnail(badgeUrl);
-  return embed;
-}
-
-function readReportedMemberCount(data: unknown): number | undefined {
-  if (!isRecord(data)) return undefined;
-  const members = readValue(data, 'members');
-  if (typeof members === 'number' && Number.isInteger(members) && members >= 0) return members;
-  return undefined;
-}
-
-function readMemberListCount(data: unknown): number | undefined {
-  if (!isRecord(data)) return undefined;
-  const memberList = readValue(data, 'memberList');
-  return Array.isArray(memberList) ? memberList.length : undefined;
 }
 
 function formatCoverageLabel(
@@ -353,15 +335,54 @@ function formatCoverageLabel(
 ): string {
   const memberScope = reportedMemberCount ?? memberListCount;
   if (memberScope === undefined) {
-    return `${townHallCount} member${townHallCount === 1 ? '' : 's'} with town hall data; the live response did not include a separate clan member total.`;
+    return `${townHallCount} member${townHallCount === 1 ? '' : 's'} with town hall data; the persisted snapshot did not include a separate clan member total.`;
   }
 
   const percent = memberScope > 0 ? ` (${Math.round((townHallCount / memberScope) * 100)}%)` : '';
-  const listNote =
-    memberListCount !== undefined && memberListCount !== memberScope
-      ? `; ${memberListCount} returned in member list`
-      : '';
-  return `${townHallCount}/${memberScope} member${memberScope === 1 ? '' : 's'} with town hall data${percent}${listNote}.`;
+  return `${townHallCount}/${memberScope} member${memberScope === 1 ? '' : 's'} with town hall data${percent}.`;
+}
+
+function buildCompoDiagnostics(
+  clans: readonly CompoLinkedClan[],
+  snapshots: readonly CompoClanSnapshots[],
+  input: { readonly clan: CompoLinkedClan; readonly filter: string },
+): CompoDiagnostics {
+  return {
+    clan: input.clan,
+    filter: input.filter,
+    linkedClanCount: clans.length,
+    linkedClanWithRowsCount: snapshots.filter((snapshot) => snapshot.members.length > 0).length,
+    storedMemberRowCount: snapshots.reduce((total, snapshot) => total + snapshot.members.length, 0),
+    latestSnapshotAt: getLatestCompoSnapshotTime(snapshots),
+  };
+}
+
+function getLatestCompoSnapshotTime(snapshots: readonly CompoClanSnapshots[]): Date | null {
+  const latest = snapshots.reduce<number | null>((value, snapshot) => {
+    for (const member of snapshot.members) {
+      const fetchedAt = member.lastFetchedAt;
+      if (!(fetchedAt instanceof Date)) continue;
+      const timeValue = fetchedAt.getTime();
+      if (!Number.isFinite(timeValue)) continue;
+      if (value === null || timeValue > value) return timeValue;
+    }
+    return value;
+  }, null);
+  return latest === null ? null : new Date(latest);
+}
+
+function formatLatestCompoSnapshot(latest: Date | null): string {
+  return latest
+    ? `${time(latest, 'R')} (${time(latest, 'f')})`
+    : 'no stored member snapshot timestamp';
+}
+
+function formatCompoNoDataDiagnostics(context: CompoDiagnostics): string {
+  return `Diagnostics: linked clans ${context.linkedClanCount}; with stored rows ${context.linkedClanWithRowsCount}; stored rows scanned ${context.storedMemberRowCount}; filter ${context.filter}; latest snapshot ${formatLatestCompoSnapshot(context.latestSnapshotAt)}.`;
+}
+
+function formatLinkedClanDiagnosticLabel(clan: CompoLinkedClan): string {
+  return `${clan.alias ?? clan.name ?? clan.clanTag} (${clan.clanTag})`;
 }
 
 export function resolveCompoClan(
@@ -435,17 +456,6 @@ function formatClanChoiceSortKey(clan: CompoLinkedClan): string {
 
 function normalizeChoiceKey(value: string): string {
   return value.trim().toLowerCase();
-}
-
-function readBadgeUrl(data: unknown): string | undefined {
-  if (!isRecord(data)) return undefined;
-  const badgeUrls = readValue(data, 'badgeUrls');
-  if (!isRecord(badgeUrls)) return undefined;
-  const small = readValue(badgeUrls, 'small');
-  const medium = readValue(badgeUrls, 'medium');
-  if (typeof small === 'string') return small;
-  if (typeof medium === 'string') return medium;
-  return undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
