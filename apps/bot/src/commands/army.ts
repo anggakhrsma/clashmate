@@ -14,6 +14,7 @@ export const ARMY_COMMAND_DESCRIPTION = 'Share a Clash of Clans army copy link.'
 export const INVALID_ARMY_LINK_MESSAGE = [
   'Please provide a valid public Clash of Clans Copy Army link.',
   'Accepted format: `https://link.clashofclans.com/en?action=CopyArmy&army=...`',
+  'The link must include `action=CopyArmy` and a parseable `army=` payload from the in-game **Copy Link** button.',
   'Open an army in Clash of Clans, use **Copy Link**, then paste that full link into `/army link:`.',
 ].join('\n');
 
@@ -220,6 +221,7 @@ export function buildArmyEmbed(input: {
       ].join(' • '),
     );
 
+  addListField(embed, 'Derived Context', formatDerivedContext(input));
   addListField(embed, 'Link Diagnostics', formatLinkDiagnostics(input.army));
   addListField(embed, 'Parsed Overview', formatArmyOverview(input.army));
   addListField(embed, 'Troops', formatUnits(input.army.troops));
@@ -229,7 +231,8 @@ export function buildArmyEmbed(input: {
   addListField(embed, 'Clan Castle Spells', formatUnits(input.army.clanCastleSpells));
 
   addListField(embed, 'Limitations', [
-    'Parsed offline from the public Copy Army link; no Clash API lookup, storage, or polling enrollment is performed.',
+    'Parsed offline from the public Copy Army link; no Clash API lookup is performed.',
+    'This command does not save armies, create history, or enroll anything into player/clan/war polling.',
     'Unit names, Town Hall estimates, levels, and capacity validation are not available in this static view.',
   ]);
 
@@ -237,6 +240,22 @@ export function buildArmyEmbed(input: {
   if (tips) addListField(embed, 'Tips', [truncateText(escapeMarkdown(tips), MAX_TIPS_LENGTH)]);
 
   return embed;
+}
+
+function formatDerivedContext(input: {
+  readonly army: ParsedArmyLink;
+  readonly armyName: string | null;
+  readonly tips: string | null;
+}): string[] {
+  const totals = calculateArmyTotals(input.army);
+  const armyName = input.armyName?.trim();
+  const tips = input.tips?.trim();
+
+  return [
+    `Parsed counts: ${totals.troops} ${pluralize('troop', totals.troops)} across ${input.army.troops.length} ${pluralizeEntry(input.army.troops.length)}, ${totals.spells} ${pluralize('spell', totals.spells)} across ${input.army.spells.length} ${pluralizeEntry(input.army.spells.length)}, ${totals.heroes} ${pluralize('hero', totals.heroes)}, and ${totals.clanCastleTroops + totals.clanCastleSpells} Clan Castle ${pluralize('unit', totals.clanCastleTroops + totals.clanCastleSpells)}.`,
+    `Copy link: validated host, locale path, \`${input.army.source.action}\` action, and parseable army payload.`,
+    `Notes: army name ${armyName ? 'provided' : 'not provided'}; tips ${tips ? 'provided' : 'not provided'}.`,
+  ];
 }
 
 function formatLinkDiagnostics(army: ParsedArmyLink): string[] {
@@ -352,6 +371,10 @@ function sumQuantities(units: readonly ParsedArmyUnit[]): number {
 
 function pluralize(word: string, count: number): string {
   return count === 1 ? word : `${word}s`;
+}
+
+function pluralizeEntry(count: number): string {
+  return count === 1 ? 'entry' : 'entries';
 }
 
 function isPositiveSafeInteger(value: number): boolean {
