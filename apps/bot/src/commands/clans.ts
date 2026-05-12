@@ -85,7 +85,14 @@ export async function autocompleteClans(
     return;
   }
 
-  const categories = await options.clans.listClanCategories(interaction.guildId);
+  let categories: ClansCategory[];
+  try {
+    categories = await options.clans.listClanCategories(interaction.guildId);
+  } catch {
+    await interaction.respond([]);
+    return;
+  }
+
   await interaction.respond(filterClansCategoryChoices(categories, String(focused.value ?? '')));
 }
 
@@ -94,10 +101,38 @@ export function filterClansCategoryChoices(
   query: string,
 ): ApplicationCommandOptionChoiceData<string>[] {
   const normalizedQuery = query.trim().toLowerCase();
-  return categories
-    .filter((category) => category.displayName.toLowerCase().includes(normalizedQuery))
-    .slice(0, 25)
-    .map((category) => ({ name: category.displayName, value: category.id }));
+  const choicesById = new Map<string, ClansCategory>();
+
+  for (const category of [...categories].sort(compareCategoriesForAutocomplete)) {
+    if (!choicesById.has(category.id)) choicesById.set(category.id, category);
+  }
+
+  return [...choicesById.values()]
+    .filter((category) => categoryMatchesQuery(category, normalizedQuery))
+    .map((category) => ({ name: formatCategoryChoiceName(category), value: category.id }))
+    .slice(0, 25);
+}
+
+function compareCategoriesForAutocomplete(a: ClansCategory, b: ClansCategory): number {
+  return (
+    (a.sortOrder ?? 0) - (b.sortOrder ?? 0) ||
+    a.displayName.localeCompare(b.displayName) ||
+    a.id.localeCompare(b.id)
+  );
+}
+
+function categoryMatchesQuery(category: ClansCategory, normalizedQuery: string): boolean {
+  if (!normalizedQuery) return true;
+  return (
+    category.displayName.toLowerCase().includes(normalizedQuery) ||
+    category.id.toLowerCase().includes(normalizedQuery)
+  );
+}
+
+function formatCategoryChoiceName(category: ClansCategory): string {
+  return category.displayName.length <= 100
+    ? category.displayName
+    : `${category.displayName.slice(0, 99)}…`;
 }
 
 async function executeClans(
