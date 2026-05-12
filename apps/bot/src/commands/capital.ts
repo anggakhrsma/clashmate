@@ -314,6 +314,8 @@ export function buildCapitalRaidsEmbed(
     ...filters,
     linkedClanSnapshots: clans.filter((clan) => hasSnapshotRecord(clan.snapshot)).length,
     linkedClansShown: rows.length,
+    visibleRows: Math.min(rows.length, CAPITAL_ROW_LIMIT),
+    hiddenRows: Math.max(clans.length - Math.min(rows.length, CAPITAL_ROW_LIMIT), 0),
     usableRows: rows.length,
   });
   if (rows.length === 0) {
@@ -389,13 +391,19 @@ export function buildCapitalContributionEmbed(
   const capitalGoldRows = filteredMembers.filter(
     (row) => readMemberCapitalNumber(row.member, 'capitalGold') !== null,
   ).length;
+  const snapshotFreshness = summarizeMemberSnapshotFreshness(
+    filteredMembers.map((row) => row.member),
+  );
 
   const embed = baseCapitalEmbed('Capital Contribution', {
     ...filters,
     latestMemberSnapshotAt: latestMemberSnapshotDate(snapshots),
+    memberSnapshotFreshness: snapshotFreshness,
     memberSnapshotClans: snapshots.length,
     memberSnapshotRows: members.length,
     filteredMemberRows: filteredMembers.length,
+    visibleRows: Math.min(rows.length, CAPITAL_ROW_LIMIT),
+    hiddenRows: Math.max(filteredMembers.length - Math.min(rows.length, CAPITAL_ROW_LIMIT), 0),
     usableRows: rows.length,
     capitalContributionRows,
     capitalGoldRows,
@@ -477,11 +485,14 @@ function baseCapitalEmbed(
     readonly clanLabel?: string;
     readonly linkedClansConsidered?: number;
     readonly latestMemberSnapshotAt?: Date | null;
+    readonly memberSnapshotFreshness?: string;
     readonly linkedClanSnapshots?: number;
     readonly linkedClansShown?: number;
     readonly memberSnapshotClans?: number;
     readonly memberSnapshotRows?: number;
     readonly filteredMemberRows?: number;
+    readonly hiddenRows?: number;
+    readonly visibleRows?: number;
     readonly usableRows?: number;
     readonly capitalContributionRows?: number;
     readonly capitalGoldRows?: number;
@@ -492,6 +503,9 @@ function baseCapitalEmbed(
   ];
   const activeFilters = formatActiveCapitalFilters(filters);
   notes.push(`Filters: ${activeFilters.length > 0 ? activeFilters.join(', ') : 'none'}.`);
+  notes.push(
+    'Accepted filters: linked clan tag/name/alias, linked Discord user, recent raid-week label.',
+  );
   if (typeof filters.linkedClansConsidered === 'number')
     notes.push(
       `Linked clans: ${filters.linkedClansConsidered.toLocaleString('en-US')} considered.`,
@@ -514,6 +528,10 @@ function baseCapitalEmbed(
     notes.push(`Member rows after filters: ${filters.filteredMemberRows.toLocaleString('en-US')}.`);
   if (typeof filters.usableRows === 'number')
     notes.push(`Rows with usable capital data: ${filters.usableRows.toLocaleString('en-US')}.`);
+  if (typeof filters.visibleRows === 'number' || typeof filters.hiddenRows === 'number')
+    notes.push(
+      `Visible/hidden rows: ${(filters.visibleRows ?? 0).toLocaleString('en-US')} visible, ${(filters.hiddenRows ?? 0).toLocaleString('en-US')} hidden by missing data or display limit.`,
+    );
   if (typeof filters.capitalContributionRows === 'number')
     notes.push(
       `capitalContribution coverage: ${filters.capitalContributionRows.toLocaleString('en-US')}.`,
@@ -524,6 +542,8 @@ function baseCapitalEmbed(
     notes.push(
       `Latest member snapshot: ${formatRelativeSnapshotAge(filters.latestMemberSnapshotAt)}.`,
     );
+  if (filters.memberSnapshotFreshness)
+    notes.push(`Snapshot freshness: ${filters.memberSnapshotFreshness}.`);
   if (filters.week?.trim())
     notes.push(
       `Week label only: ${formatRaidWeekFilter(filters.week)}; raid logs are not persisted or filtered.`,
@@ -587,6 +607,35 @@ function latestMemberSnapshotDate(snapshots: readonly CapitalClanMemberSnapshots
     }
   }
   return latest;
+}
+
+function summarizeMemberSnapshotFreshness(members: readonly CapitalMemberSnapshotRow[]): string {
+  const buckets = { fresh: 0, recent: 0, stale: 0, missing: 0 };
+  const now = Date.now();
+  for (const member of members) {
+    const fetchedAt = member.lastFetchedAt;
+    if (!fetchedAt) {
+      buckets.missing += 1;
+      continue;
+    }
+    const ageHours = (now - fetchedAt.getTime()) / 3_600_000;
+    if (!Number.isFinite(ageHours) || ageHours < 0) {
+      buckets.missing += 1;
+    } else if (ageHours <= 6) {
+      buckets.fresh += 1;
+    } else if (ageHours <= 24) {
+      buckets.recent += 1;
+    } else {
+      buckets.stale += 1;
+    }
+  }
+
+  return [
+    `≤6h ${buckets.fresh.toLocaleString('en-US')}`,
+    `6-24h ${buckets.recent.toLocaleString('en-US')}`,
+    `>24h ${buckets.stale.toLocaleString('en-US')}`,
+    `missing ${buckets.missing.toLocaleString('en-US')}`,
+  ].join(', ');
 }
 
 function formatRelativeSnapshotAge(date: Date): string {
