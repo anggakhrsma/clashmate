@@ -12,9 +12,9 @@ export const NICKNAME_COMMAND_DESCRIPTION = 'Manage automatic nickname settings.
 export const NICKNAME_FIRST_PASS_NOTE =
   'ClashMate stores these server nickname preferences and previews nickname reconciliation for the invoking member only, using saved config plus the current Discord member record. It changes your nickname only when `change_nicknames` is set to `Yes` in this invocation and every safety check passes.';
 export const NICKNAME_REFRESH_NOTE =
-  'Stored nickname preferences can be planned for later background reconciliation, but this command does not run that reconciliation and never performs broad Discord nickname mutation. It can only change the invoking member when explicitly requested and all checks pass.';
+  'Stored nickname preferences are used by reconciliation planning diagnostics. This command does not run broad reconciliation or mutate other Discord members; it only self-previews and can change the invoking member when explicitly requested and every safety check passes.';
 export const NICKNAME_BACKGROUND_RECONCILIATION_LIMITATION =
-  'Background reconciliation is limited to users, linked accounts, family-clan metadata, and snapshots already stored by ClashMate. Search-only lookups, previews, and omitted options do not enroll players for polling, create leases, call the live Clash API, or create new tracking records.';
+  'Diagnostics use only existing saved config, preview values, Discord safety checks, linked accounts, family-clan metadata, and snapshots already stored by ClashMate. Search-only lookups, previews, and omitted options do not enroll players for polling, create leases, call the live Clash API, or create new tracking records.';
 export const DISCORD_NICKNAME_MAX_LENGTH = 32;
 export const SUPPORTED_NICKNAME_PLACEHOLDERS = [
   '{NAME}',
@@ -291,7 +291,7 @@ export function buildNicknameConfigEmbed(
       {
         name: 'Server persistence',
         value:
-          'Manage Server is required because these settings are saved for this Discord server and affect future nickname refresh behavior. Omitted options keep their existing saved values.',
+          'Manage Server is required because these settings are saved for this Discord server and are used by reconciliation planning diagnostics. Omitted options keep their existing saved values.',
         inline: false,
       },
       {
@@ -354,7 +354,7 @@ export function planScheduledNicknameReconciliation(
       ? 'change_nicknames is disabled'
       : !format
         ? 'no nickname format is configured'
-        : 'scheduled nickname reconciliation is safe to run with Discord permission and hierarchy checks',
+        : 'stored config is ready for reconciliation planning diagnostics when Discord permission and hierarchy checks pass',
     format: format ?? null,
   };
 }
@@ -525,7 +525,7 @@ function formatDerivedNicknameDiagnostics(view: NicknameConfigView): string {
     `change_nicknames gate: ${formatChangeNicknameGateDiagnostic(view.changeNicknames)}.`,
     'Self-preview/apply safety: the preview uses only the invoking member. Apply requires bot Manage Nicknames permission, Discord role hierarchy, a configured format that can render with available data, stored `change_nicknames: Yes`, and explicit `change_nicknames: Yes` on this invocation.',
     'No-linked-data guidance: player/clan placeholders require existing linked-account and family-clan data. Without that stored data, reconciliation must skip those values rather than search, poll, or guess.',
-    'Background reconciliation limitation: stored config can guide future refreshes, but this command does not start a refresh, enroll search-only players, create polling leases, call the live Clash API, or perform broad Discord nickname mutation.',
+    'Reconciliation diagnostics limitation: stored config guides planning diagnostics only; this command does not start broad reconciliation, enroll search-only players, create polling leases, call the live Clash API, or perform broad Discord nickname mutation.',
   ].join('\n');
 }
 
