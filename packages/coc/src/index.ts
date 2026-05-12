@@ -25,8 +25,15 @@ export interface ClashApiErrorDetails {
   readonly status?: number;
   readonly reason: string;
   readonly message: string;
+  readonly attempt?: number;
   readonly attempts?: number;
+  readonly maxAttempts?: number;
   readonly retryable?: boolean;
+  readonly retryableStatus?: boolean;
+  readonly nextBackoffMs?: number;
+  readonly responseContext?: string;
+  readonly expectedCapability?: string;
+  readonly missingCapabilities?: readonly string[];
 }
 
 export class ClashApiError extends Error {
@@ -69,11 +76,7 @@ export class ClashMateCocClient {
     const normalizedTag = this.normalizeTag(tag);
     const data = await this.request(() => this.client.getClan(normalizedTag));
     if (!isClanResponse(data)) {
-      throw new ClashApiError({
-        reason: 'invalid_response',
-        message: 'Clash API returned an invalid clan response.',
-        retryable: false,
-      });
+      throwInvalidResponse('Clash API returned an invalid clan response.', 'getClan');
     }
 
     return {
@@ -90,16 +93,14 @@ export class ClashMateCocClient {
         reason: 'unsupported_client',
         message: 'Clash API client does not support clan search.',
         retryable: false,
+        expectedCapability: 'getClans',
+        missingCapabilities: ['getClans'],
       });
     }
 
     const data = await this.request(() => this.client.getClans?.(query) ?? Promise.resolve(null));
     if (!isClanSearchResponse(data)) {
-      throw new ClashApiError({
-        reason: 'invalid_response',
-        message: 'Clash API returned an invalid clan search response.',
-        retryable: false,
-      });
+      throwInvalidResponse('Clash API returned an invalid clan search response.', 'getClans');
     }
 
     return {
@@ -130,11 +131,7 @@ export class ClashMateCocClient {
     const normalizedTag = this.normalizeTag(tag);
     const data = await this.request(() => this.client.getPlayer(normalizedTag));
     if (!isPlayerResponse(data)) {
-      throw new ClashApiError({
-        reason: 'invalid_response',
-        message: 'Clash API returned an invalid player response.',
-        retryable: false,
-      });
+      throwInvalidResponse('Clash API returned an invalid player response.', 'getPlayer');
     }
 
     return {
@@ -151,11 +148,10 @@ export class ClashMateCocClient {
       this.client.verifyPlayerToken(normalizedTag, normalizedToken),
     );
     if (!isVerifyTokenResponse(data)) {
-      throw new ClashApiError({
-        reason: 'invalid_response',
-        message: 'Clash API returned an invalid token verification response.',
-        retryable: false,
-      });
+      throwInvalidResponse(
+        'Clash API returned an invalid token verification response.',
+        'verifyPlayerToken',
+      );
     }
 
     return data.status === 'ok';
@@ -168,14 +164,19 @@ export class ClashMateCocClient {
       try {
         return await operation();
       } catch (error) {
-        const mappedError = mapClashApiError(error, attempt);
+        const retryableError = mapClashApiError(error, attempt, this.retry.maxAttempts);
+        const nextBackoffMs =
+          retryableError.details.retryable && attempt < this.retry.maxAttempts
+            ? this.retry.baseDelayMs * 2 ** (attempt - 1)
+            : undefined;
+        const mappedError = withRetryMetadata(retryableError, { nextBackoffMs });
         lastError = mappedError;
 
         if (!mappedError.details.retryable || attempt >= this.retry.maxAttempts) {
           throw mappedError;
         }
 
-        await this.retry.sleep(this.retry.baseDelayMs * 2 ** (attempt - 1));
+        await this.retry.sleep(nextBackoffMs ?? 0);
       }
     }
 
@@ -185,6 +186,7 @@ export class ClashMateCocClient {
         reason: 'request_failed',
         message: 'Clash API request failed.',
         attempts: this.retry.maxAttempts,
+        maxAttempts: this.retry.maxAttempts,
         retryable: false,
       })
     );
@@ -208,10 +210,20 @@ function validateCustomClient(client: unknown): asserts client is ClashOfClansAp
   }
 
   const requiredMethods = ['getClan', 'getCurrentWar', 'getPlayer', 'verifyPlayerToken'] as const;
+  const missingCapabilities: string[] = [];
   for (const methodName of requiredMethods) {
     if (typeof client[methodName] !== 'function') {
-      throw new Error(`Clash API client custom client ${methodName} must be a function.`);
+      missingCapabilities.push(methodName);
     }
+  }
+
+  if (missingCapabilities.length > 0) {
+    throw new ClashApiError({
+      reason: 'unsupported_client',
+      message: `Clash API client custom client is missing required capabilities: ${missingCapabilities.join(', ')}.`,
+      retryable: false,
+      missingCapabilities,
+    });
   }
 }
 
@@ -269,15 +281,21 @@ function normalizeResponseTag(tag: string, message: string): string {
       reason: 'invalid_response',
       message,
       retryable: false,
+      responseContext: 'tag',
     });
   }
 }
 
 function throwInvalidCurrentWarResponse(): never {
+  throwInvalidResponse('Clash API returned an invalid current war response.', 'getCurrentWar');
+}
+
+function throwInvalidResponse(message: string, responseContext: string): never {
   throw new ClashApiError({
     reason: 'invalid_response',
-    message: 'Clash API returned an invalid current war response.',
+    message,
     retryable: false,
+    responseContext,
   });
 }
 
@@ -349,7 +367,7 @@ function defaultSleep(delayMs: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
-function mapClashApiError(error: unknown, attempts: number): ClashApiError {
+function mapClashApiError(error: unknown, attempt: number, maxAttempts: number): ClashApiError {
   if (error instanceof ClashApiError) return error;
 
   if (error instanceof HttpError) {
@@ -358,16 +376,33 @@ function mapClashApiError(error: unknown, attempts: number): ClashApiError {
       status: error.status,
       reason: error.reason,
       message: error.message || `Clash API request failed with status ${error.status}`,
-      attempts,
+      attempt,
+      attempts: attempt,
+      maxAttempts,
       retryable,
+      retryableStatus: retryable,
     });
   }
 
   return new ClashApiError({
     reason: 'request_failed',
     message: error instanceof Error ? error.message : 'Clash API request failed.',
-    attempts,
+    attempt,
+    attempts: attempt,
+    maxAttempts,
     retryable: false,
+  });
+}
+
+function withRetryMetadata(
+  error: ClashApiError,
+  metadata: { readonly nextBackoffMs: number | undefined },
+): ClashApiError {
+  if (metadata.nextBackoffMs === undefined) return error;
+
+  return new ClashApiError({
+    ...error.details,
+    nextBackoffMs: metadata.nextBackoffMs,
   });
 }
 
