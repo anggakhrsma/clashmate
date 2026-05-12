@@ -13,9 +13,14 @@ export interface ClanPollerHandlerOptions {
   readonly now?: () => Date;
 }
 
+export type ClanMemberEventSkipReason = 'clan_not_linked' | 'member_event_store_unavailable';
+
 export interface ClanPollerResult {
   readonly status: 'snapshot_updated' | 'not_linked';
   readonly clanTag: string;
+  readonly fetchedMemberCount: number;
+  readonly memberEventProcessingRan: boolean;
+  readonly memberEventSkipReason?: ClanMemberEventSkipReason;
   readonly joined?: number;
   readonly left?: number;
   readonly donationEvents?: number;
@@ -44,18 +49,24 @@ export function createClanPollerHandler(options: ClanPollerHandlerOptions) {
       fetchedAt,
     });
 
+    const members = extractClanMemberSnapshots(clan);
+    const memberEvents = options.memberEvents;
+    const memberEventSkipReason = getClanMemberEventSkipReason(result.status, memberEvents);
     const memberResult =
-      result.status === 'upserted' && options.memberEvents
-        ? await options.memberEvents.processClanMemberSnapshots({
+      memberEventSkipReason || !memberEvents
+        ? null
+        : await memberEvents.processClanMemberSnapshots({
             clanTag: clan.tag,
             fetchedAt,
-            members: extractClanMemberSnapshots(clan),
-          })
-        : null;
+            members,
+          });
 
     return {
       status: result.status === 'upserted' ? 'snapshot_updated' : 'not_linked',
       clanTag,
+      fetchedMemberCount: members.length,
+      memberEventProcessingRan: !memberEventSkipReason,
+      ...(memberEventSkipReason ? { memberEventSkipReason } : {}),
       ...(memberResult?.status === 'processed'
         ? {
             joined: memberResult.joined,
@@ -66,6 +77,15 @@ export function createClanPollerHandler(options: ClanPollerHandlerOptions) {
         : {}),
     };
   };
+}
+
+function getClanMemberEventSkipReason(
+  snapshotStatus: 'upserted' | 'not_linked',
+  memberEvents: ClanMemberEventStore | undefined,
+): ClanMemberEventSkipReason | null {
+  if (snapshotStatus !== 'upserted') return 'clan_not_linked';
+  if (!memberEvents) return 'member_event_store_unavailable';
+  return null;
 }
 
 interface ClanWithMembers {
