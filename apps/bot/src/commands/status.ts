@@ -338,7 +338,7 @@ export function formatReconciliationPlanning(summary: StatusReconciliationPlanni
     .map((feature) => {
       const planned = summary.plannedToRunCounts[feature] ?? 0;
       const total = summary.featureTotals[feature] ?? 0;
-      return `${feature}: ${planned}/${total}`;
+      return `${feature} ${planned}/${total}`;
     })
     .join(', ');
   const topSkips =
@@ -347,11 +347,7 @@ export function formatReconciliationPlanning(summary: StatusReconciliationPlanni
       : 'none';
   const latest = summary.latestPlannedAt?.toISOString() ?? 'Unavailable';
 
-  return [
-    `Recent outcomes: ${formatCount(summary.totalRecentOutcomes)}; freshness: latest planned at ${latest}.`,
-    `Planned to run: ${features}.`,
-    `Top skips: ${topSkips}.`,
-  ].join('\n');
+  return `Recent ${formatCount(summary.totalRecentOutcomes)} outcomes; latest ${latest}; planned ${features}; skips ${topSkips}.`;
 }
 
 export function formatClientHealth(
@@ -365,10 +361,7 @@ export function formatClientHealth(
   const cachedUsers = metrics.cachedUsers ?? 0;
   const cachedChannels = metrics.cachedChannels ?? 0;
 
-  return [
-    `Ready: ${metrics.clientReady ? 'yes' : 'no'}; ready at: ${readyAt}.`,
-    `Cached: guilds ${formatCount(cachedGuilds)}, users ${formatCount(cachedUsers)}, channels ${formatCount(cachedChannels)}.`,
-  ].join('\n');
+  return `Ready ${metrics.clientReady ? 'yes' : 'no'} (at ${readyAt}); cached guilds ${formatCount(cachedGuilds)}, users ${formatCount(cachedUsers)}, channels ${formatCount(cachedChannels)}.`;
 }
 
 export function formatMegabytes(value: number): string {
@@ -392,9 +385,11 @@ export function formatMetricSource(
 ): string {
   const missingMetricReaders = metrics.missingMetricReaders ?? [];
   const metricSource = metrics.metricSource ?? 'No metric reader configured.';
-  if (missingMetricReaders.length === 0) return metricSource;
+  const availableReaders = 4 - missingMetricReaders.length;
+  const availability = `Metric readers: ${availableReaders}/4 available`;
+  if (missingMetricReaders.length === 0) return `${metricSource}; ${availability}.`;
 
-  return `${metricSource}\nMissing readers: ${missingMetricReaders.join(', ')}. Wire StatusMetricReader methods to populate these counts.`;
+  return `${metricSource}; ${availability}. Missing: ${missingMetricReaders.join(', ')}.`;
 }
 
 export function formatStatusDiagnostics(
@@ -406,15 +401,25 @@ export function formatStatusDiagnostics(
     | 'cachedGuilds'
     | 'cachedUsers'
     | 'cachedChannels'
+    | 'servers'
     | 'cacheSource'
     | 'metricSource'
     | 'missingMetricReaders'
   >,
 ): string {
+  const cachedGuilds = metrics.cachedGuilds ?? 0;
+  const cachedUsers = metrics.cachedUsers ?? 0;
+  const cachedChannels = metrics.cachedChannels ?? 0;
+  const cacheCoverage =
+    metrics.servers > 0
+      ? `${Math.min(cachedGuilds, metrics.servers)}/${formatCount(metrics.servers)} guilds`
+      : `${formatCount(cachedGuilds)} guilds`;
+
   return [
     `Gateway latency: ${formatLatency(metrics.websocketLatencyMs)}.`,
     formatClientHealth(metrics),
-    `Cache: ${metrics.cacheSource ?? 'Discord client cache.'}`,
+    `Coverage: server cache ${cacheCoverage}; user cache ${formatCount(cachedUsers)}; channel cache ${formatCount(cachedChannels)}.`,
+    `Cache source: ${metrics.cacheSource ?? 'Discord client cache.'}`,
     formatMetricSource(metrics),
   ].join('\n');
 }
