@@ -333,14 +333,22 @@ export async function autocompleteSetupClan(
   const query = String(focused.value ?? '').trim();
 
   if (focused.name === 'category') {
-    const categories = await options.clans.listClanCategories(interaction.guildId);
-    await interaction.respond(filterCategoryChoices(categories, query));
+    try {
+      const categories = await options.clans.listClanCategories(interaction.guildId);
+      await interaction.respond(filterCategoryChoices(categories, query));
+    } catch {
+      await interaction.respond([]);
+    }
     return;
   }
 
   if (focused.name === 'clan' || focused.name === 'clans') {
-    const clans = await options.clans.listLinkedClans(interaction.guildId);
-    await interaction.respond(filterClanChoices(clans, query));
+    try {
+      const clans = await options.clans.listLinkedClans(interaction.guildId);
+      await interaction.respond(filterClanChoices(clans, query));
+    } catch {
+      await interaction.respond([]);
+    }
     return;
   }
 
@@ -505,10 +513,10 @@ export function filterCategoryChoices(
   query: string,
 ): ApplicationCommandOptionChoiceData<string>[] {
   const normalizedQuery = query.trim().toLowerCase();
-  return categories
+  return dedupeCategoriesByAcceptedValue(categories)
     .filter((category) => category.displayName.toLowerCase().includes(normalizedQuery))
-    .slice(0, 25)
-    .map((category) => ({ name: category.displayName, value: category.id }));
+    .map((category) => ({ name: category.displayName, value: category.id }))
+    .slice(0, 25);
 }
 
 export function filterClanChoices(
@@ -516,24 +524,67 @@ export function filterClanChoices(
   query: string,
 ): ApplicationCommandOptionChoiceData<string>[] {
   const normalizedQuery = query.trim().toLowerCase();
-  const choices = clans
+  const choices = dedupeClansByAcceptedValue(clans)
     .filter((clan) => {
       if (!normalizedQuery) return true;
       return [clan.clanTag, clan.name, clan.alias]
         .filter((value): value is string => Boolean(value))
         .some((value) => value.toLowerCase().includes(normalizedQuery));
     })
-    .slice(0, 25)
     .map((clan) => ({
       name: `${clan.name ?? clan.clanTag} (${clan.clanTag})`,
       value: clan.clanTag,
-    }));
+    }))
+    .slice(0, 25);
 
   if (choices.length === 0 && query.trim()) {
     return [{ name: query.trim(), value: query.trim() }];
   }
 
   return choices;
+}
+
+function dedupeCategoriesByAcceptedValue(
+  categories: readonly SetupClanCategory[],
+): SetupClanCategory[] {
+  return [...categories]
+    .sort((left, right) =>
+      compareAcceptedChoice(left.id, right.id, left.displayName, right.displayName),
+    )
+    .filter((category, index, sortedCategories) => {
+      const previousCategory = sortedCategories[index - 1];
+      return !previousCategory || previousCategory.id !== category.id;
+    });
+}
+
+function dedupeClansByAcceptedValue(
+  clans: readonly SetupClanTrackedClan[],
+): SetupClanTrackedClan[] {
+  return [...clans]
+    .sort((left, right) =>
+      compareAcceptedChoice(
+        left.clanTag,
+        right.clanTag,
+        left.name ?? left.alias ?? left.clanTag,
+        right.name ?? right.alias ?? right.clanTag,
+      ),
+    )
+    .filter((clan, index, sortedClans) => {
+      const previousClan = sortedClans[index - 1];
+      return !previousClan || previousClan.clanTag !== clan.clanTag;
+    });
+}
+
+function compareAcceptedChoice(
+  leftValue: string,
+  rightValue: string,
+  leftName: string,
+  rightName: string,
+): number {
+  const valueComparison = leftValue.localeCompare(rightValue);
+  if (valueComparison !== 0) return valueComparison;
+
+  return leftName.localeCompare(rightName);
 }
 
 async function executeSetupClan(
