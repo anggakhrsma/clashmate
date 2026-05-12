@@ -91,7 +91,13 @@ describe('/guild-ban access control and validation', () => {
 
     await command.execute(interaction, createContext());
 
-    expect(replies).toEqual([{ content: 'Invalid guildId.', ephemeral: true }]);
+    expect(replies).toEqual([
+      {
+        content:
+          'Invalid guildId. Provide a Discord server snowflake (17-20 digits). `/guild-ban` is an owner-only global access toggle.',
+        ephemeral: true,
+      },
+    ]);
     expect(toggles).toHaveLength(0);
   });
 
@@ -130,7 +136,11 @@ describe('/guild-ban toggle behavior', () => {
     ]);
     expect(replies).toEqual([
       {
-        content: "**Cached Server** has been blacklisted from using ClashMate's command.",
+        content: [
+          "**Cached Server** has been blacklisted from using ClashMate's command.",
+          'Command access is blocked globally until this command is run again.',
+          'Target name uses the cached server name when available, otherwise the snowflake. This persisted owner-only change is auditable; only bot owners can see this response.',
+        ].join('\n'),
         ephemeral: true,
       },
     ]);
@@ -149,6 +159,12 @@ describe('/guild-ban toggle behavior', () => {
         targetDisplayName: 'Cached Server',
         botDisplayName: 'ClashMate',
       }),
-    ).toBe("**Cached Server** has been removed from the ClashMate's blacklist.");
+    ).toBe(
+      [
+        "**Cached Server** has been removed from the ClashMate's blacklist.",
+        'Command access is restored wherever this bot can serve the guild.',
+        'Target name uses the cached server name when available, otherwise the snowflake. This persisted owner-only change is auditable; only bot owners can see this response.',
+      ].join('\n'),
+    );
   });
 });

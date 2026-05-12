@@ -44,7 +44,11 @@ export function createGuildBanSlashCommand(
 
       const guildId = interaction.options.getString('id', true).trim();
       if (!isDiscordSnowflake(guildId)) {
-        await interaction.reply({ content: 'Invalid guildId.', ephemeral: true });
+        await interaction.reply({
+          content:
+            'Invalid guildId. Provide a Discord server snowflake (17-20 digits). `/guild-ban` is an owner-only global access toggle.',
+          ephemeral: true,
+        });
         return;
       }
 
@@ -84,11 +88,22 @@ export function formatGuildBanToggleMessage(options: {
   targetDisplayName: string;
   botDisplayName: string;
 }): string {
+  const auditContext =
+    'Target name uses the cached server name when available, otherwise the snowflake. This persisted owner-only change is auditable; only bot owners can see this response.';
+
   if (options.action === 'deleted') {
-    return `**${options.targetDisplayName}** has been removed from the ${options.botDisplayName}'s blacklist.`;
+    return [
+      `**${options.targetDisplayName}** has been removed from the ${options.botDisplayName}'s blacklist.`,
+      'Command access is restored wherever this bot can serve the guild.',
+      auditContext,
+    ].join('\n');
   }
 
-  return `**${options.targetDisplayName}** has been blacklisted from using ${options.botDisplayName}'s command.`;
+  return [
+    `**${options.targetDisplayName}** has been blacklisted from using ${options.botDisplayName}'s command.`,
+    'Command access is blocked globally until this command is run again.',
+    auditContext,
+  ].join('\n');
 }
 
 function getBotDisplayName(context: Pick<CommandContext, 'client'>): string {
