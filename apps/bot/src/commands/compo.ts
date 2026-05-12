@@ -15,7 +15,7 @@ export const COMPO_COMMAND_DESCRIPTION = 'Show town hall composition for a linke
 export const COMPO_NO_LINKED_CLANS_MESSAGE =
   'No clans are linked to this server yet. Use `/setup clan` to link one.';
 export const COMPO_NO_DATA_MESSAGE =
-  'The current Clash API clan response does not include member town hall levels for this clan. Make sure the clan is linked with `/setup clan`, has visible members, and try again after Clash API data updates.';
+  'No town hall composition could be derived from the current Clash API clan response. `/compo` only uses the selected linked clan’s live member list; make sure the clan has visible members with town hall levels, or choose another linked clan with `clan:`.';
 export const COMPO_NO_LINKED_PLAYERS_MESSAGE =
   'That Discord user does not have any linked Clash accounts in this server. `/compo user:` only filters by Clash accounts linked in this server; use `/link create` first.';
 export const COMPO_NO_MATCHING_LINKED_CLAN_MESSAGE =
@@ -149,7 +149,11 @@ export async function executeCompo(
   const userOption = interaction.options.getUser('user');
   const clan = clanOption ? resolveCompoClan(clans, clanOption) : undefined;
   if (clan) {
-    await replyWithSelectedClan(interaction, clan, options.coc);
+    await replyWithSelectedClan(interaction, clan, options.coc, {
+      source:
+        'Selected by the `clan:` option from this server’s linked clans and read from the current Clash API clan response.',
+      filter: `Clan option: ${clanOption}`,
+    });
     return;
   }
 
@@ -191,13 +195,18 @@ export async function executeCompo(
     return;
   }
 
-  await replyWithSelectedClan(interaction, defaultClan, options.coc);
+  await replyWithSelectedClan(interaction, defaultClan, options.coc, {
+    source:
+      'Defaulted to the first linked clan for this server and read from the current Clash API clan response.',
+    filter: 'None; showing the default linked clan.',
+  });
 }
 
 async function replyWithSelectedClan(
   interaction: ChatInputCommandInteraction,
   clan: CompoLinkedClan,
   coc: CompoCocApi,
+  context?: { readonly source?: string; readonly filter?: string },
 ): Promise<void> {
   let clashClan: ClashClan;
   try {
@@ -207,7 +216,7 @@ async function replyWithSelectedClan(
     return;
   }
 
-  await replyWithCompo(interaction, clashClan);
+  await replyWithCompo(interaction, clashClan, context);
 }
 
 async function replyWithCompo(
@@ -284,6 +293,16 @@ export function buildCompoEmbed(
   const averageTownHall = totalMembers
     ? composition.reduce((total, row) => total + row.townHallLevel * row.count, 0) / totalMembers
     : 0;
+  const reportedMemberCount = readReportedMemberCount(clan.data);
+  const memberListCount = readMemberListCount(clan.data);
+  const coverageLabel = formatCoverageLabel(totalMembers, reportedMemberCount, memberListCount);
+  const townHallLevels = composition.map((row) => row.townHallLevel);
+  const highestTownHall = Math.max(...townHallLevels);
+  const lowestTownHall = Math.min(...townHallLevels);
+  const source =
+    context?.source ??
+    'Defaulted to the first linked clan for this server and read from the current Clash API clan response.';
+  const filter = context?.filter ?? 'None; showing the selected linked clan.';
   const badgeUrl = readBadgeUrl(clan.data);
 
   const embed = new EmbedBuilder()
@@ -292,10 +311,13 @@ export function buildCompoEmbed(
     .setDescription(
       [
         '**Source**',
-        context?.source ??
-          'Selected from this server’s linked clans and read from the current Clash API clan response.',
+        source,
         'No persistent polling snapshot or manual refresh is created by `/compo`.',
-        `User filter: ${context?.filter ?? 'Not applied'}.`,
+        `Filter: ${filter}`,
+        '',
+        '**Coverage**',
+        coverageLabel,
+        `Average TH: ${averageTownHall.toFixed(2)} • Range: TH${lowestTownHall}–TH${highestTownHall}`,
         '',
         '**Composition**',
         ...composition.map(
@@ -304,11 +326,42 @@ export function buildCompoEmbed(
       ].join('\n'),
     )
     .setFooter({
-      text: `Avg: ${averageTownHall.toFixed(2)} • Total: ${totalMembers} • Link clans with /setup clan`,
+      text: `Derived from live clan response • ${totalMembers} member${totalMembers === 1 ? '' : 's'} with TH data`,
     });
 
   if (badgeUrl) embed.setThumbnail(badgeUrl);
   return embed;
+}
+
+function readReportedMemberCount(data: unknown): number | undefined {
+  if (!isRecord(data)) return undefined;
+  const members = readValue(data, 'members');
+  if (typeof members === 'number' && Number.isInteger(members) && members >= 0) return members;
+  return undefined;
+}
+
+function readMemberListCount(data: unknown): number | undefined {
+  if (!isRecord(data)) return undefined;
+  const memberList = readValue(data, 'memberList');
+  return Array.isArray(memberList) ? memberList.length : undefined;
+}
+
+function formatCoverageLabel(
+  townHallCount: number,
+  reportedMemberCount: number | undefined,
+  memberListCount: number | undefined,
+): string {
+  const memberScope = reportedMemberCount ?? memberListCount;
+  if (memberScope === undefined) {
+    return `${townHallCount} member${townHallCount === 1 ? '' : 's'} with town hall data; the live response did not include a separate clan member total.`;
+  }
+
+  const percent = memberScope > 0 ? ` (${Math.round((townHallCount / memberScope) * 100)}%)` : '';
+  const listNote =
+    memberListCount !== undefined && memberListCount !== memberScope
+      ? `; ${memberListCount} returned in member list`
+      : '';
+  return `${townHallCount}/${memberScope} member${memberScope === 1 ? '' : 's'} with town hall data${percent}${listNote}.`;
 }
 
 export function resolveCompoClan(
