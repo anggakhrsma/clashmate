@@ -79,12 +79,15 @@ interface LineupEntry {
 }
 
 interface LineupOutputContext {
+  readonly linkedClanCount: number;
   readonly clanFilter: string;
   readonly userFilter: string;
+  readonly userFilterResolution: string;
   readonly rowsConsidered: number;
   readonly rowsVisible: number;
   readonly snapshotsConsidered: number;
   readonly readableSnapshots: number;
+  readonly pairedRows: number;
 }
 
 export interface LineupRow {
@@ -205,12 +208,11 @@ async function executeLineup(
   await interaction.deferReply();
   const clanOption = interaction.options.getString('clan');
   const user = interaction.options.getUser('user');
-  const clan = clanOption
-    ? await resolveLineupClan(interaction.guildId, clanOption, options.store)
-    : null;
+  const linkedClans = await options.store.listLinkedClans(interaction.guildId);
+  const clan = clanOption ? resolveLineupClan(clanOption, linkedClans) : null;
   if (clanOption && !clan) {
     await interaction.editReply(
-      `No linked clan matched ${formatCode(clanOption.trim())}. ${formatCode('/lineup')} only reads persisted snapshots for clans linked to this server and does not perform a live Clash API lookup.`,
+      `No linked clan matched ${formatCode(clanOption.trim())}. This server has ${linkedClans.length} linked clan${linkedClans.length === 1 ? '' : 's'} available to ${formatCode('/lineup')}. The command only reads persisted snapshots for linked clans and does not perform a live Clash API lookup.`,
     );
     return;
   }
@@ -273,16 +275,21 @@ async function executeLineup(
   await interaction.editReply({
     embeds: [
       buildLineupEmbed(entry, visibleRows, {
+        linkedClanCount: linkedClans.length,
         clanFilter: clan
           ? `Selected ${formatTrackedClanName(clan)}`
           : 'Not applied; scanned persisted snapshots for this server',
         userFilter: user
           ? `Applied to ${user.toString()} (${playerTags.length} linked tag${playerTags.length === 1 ? '' : 's'})`
           : 'Not applied',
+        userFilterResolution: user
+          ? `Matched stored war members by linked player tag; no Discord roster or live Clash lookup was used.`
+          : 'Skipped; no Discord user filter was supplied.',
         rowsConsidered: rows.length,
         rowsVisible: visibleRows.length,
         snapshotsConsidered: snapshots.length,
         readableSnapshots: parsedEntries.length,
+        pairedRows: rows.filter((row) => row.clanMember && row.opponentMember).length,
       }),
     ],
   });
@@ -300,12 +307,10 @@ async function loadLineupSnapshots(
   return store.getLatestWarSnapshotsForGuild(guildId);
 }
 
-async function resolveLineupClan(
-  guildId: string,
+function resolveLineupClan(
   clanOption: string,
-  store: LineupStore,
-): Promise<LineupTrackedClan | null> {
-  const clans = await store.listLinkedClans(guildId);
+  clans: readonly LineupTrackedClan[],
+): LineupTrackedClan | null {
   let normalizedTag: string | null = null;
   try {
     normalizedTag = normalizeClashTag(clanOption);
@@ -475,15 +480,17 @@ export function buildLineupEmbed(
   const warState = normalizeWarState(entry.war.state ?? entry.snapshot.state);
   const rowsConsidered = context?.rowsConsidered ?? rows.length;
   const rowsVisible = context?.rowsVisible ?? rows.length;
+  const pairedRows =
+    context?.pairedRows ?? rows.filter((row) => row.clanMember && row.opponentMember).length;
   const embed = new EmbedBuilder().setAuthor(buildWarAuthor(clan, entry.snapshot.trackedClan));
   const description = [
     '**War Against**',
     `**${opponent?.name ?? 'Unknown Clan'} (${opponent?.tag ?? 'unknown'})**`,
     '',
     '**Source**',
-    `Persisted current-war snapshot for ${formatCode(trackedTag)} fetched ${formatDiscordTimestamp(entry.snapshot.fetchedAt)}.`,
-    'Snapshots are produced by the war poller for clans linked/configured in this server.',
-    'No live Clash API lookup or manual refresh is performed by `/lineup`.',
+    `Persisted current-war snapshot for ${formatCode(trackedTag)} fetched ${formatDiscordTimestamp(entry.snapshot.fetchedAt)} (${formatSnapshotFreshness(entry.snapshot.fetchedAt)}).`,
+    `Linked clans in this server: ${context?.linkedClanCount ?? 'unknown'}. Snapshots are produced by the war poller for linked/configured clans.`,
+    'Persisted-only: no live Clash API lookup, manual refresh, or polling enrollment is performed by `/lineup`.',
     `Snapshots considered: ${context?.snapshotsConsidered ?? 1}; readable: ${context?.readableSnapshots ?? 1}.`,
     '',
     '**War State**',
@@ -492,9 +499,12 @@ export function buildLineupEmbed(
     '**Filters**',
     `Clan filter: ${context?.clanFilter ?? 'Not applied'}.`,
     `User filter: ${context?.userFilter ?? 'Not applied'}.`,
+    context?.userFilterResolution ??
+      'User filter resolution: skipped; no Discord user filter was supplied.',
     '',
     '**Coverage**',
     `Member rows considered: ${rowsConsidered}. Visible: ${rowsVisible}.`,
+    `Readable lineup pairs: ${pairedRows}/${rowsConsidered}; missing sides are shown as ${formatCode('—')}.`,
     rowsVisible < rowsConsidered
       ? `Showing the first ${rowsVisible} map position${rowsVisible === 1 ? '' : 's'} to keep the Discord embed concise.`
       : 'All available map positions are visible.',
@@ -539,6 +549,19 @@ function formatCode(value: string): string {
 function formatDiscordTimestamp(date: Date): string {
   const seconds = Math.floor(date.getTime() / 1000);
   return Number.isFinite(seconds) ? `<t:${seconds}:R> (<t:${seconds}:f>)` : 'at an unknown time';
+}
+
+function formatSnapshotFreshness(date: Date): string {
+  const ageMs = Date.now() - date.getTime();
+  if (!Number.isFinite(ageMs)) return 'freshness unknown';
+  if (ageMs < 0) return 'future timestamp; check poller clock';
+  const minutes = Math.floor(ageMs / 60_000);
+  if (minutes < 1) return 'fresh just now';
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} old`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours} hour${hours === 1 ? '' : 's'} old`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'} old`;
 }
 
 function formatMember(member: WarMember | null): string {
