@@ -212,7 +212,7 @@ async function executeLineup(
   const clan = clanOption ? resolveLineupClan(clanOption, linkedClans) : null;
   if (clanOption && !clan) {
     await interaction.editReply(
-      `No linked clan matched ${formatCode(clanOption.trim())}. This server has ${formatCount(linkedClans.length)} linked clan${linkedClans.length === 1 ? '' : 's'} available to ${formatCode('/lineup')}. The command only reads persisted snapshots for linked clans and does not perform a live Clash API lookup.`,
+      `No linked clan matched ${formatCode(clanOption.trim())}. Accepted clan filters are linked clan tags, aliases, or exact names. This server has ${formatCount(linkedClans.length)} linked clan${linkedClans.length === 1 ? '' : 's'} available to ${formatCode('/lineup')}. Snapshot source: persisted war-poller snapshots only; no live Clash API lookup or refresh is performed.`,
     );
     return;
   }
@@ -222,7 +222,7 @@ async function executeLineup(
     : [];
   if (user && playerTags.length === 0) {
     await interaction.editReply(
-      `No linked player tags were found for ${user.toString()}. ${formatCode('/lineup user:')} only filters persisted war snapshots by already linked player tags; use ${formatCode('/link create')} to link a Clash account first. User filter resolution: 0 linked tags, so no snapshot rows can match.`,
+      `No linked player tags were found for ${user.toString()}. Accepted user filters are Discord users with linked Clash accounts. ${formatCode('/lineup user:')} filters persisted war-poller snapshots by linked player tag only; no live Clash API lookup is performed. Use ${formatCode('/link create')} to link a Clash account first.`,
     );
     return;
   }
@@ -230,7 +230,7 @@ async function executeLineup(
   const snapshots = await loadLineupSnapshots(interaction.guildId, options.store, clan);
   if (snapshots.length === 0) {
     await interaction.editReply(
-      `No persisted current-war snapshot is available${clan ? ` for ${formatTrackedClanName(clan)}` : ' for this server'}. Linked clans available: ${formatCount(linkedClans.length)}. Link/configure a clan with ${formatCode('/setup clan')} and wait for the war poller to store a current-war snapshot; ${formatCode('/lineup')} does not perform a live Clash API lookup or refresh.`,
+      `No persisted current-war snapshot is available${clan ? ` for ${formatTrackedClanName(clan)}` : ' for this server'}. Snapshot source: latest stored war-poller data for linked/configured clans. Linked clans available: ${formatCount(linkedClans.length)}. Link/configure a clan with ${formatCode('/setup clan')} and wait for the war poller; ${formatCode('/lineup')} does not perform a live Clash API lookup or refresh.`,
     );
     return;
   }
@@ -244,7 +244,7 @@ async function executeLineup(
 
   if (user && entries.length === 0) {
     await interaction.editReply(
-      `No readable persisted current-war snapshot includes linked player tags for ${user.toString()}${clan ? ` in ${formatTrackedClanName(clan)}` : ''}. Considered ${formatCount(snapshots.length)} persisted snapshot${snapshots.length === 1 ? '' : 's'} (${formatCount(parsedEntries.length)} readable) and ${formatCount(playerTags.length)} linked player tag${playerTags.length === 1 ? '' : 's'}. User filter resolution: stored war members did not match any linked player tag, so no rows are visible.`,
+      `No readable persisted current-war snapshot includes linked player tags for ${user.toString()}${clan ? ` in ${formatTrackedClanName(clan)}` : ''}. Considered ${formatCount(snapshots.length)} persisted war-poller snapshot${snapshots.length === 1 ? '' : 's'} (${formatCount(parsedEntries.length)} readable) and ${formatCount(playerTags.length)} linked player tag${playerTags.length === 1 ? '' : 's'}. User filter resolution: stored war members did not match any linked player tag; no live Clash API lookup is performed.`,
     );
     return;
   }
@@ -252,7 +252,7 @@ async function executeLineup(
   const entry = chooseLineupEntry(entries);
   if (!entry) {
     await interaction.editReply(
-      `No readable persisted current-war snapshot is available${clan ? ` for ${formatTrackedClanName(clan)}` : ' for this server'} yet. Linked clans available: ${formatCount(linkedClans.length)}. Please try again after the next war poll; no live Clash API lookup or refresh is performed.`,
+      `No readable persisted current-war snapshot is available${clan ? ` for ${formatTrackedClanName(clan)}` : ' for this server'} yet. Snapshot source: stored war-poller data for linked clans. Linked clans available: ${formatCount(linkedClans.length)}. Please try again after the next war poll; no live Clash API lookup or refresh is performed.`,
     );
     return;
   }
@@ -267,7 +267,7 @@ async function executeLineup(
     rows.length === 0
   ) {
     await interaction.editReply(
-      `No member lineup is available in the latest persisted current-war snapshot${clan ? ` for ${formatTrackedClanName(clan)}` : ''}. War state: ${formatWarState(normalizeWarState(entry.war.state ?? entry.snapshot.state))}. Linked clans available: ${formatCount(linkedClans.length)}. Make sure war polling is enabled for a linked clan and wait for the next poll if war just started.`,
+      `No member lineup is available in the latest persisted current-war snapshot${clan ? ` for ${formatTrackedClanName(clan)}` : ''}. War state: ${formatWarState(normalizeWarState(entry.war.state ?? entry.snapshot.state))}. Snapshot source: stored war-poller data for linked clans; no live Clash API lookup is performed. Make sure war polling is enabled for a linked clan and wait for the next poll if war just started.`,
     );
     return;
   }
@@ -499,6 +499,7 @@ export function buildLineupEmbed(
     '',
     '**Filters**',
     `Clan filter: ${context?.clanFilter ?? 'Not applied'}.`,
+    'Accepted clan filters: linked clan tag, alias, or exact linked clan name.',
     `User filter: ${context?.userFilter ?? 'Not applied'}.`,
     context?.userFilterResolution ??
       'User filter resolution: skipped; no Discord user filter was supplied.',
@@ -559,7 +560,10 @@ function formatDiscordTimestamp(date: Date): string {
 function formatSnapshotFreshness(date: Date): string {
   const ageMs = Date.now() - date.getTime();
   if (!Number.isFinite(ageMs)) return 'freshness unknown';
-  if (ageMs < 0) return 'future timestamp; check poller clock';
+  if (ageMs < 0) {
+    const skewMinutes = Math.max(1, Math.ceil(Math.abs(ageMs) / 60_000));
+    return `stored fetch time is ${skewMinutes} minute${skewMinutes === 1 ? '' : 's'} ahead of the bot clock; check worker/database clock sync and war poller host time`;
+  }
   const minutes = Math.floor(ageMs / 60_000);
   if (minutes < 1) return 'fresh just now';
   if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} old`;
