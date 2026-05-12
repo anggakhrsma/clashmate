@@ -166,7 +166,7 @@ export async function executeLayoutPost(
   if (!isPublicLayoutLink(layoutLink)) {
     await interaction.reply({
       content:
-        'Invalid layout link was provided. Use a public Clash of Clans OpenLayout link from the in-game layout share button.',
+        'Invalid layout link was provided. Use the in-game layout share button and paste a public `https://link.clashofclans.com/...?...action=OpenLayout&id=TH...` link. Short links, screenshots without links, and non-OpenLayout links cannot be parsed.',
       ephemeral: true,
     });
     return;
@@ -285,6 +285,11 @@ export function buildLayoutPostEmbed(input: {
     { name: 'Submitter', value: `<@${input.submitterId}>`, inline: true },
   ];
 
+  const screenshotMetadata = formatScreenshotMetadata(input.screenshot);
+  if (screenshotMetadata) {
+    fields.push({ name: 'Screenshot', value: screenshotMetadata, inline: true });
+  }
+
   if (input.gameLayoutId) {
     fields.push({ name: 'Game Layout ID', value: input.gameLayoutId, inline: true });
   }
@@ -293,25 +298,30 @@ export function buildLayoutPostEmbed(input: {
 
   if (input.layoutId) fields.push({ name: 'Layout ID', value: input.layoutId, inline: true });
 
-  fields.push({
-    name: 'Submission Tracking',
-    value: input.layoutId
-      ? 'Tracked and saved for this server. Copy counts and downloader history can be added by the interaction layer later.'
-      : input.allowTracking
-        ? 'Tracking is enabled, but this submission could not be saved.'
-        : 'Not tracked. Layout submission tracking is disabled for this server.',
-    inline: false,
-  });
+  fields.push({ name: 'Tracking Config', value: formatTrackingContext(input), inline: false });
 
   fields.push({
-    name: 'Voting',
+    name: 'Voting Config',
     value: input.allowVoting
-      ? 'Voting is enabled for this server. Upvote and Downvote buttons are shown disabled until vote collection is wired to persisted interactions.'
+      ? 'Enabled for this server. Upvote and Downvote buttons are shown disabled until persisted vote collection is available.'
       : 'Voting is disabled for this server, so vote buttons are not shown.',
     inline: false,
   });
 
-  if (input.notes) fields.push({ name: 'Notes', value: input.notes, inline: false });
+  fields.push({
+    name: 'Notes',
+    value: input.notes
+      ? `Provided (${input.notes.length} characters).\n${input.notes}`
+      : 'No notes were provided.',
+    inline: false,
+  });
+
+  fields.push({
+    name: 'Data Source',
+    value:
+      'Diagnostics use the submitted link, attachment metadata, saved configuration, and persisted layout records only. No live Clash API lookup or polling enrollment is performed.',
+    inline: false,
+  });
 
   return new EmbedBuilder()
     .setColor(input.view.color ?? DEFAULT_LAYOUT_EMBED_COLOR)
@@ -387,10 +397,14 @@ export function buildLayoutConfigEmbed(input: {
         '**Accepted fields**',
         '`allow_voting` toggles voting context on layout posts.',
         '`allow_tracking` toggles persisted layout submission records and copy/download context.',
+        'Layout links are parsed from public in-game OpenLayout URLs only; invalid links should be re-shared from Clash of Clans and include `action=OpenLayout` plus an `id=TH...` value.',
         '',
         '**Channel and permission requirements**',
         '`/layout post` must be used in a server channel with an image screenshot and a public OpenLayout link.',
         '`/layout config` requires Discord Manage Server permission.',
+        '',
+        '**Data source limitation**',
+        'Layout diagnostics are persisted-only: ClashMate uses saved configuration/submission records and does not call the live Clash API or enroll layouts into polling from this command.',
         '',
         trackedSubmissionSummary,
       ].join('\n'),
@@ -452,6 +466,39 @@ async function createTrackedLayoutSubmission(
 
 function formatEnabledBoolean(value: boolean): string {
   return value ? 'enabled' : 'disabled';
+}
+
+function formatScreenshotMetadata(
+  screenshot: Pick<Attachment, 'contentType' | 'height' | 'name' | 'size' | 'width'>,
+): string | null {
+  const details = [
+    screenshot.contentType ?? null,
+    typeof screenshot.width === 'number' && typeof screenshot.height === 'number'
+      ? `${screenshot.width}×${screenshot.height}`
+      : null,
+    typeof screenshot.size === 'number' ? formatAttachmentSize(screenshot.size) : null,
+    screenshot.name ? `\`${screenshot.name}\`` : null,
+  ].filter((detail): detail is string => Boolean(detail));
+
+  return details.length > 0 ? details.join(' • ') : null;
+}
+
+function formatAttachmentSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatTrackingContext(input: { allowTracking: boolean; layoutId?: string }): string {
+  if (input.layoutId) {
+    return `Enabled and saved as persisted Layout ID \`${input.layoutId}\`. Copy counts and downloader history can be added by the interaction layer later.`;
+  }
+
+  if (input.allowTracking) {
+    return 'Enabled for this server, but this submission could not be saved. The post still uses submitted link and attachment metadata only.';
+  }
+
+  return 'Disabled for this server. This post is not persisted and no copy/download history will be recorded.';
 }
 
 function formatLayoutSubmissionSummary(summary: LayoutSubmissionSummaryRecord): string {
