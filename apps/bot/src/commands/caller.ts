@@ -177,8 +177,8 @@ export function createCallerSlashCommand(options: CallerCommandOptions): SlashCo
         });
         await interaction.reply({
           content: cleared
-            ? `Cleared persisted caller base for **#${defenseMapPosition} ${formatName(defense)}**. The saved call is removed from ClashMate storage for this war/base only. ${formatWarContext(entry, snapshots.length, entries.length)}`
-            : `No persisted caller base existed for **#${defenseMapPosition} ${formatName(defense)}** in ClashMate storage for this war/base. Assign one with \`/caller assign\` if this base should be reserved. ${formatWarContext(entry, snapshots.length, entries.length)}`,
+            ? `Cleared persisted caller base for **${formatDefenseResolution(defenseMapPosition, defense)}**. The saved call is removed from ClashMate storage for this war/base only. ${formatWarContext(entry, snapshots.length, entries.length)}`
+            : `No persisted caller base existed for **${formatDefenseResolution(defenseMapPosition, defense)}** in ClashMate storage for this war/base. Check that the defense target matches the current persisted war snapshot, then use \`/caller assign\` if this base should be reserved. ${formatWarContext(entry, snapshots.length, entries.length)}`,
           ephemeral: true,
         });
         return;
@@ -222,7 +222,7 @@ export function createCallerSlashCommand(options: CallerCommandOptions): SlashCo
         actorDiscordUserId: interaction.user.id,
       });
       await interaction.reply({
-        content: `Persisted caller base in ClashMate storage: **#${offenseMapPosition} ${formatName(offense)}** to **#${defenseMapPosition} ${formatName(defense)}**. ${formatExpiryFeedback(expiresAt)} This reserves the target for this persisted war/base until cleared or expired. ${formatWarContext(entry, snapshots.length, entries.length)}`,
+        content: `Persisted caller base in ClashMate storage: **${formatOffenseResolution(offenseMapPosition, offense)}** to **${formatDefenseResolution(defenseMapPosition, defense)}**. ${formatExpiryFeedback(expiresAt)} ${formatNoteFeedback(note)} This reserves the target for this persisted war/base until cleared or expired. ${formatWarContext(entry, snapshots.length, entries.length)}`,
         ephemeral: true,
       });
     },
@@ -284,12 +284,29 @@ function formatName(member: WarMember): string {
   return escapeMarkdown(member.name ?? member.tag ?? 'Unknown');
 }
 
+function formatMemberTag(member: WarMember): string {
+  return member.tag ? ` (${escapeMarkdown(member.tag)})` : '';
+}
+
+function formatDefenseResolution(mapPosition: number, member: WarMember): string {
+  return `defense #${mapPosition} → ${formatName(member)}${formatMemberTag(member)}`;
+}
+
+function formatOffenseResolution(mapPosition: number, member: WarMember): string {
+  return `offense #${mapPosition} → ${formatName(member)}${formatMemberTag(member)}`;
+}
+
 function formatExpiryFeedback(expiresAt: Date | null): string {
-  if (!expiresAt) return 'This call has no expiry.';
+  const bounds = `Expiry bounds: 0.1-${MAX_CALLER_EXPIRY_HOURS} hours.`;
+  if (!expiresAt) return `This call has no expiry. ${bounds}`;
   return `Expires ${time(expiresAt, TimestampStyles.RelativeTime)} (${time(
     expiresAt,
     TimestampStyles.ShortDateTime,
-  )}).`;
+  )}). ${bounds}`;
+}
+
+function formatNoteFeedback(note: string | null): string {
+  return note ? 'Note saved with this call.' : 'No note was provided.';
 }
 
 function formatAcceptedTargets(members: readonly WarMember[]): string {
@@ -359,7 +376,7 @@ function formatWarContext(
   usableSnapshotCount: number,
 ): string {
   const fetched = entry.fetchedAt
-    ? ` Snapshot fetched ${time(entry.fetchedAt, TimestampStyles.RelativeTime)}.`
-    : '';
-  return `Context: ${escapeMarkdown(entry.clanLabel)}; snapshots ${usableSnapshotCount}/${snapshotCount} usable current-war; source latest persisted linked-clan war polling snapshot, not live API; war ${escapeMarkdown(entry.warKey)} (${escapeMarkdown(entry.state)}); roster ${entry.offenseMembers.length} offense / ${entry.defenseMembers.length} defense; accepted defense ${formatAcceptedTargets(entry.defenseMembers)}, offense ${formatAcceptedTargets(entry.offenseMembers)}.${fetched} ${CALLER_FILTER_CONTEXT} ${CALLER_NO_LIVE_FALLBACK} ${CALLER_PARITY_CONTEXT}`;
+    ? `freshness ${time(entry.fetchedAt, TimestampStyles.RelativeTime)}`
+    : 'freshness unknown';
+  return `Context: source latest persisted linked-clan current-war snapshot (${fetched}; ${usableSnapshotCount}/${snapshotCount} usable; no live lookup/no Clash push); clan ${escapeMarkdown(entry.clanLabel)}; war key ${escapeMarkdown(entry.warKey)}; state ${escapeMarkdown(entry.state)}; roster ${entry.offenseMembers.length} offense / ${entry.defenseMembers.length} defense; accepted defense ${formatAcceptedTargets(entry.defenseMembers)}, offense ${formatAcceptedTargets(entry.offenseMembers)}. ${CALLER_FILTER_CONTEXT} ${CALLER_NO_LIVE_FALLBACK} ${CALLER_PARITY_CONTEXT}`;
 }
