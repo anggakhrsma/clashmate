@@ -264,6 +264,18 @@ function getSummaryWarKeyFilters(warType: string | null): {
   return {};
 }
 
+function getSummaryRaidWeekRange(
+  week: string | null,
+): { readonly start: Date; readonly end: Date } | null {
+  if (!week?.trim()) return null;
+  const start = new Date(`${week.trim()}T00:00:00.000Z`);
+  if (!Number.isFinite(start.getTime())) return null;
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 7);
+  end.setUTCMilliseconds(end.getUTCMilliseconds() - 1);
+  return { start, end };
+}
+
 function formatRaidWeekChoiceName(date: Date): string {
   return new Intl.DateTimeFormat('en-GB', {
     day: '2-digit',
@@ -333,6 +345,31 @@ export interface SummaryMissedWarAttackRow {
   readonly latestOccurredAt: Date;
 }
 
+export interface SummaryCapitalRaidSeasonMemberRow {
+  readonly playerTag: string;
+  readonly playerName: string;
+  readonly attacks: number;
+  readonly attackLimit: number;
+  readonly bonusAttackLimit: number;
+  readonly capitalResourcesLooted: number;
+}
+
+export interface SummaryCapitalRaidSeasonRow {
+  readonly clanTag: string;
+  readonly seasonKey: string;
+  readonly state: string;
+  readonly startTime: Date;
+  readonly endTime: Date;
+  readonly capitalTotalLoot: number;
+  readonly raidsCompleted: number;
+  readonly totalAttacks: number;
+  readonly enemyDistrictsDestroyed: number;
+  readonly offensiveReward: number;
+  readonly defensiveReward: number;
+  readonly sourceFetchedAt: Date;
+  readonly members: readonly SummaryCapitalRaidSeasonMemberRow[];
+}
+
 export interface SummaryWarSnapshotRecord {
   readonly clanTag: string;
   readonly state: string;
@@ -377,6 +414,13 @@ export interface SummaryStore {
     since?: Date;
     until?: Date;
   }) => Promise<SummaryMissedWarAttackRow[]>;
+  readonly listCapitalRaidSeasonsForGuild?: (input: {
+    guildId: string;
+    clanTag?: string;
+    weekStart?: Date;
+    weekEnd?: Date;
+    limit?: number;
+  }) => Promise<SummaryCapitalRaidSeasonRow[]>;
 }
 
 export interface SummaryCommandOptions {
@@ -687,6 +731,32 @@ export async function executeSummary(
     return;
   }
   if (subcommand === 'capital-raids') {
+    const weekRange = getSummaryRaidWeekRange(interaction.options.getString('week'));
+    if (options.store.listCapitalRaidSeasonsForGuild) {
+      const seasons = await options.store.listCapitalRaidSeasonsForGuild({
+        guildId: interaction.guildId,
+        ...(clanTag ? { clanTag } : {}),
+        ...(weekRange ? { weekStart: weekRange.start, weekEnd: weekRange.end } : {}),
+        limit: 50,
+      });
+      if (seasons.length > 0 || weekRange) {
+        await interaction.editReply(
+          buildSummaryCapitalRaidSeasonsPayload(
+            seasons,
+            interaction.options.getString('week'),
+            buildRowsCoverage(
+              clans.length,
+              clanTag ? 1 : clans.length,
+              seasons.length,
+              latestCapitalRaidSeasonAt(seasons),
+              baseFilters,
+            ),
+          ),
+        );
+        return;
+      }
+    }
+
     const rows = await options.store.listClansForGuild(interaction.guildId);
     await interaction.editReply(
       buildSummaryCapitalRaidsPayload(
@@ -702,6 +772,32 @@ export async function executeSummary(
     return;
   }
   if (subcommand === 'capital-contribution') {
+    const weekRange = getSummaryRaidWeekRange(interaction.options.getString('week'));
+    if (options.store.listCapitalRaidSeasonsForGuild) {
+      const seasons = await options.store.listCapitalRaidSeasonsForGuild({
+        guildId: interaction.guildId,
+        ...(clanTag ? { clanTag } : {}),
+        ...(weekRange ? { weekStart: weekRange.start, weekEnd: weekRange.end } : {}),
+        limit: 50,
+      });
+      if (seasons.length > 0 || weekRange) {
+        await interaction.editReply(
+          buildSummaryCapitalRaidContributionSeasonsPayload(
+            seasons,
+            interaction.options.getString('week'),
+            buildRowsCoverage(
+              clans.length,
+              clanTag ? 1 : clans.length,
+              seasons.reduce((sum, season) => sum + season.members.length, 0),
+              latestCapitalRaidSeasonAt(seasons),
+              baseFilters,
+            ),
+          ),
+        );
+        return;
+      }
+    }
+
     const snapshots = await options.store.listClanMemberSnapshotsForGuild({
       guildId: interaction.guildId,
       ...(clanTag ? { clanTag } : {}),
@@ -1234,6 +1330,49 @@ export function buildSummaryCapitalRaidsPayload(
   };
 }
 
+export function buildSummaryCapitalRaidSeasonsPayload(
+  seasons: readonly SummaryCapitalRaidSeasonRow[],
+  week: string | null,
+  coverage?: SummaryCoverageContext,
+): { content?: string; embeds?: EmbedBuilder[] } {
+  if (seasons.length === 0)
+    return {
+      content: noDataMessage('stored capital raid seasons', coverage),
+    };
+
+  const totals = seasons.reduce(
+    (acc, season) => ({
+      loot: acc.loot + season.capitalTotalLoot,
+      raids: acc.raids + season.raidsCompleted,
+      attacks: acc.attacks + season.totalAttacks,
+      districts: acc.districts + season.enemyDistrictsDestroyed,
+    }),
+    { loot: 0, raids: 0, attacks: 0, districts: 0 },
+  );
+
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setTitle('Capital Raid Season Summary')
+        .setDescription(truncate(formatCapitalRaidSeasonRows(seasons)))
+        .addFields(
+          {
+            name: 'Totals',
+            value: `${formatNumber(totals.loot)} loot · ${totals.raids} raids completed · ${totals.attacks} attacks · ${totals.districts} districts destroyed`,
+            inline: false,
+          },
+          sourceField(
+            `${week?.trim() ? `Week filter: ${formatRaidWeekFilter(week)}. ` : ''}Capital raid source: persisted raid seasons and raid member rows captured by clan polling; no live Clash API lookup or polling enrollment is performed.`,
+          ),
+          coverageField(coverage),
+        )
+        .setFooter({
+          text: `Showing ${Math.min(seasons.length, SUMMARY_ROW_LIMIT)}/${seasons.length} raid seasons`,
+        }),
+    ],
+  };
+}
+
 export function buildSummaryCapitalContributionPayload(
   snapshots: readonly SummaryClanMemberSnapshots[],
   week: string | null,
@@ -1319,6 +1458,56 @@ export function buildSummaryCapitalContributionPayload(
         )
         .setFooter({
           text: `Showing ${Math.min(rows.length, SUMMARY_ROW_LIMIT)}/${rows.length} members · ${members.length} current members considered`,
+        }),
+    ],
+  };
+}
+
+export function buildSummaryCapitalRaidContributionSeasonsPayload(
+  seasons: readonly SummaryCapitalRaidSeasonRow[],
+  week: string | null,
+  coverage?: SummaryCoverageContext,
+): { content?: string; embeds?: EmbedBuilder[] } {
+  const rows = seasons
+    .flatMap((season) => season.members.map((member) => ({ ...member, season })))
+    .sort(
+      (a, b) =>
+        b.capitalResourcesLooted - a.capitalResourcesLooted ||
+        b.attacks - a.attacks ||
+        a.playerName.localeCompare(b.playerName),
+    );
+
+  if (rows.length === 0)
+    return {
+      content: noDataMessage('stored capital raid member rows', coverage),
+    };
+
+  const totals = rows.reduce(
+    (acc, row) => ({
+      loot: acc.loot + row.capitalResourcesLooted,
+      attacks: acc.attacks + row.attacks,
+    }),
+    { loot: 0, attacks: 0 },
+  );
+
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setTitle('Capital Raid Contribution Summary')
+        .setDescription(truncate(formatCapitalRaidContributionSeasonRows(rows)))
+        .addFields(
+          {
+            name: 'Totals',
+            value: `${formatNumber(totals.loot)} capital loot · ${totals.attacks} attacks · ${rows.length} member rows`,
+            inline: false,
+          },
+          sourceField(
+            `${week?.trim() ? `Week filter: ${formatRaidWeekFilter(week)}. ` : ''}Capital contribution source: persisted raid-season member rows captured by clan polling; no live Clash API lookup or polling enrollment is performed.`,
+          ),
+          coverageField(coverage),
+        )
+        .setFooter({
+          text: `Showing ${Math.min(rows.length, SUMMARY_ROW_LIMIT)}/${rows.length} raid member rows`,
         }),
     ],
   };
@@ -1503,6 +1692,10 @@ function latestMissedWarAttackAt(rows: readonly SummaryMissedWarAttackRow[]): Da
   return latestDate(rows.map((row) => row.latestOccurredAt));
 }
 
+function latestCapitalRaidSeasonAt(rows: readonly SummaryCapitalRaidSeasonRow[]): Date | undefined {
+  return latestDate(rows.map((row) => row.sourceFetchedAt));
+}
+
 function latestClanSnapshotAt(clans: readonly SummaryClanListRow[]): Date | undefined {
   return latestDate(clans.flatMap((clan) => datesFromUnknown(clan.snapshot)));
 }
@@ -1547,6 +1740,28 @@ function formatAttackRows(rows: readonly SummaryWarAttackHistoryRow[]): string {
     .map(
       (row, index) =>
         `${index + 1}. **${escapeMarkdown(row.attackerName ?? row.attackerTag)}** · ${row.attackCount} attacks · ${row.averageStars.toFixed(2)} avg ⭐ · ${row.averageDestruction.toFixed(2)}% avg`,
+    )
+    .join('\n');
+}
+
+function formatCapitalRaidSeasonRows(rows: readonly SummaryCapitalRaidSeasonRow[]): string {
+  return rows
+    .slice(0, SUMMARY_ROW_LIMIT)
+    .map(
+      (row, index) =>
+        `${index + 1}. \`${row.clanTag}\` · ${formatNumber(row.capitalTotalLoot)} loot · ${row.raidsCompleted} raids · ${row.totalAttacks} attacks · ${row.enemyDistrictsDestroyed} districts · ${time(row.endTime, 'R')}`,
+    )
+    .join('\n');
+}
+
+function formatCapitalRaidContributionSeasonRows(
+  rows: readonly (SummaryCapitalRaidSeasonMemberRow & { season: SummaryCapitalRaidSeasonRow })[],
+): string {
+  return rows
+    .slice(0, SUMMARY_ROW_LIMIT)
+    .map(
+      (row, index) =>
+        `${index + 1}. **${escapeMarkdown(row.playerName)}** · ${formatNumber(row.capitalResourcesLooted)} loot · ${row.attacks}/${row.attackLimit + row.bonusAttackLimit} attacks · \`${row.season.clanTag}\``,
     )
     .join('\n');
 }

@@ -400,6 +400,7 @@ const commandRegistry = createBotCommandRegistry({
         : {}),
       listMissedWarAttackSummaryForGuild:
         databaseMissedWarAttacks.listMissedWarAttackSummaryForGuild,
+      listCapitalRaidSeasonsForGuild: databaseCapitalRaids.listCapitalRaidSeasonsForGuild,
     },
   },
   timezone: {
