@@ -383,6 +383,7 @@ export function buildCwlHistoryEmbed(
   const filters = formatAcceptedFilters(input);
   const latestAttack = maxDate(rows.map((row) => row.lastAttackedAt));
   const shownCount = Math.min(rows.length, MAX_ROWS);
+  const hiddenCount = Math.max(rows.length - shownCount, 0);
   const sourceLabel = formatCwlSourceLabel(subcommand, 'attack history');
   const description = rows
     .slice(0, MAX_ROWS)
@@ -402,8 +403,8 @@ export function buildCwlHistoryEmbed(
           sourceLabel,
           `linked clans ${formatCount(input.linkedClanCount)}`,
           `Persisted-only: scanned ${rows.length} stored attack ${rows.length === 1 ? 'row' : 'rows'} · ${totals.attacks} stored attack ${totals.attacks === 1 ? 'event' : 'events'}`,
-          `showing ${shownCount} of ${rows.length} ${rows.length === 1 ? 'row' : 'rows'} (display limit ${MAX_ROWS})`,
-          latestAttack ? `latest event ${time(latestAttack, 'R')}` : '',
+          `visible ${shownCount} · hidden ${hiddenCount} · total ${rows.length} ${rows.length === 1 ? 'row' : 'rows'} (display limit ${MAX_ROWS})`,
+          latestAttack ? `latest event ${formatFreshness(latestAttack)}` : '',
           filters ? `filters accepted: ${filters}` : 'filters resolved to all linked clans',
           input.season
             ? 'season is a retained-data label; rows are limited to persisted attack history currently stored'
@@ -595,12 +596,13 @@ function noDataMessage(
 ): string {
   const filters = formatAcceptedFilters(input);
   const linkedClanSummary = `linked clans ${formatCount(input.linkedClanCount)}`;
+  const season = input.season ? ` Season label accepted: ${formatSeasonLabel(input.season)}.` : '';
   const coverage = input.snapshotContext
-    ? ` ${linkedClanSummary}; scanned ${input.snapshotContext.scannedCount} persisted war ${input.snapshotContext.scannedCount === 1 ? 'snapshot' : 'snapshots'}; ${input.snapshotContext.matchedCount ?? 0} matched the accepted filters${input.snapshotContext.latestFetchedAt ? `; latest snapshot ${time(input.snapshotContext.latestFetchedAt, 'R')}` : ''}; current display limit 1.`
+    ? ` ${linkedClanSummary}; scanned ${input.snapshotContext.scannedCount} persisted war ${input.snapshotContext.scannedCount === 1 ? 'snapshot' : 'snapshots'}; ${input.snapshotContext.matchedCount ?? 0} matched the accepted filters${input.snapshotContext.latestFetchedAt ? `; latest snapshot ${formatFreshness(input.snapshotContext.latestFetchedAt)}` : ''}; visible 0 · hidden 0 · total 0 rows.`
     : ` ${linkedClanSummary}; scanned 0 stored attack summary rows for this filter; showing 0 rows (display limit ${MAX_ROWS}).`;
   return [
     `No CWL ${source} data is available for the accepted filters${filters ? ` (${filters})` : ''}.`,
-    `${coverage} Persisted-only: no live Clash API fallback and no on-demand polling were used. CWL-only classification and season filtering are approximate until stored CWL round metadata is available.`,
+    `${coverage}${season} Persisted-only: no live Clash API fallback and no on-demand polling were used. CWL-only classification and season filtering are approximate until stored CWL round metadata is available.`,
     'Link the clan, wait for scheduled war polling to store activity, or try a broader clan/user/season filter.',
   ].join(' ');
 }
@@ -632,12 +634,14 @@ function buildSnapshotSourceField(
   input: CwlDiagnosticInput | string | null,
 ): { name: string; value: string; inline: false } {
   const filters = typeof input === 'string' || input === null ? '' : formatAcceptedFilters(input);
+  const rowCounts = formatSnapshotRowCounts(subcommand, entry);
   const details = [
     formatCwlSourceLabel(subcommand, 'current war snapshot'),
     `linked clans ${formatCount(context.linkedClanCount)}`,
     `Persisted-only: scanned ${context.scannedCount} stored war ${context.scannedCount === 1 ? 'snapshot' : 'snapshots'}`,
-    `showing 1 of ${context.matchedCount ?? 1} matched ${context.matchedCount === 1 ? 'snapshot' : 'snapshots'} (current limit 1, member display limit ${MAX_ROWS})`,
-    formatLatestDate('latest fetched', context.latestFetchedAt).replace(/^; /, ''),
+    `visible snapshots 1 · hidden snapshots ${Math.max((context.matchedCount ?? 1) - 1, 0)} · matched snapshots ${context.matchedCount ?? 1}`,
+    rowCounts,
+    context.latestFetchedAt ? `latest fetched ${formatFreshness(context.latestFetchedAt)}` : '',
     filters ? `filters accepted: ${filters}` : 'filters resolved to all linked clans',
     `state ${formatState(entry.war.state ?? entry.snapshot.state)}`,
     ...formatRoundContext(entry.snapshot, entry.war),
@@ -656,6 +660,19 @@ function formatRoundContext(snapshot: CwlWarSnapshotRecord, war: WarData): strin
   if (war.teamSize) details.push(`${war.teamSize}v${war.teamSize}`);
   if (snapshot.warKey) details.push(`war ${snapshot.warKey}`);
   return details;
+}
+function formatSnapshotRowCounts(subcommand: CwlSubcommand, entry: CwlEntry): string {
+  if (subcommand === 'round') return 'round rows visible 1 · hidden 0 · total 1';
+  const clan = choosePerspectiveClan(
+    entry.war,
+    entry.snapshot.trackedClan?.clanTag ?? entry.snapshot.clanTag,
+  );
+  const opponent = clan === entry.war.clan ? entry.war.opponent : entry.war.clan;
+  const clanRows = clan?.members?.length ?? 0;
+  const opponentRows = opponent?.members?.length ?? 0;
+  const visibleClanRows = Math.min(clanRows, MAX_ROWS);
+  const visibleOpponentRows = Math.min(opponentRows, MAX_ROWS);
+  return `${subcommand} member rows visible ${visibleClanRows + visibleOpponentRows} · hidden ${Math.max(clanRows - visibleClanRows, 0) + Math.max(opponentRows - visibleOpponentRows, 0)} · total ${clanRows + opponentRows} (clan ${visibleClanRows}/${clanRows}, opponent ${visibleOpponentRows}/${opponentRows})`;
 }
 function readRoundLabel(snapshot: unknown): string | null {
   const value = unwrapSnapshot(snapshot);
@@ -679,7 +696,7 @@ function formatAcceptedFilters(input: CwlDiagnosticInput): string {
           `user ${input.user.displayName} (${input.linkedPlayerTagCount ?? 0} linked player ${input.linkedPlayerTagCount === 1 ? 'tag' : 'tags'})`,
         ]
       : []),
-    ...(input.season ? [`season ${input.season}`] : []),
+    ...(input.season ? [`season ${formatSeasonLabel(input.season)}`] : []),
   ].join(', ');
 }
 function formatCwlSourceLabel(subcommand: CwlSubcommand, source: string): string {
@@ -694,8 +711,8 @@ function maxDate(values: readonly Date[]): Date | null {
     null,
   );
 }
-function formatLatestDate(label: string, value: Date | null): string {
-  return value ? `; ${label} ${time(value, 'R')}` : '';
+function formatFreshness(value: Date): string {
+  return `${time(value, 'R')} (${time(value, 'f')})`;
 }
 function formatState(value: string | undefined): string {
   const state = normalizeState(value);
