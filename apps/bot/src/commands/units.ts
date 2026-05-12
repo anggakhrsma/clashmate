@@ -178,7 +178,7 @@ export function buildUnitsEmbed(
     .setFooter({
       text: [
         `Source: ${formatLookupSource(resolution.source, resolution.targetUser)}.`,
-        'Live current-only Clash API snapshot; no polling enrollment or persisted history.',
+        'Live public Clash API snapshot; no polling enrollment or persisted history.',
       ].join(' '),
     });
 
@@ -217,7 +217,7 @@ export function buildUnitsEmbed(
   embed.addFields({
     name: 'Display Notes',
     value: [
-      'Shows public Clash API levels for troops, spells, heroes, and hero equipment.',
+      'Coverage is derived from categories present in this public API response: troops, spells, heroes, and hero equipment.',
       'Pets, siege machines, and other troop-like units may appear under Home Troops when the API does not expose a separate display category.',
       'Max levels are the values returned by the API for the player snapshot, not a manual ClashMate progression table.',
     ].join('\n'),
@@ -246,7 +246,7 @@ export function buildUnitsEmbed(
       value: [
         'No public unit, hero, spell, pet, or equipment level data was found in the Clash API response.',
         `Source used: ${formatLookupSource(resolution.source, resolution.targetUser)}.`,
-        'This is a live current-only lookup with no stored history; verify the tag, use `/link create`, or try again later.',
+        'This is a live public lookup with no stored history; verify the tag, use `/link create`, or try again later.',
       ].join(' '),
       inline: false,
     });
@@ -292,16 +292,22 @@ function formatLookupSource(
 }
 
 function formatLookupContext(resolution: UnitsLookupResolution, playerTag: string): string {
-  const target =
+  const linkedScope =
     resolution.targetUser && resolution.source === 'stored_user_link'
-      ? `Target user: **${sanitize(resolution.targetUser.displayName)}**.`
-      : 'Target user: none; looked up the explicit player tag option.';
+      ? `Stored link scope: this server's link for **${sanitize(resolution.targetUser.displayName)}**.`
+      : 'Stored link scope: none; explicit tags bypass Discord account links.';
+
+  const resolutionDetail =
+    resolution.source === 'explicit_tag'
+      ? 'Resolution: player tag option was normalized directly.'
+      : 'Resolution: no player tag was provided, so a stored Discord user link supplied the tag.';
 
   return [
-    `Lookup source: **${formatLookupSource(resolution.source, resolution.targetUser)}**.`,
-    target,
+    resolutionDetail,
+    linkedScope,
     `Resolved player: \`${playerTag}\`.`,
-    'Live current-only Clash API snapshot; no polling enrollment, cached snapshot, or persisted unit history.',
+    'API source: live public Clash API player endpoint through ClashMate lookup only.',
+    'Storage: no polling enrollment, cached snapshot, or persisted unit history is created.',
   ].join('\n');
 }
 
@@ -361,7 +367,9 @@ function formatProgressSummary(summary: UnitProgressSummary): string {
   }
 
   if (summary.categoryCounts.length > 0) {
-    rows.push(`Categories: ${summary.categoryCounts.join(' • ')}`);
+    rows.push(`Category coverage: ${summary.categoryCounts.join(' • ')}`);
+  } else {
+    rows.push('Category coverage: no unit categories were present in the public API response.');
   }
 
   return rows.join('\n');
