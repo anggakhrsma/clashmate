@@ -384,6 +384,7 @@ export async function executeStats(
         days,
         season: seasonSince,
         parityFilters,
+        linkedClanCount: clans.length,
         latestAttackAt: getLatestAttackAt(rows),
       }),
     });
@@ -401,6 +402,7 @@ export async function executeStats(
         days,
         season: seasonSince,
         parityFilters,
+        linkedClanCount: clans.length,
         rowsConsidered: rows.length,
         latestAttackAt: getLatestAttackAt(rows),
       }),
@@ -472,6 +474,7 @@ async function replyWithStatsDefenseEmbed(
         days,
         season: seasonSince,
         parityFilters,
+        linkedClanCount: clans.length,
         rowsConsidered: rows.length,
         latestDefenseAt: getLatestDefenseAt(rows),
       }),
@@ -490,6 +493,7 @@ async function replyWithStatsDefenseEmbed(
         days,
         season: seasonSince,
         parityFilters,
+        linkedClanCount: clans.length,
         rowsConsidered: rows.length,
         latestDefenseAt: getLatestDefenseAt(rows),
       }),
@@ -530,6 +534,7 @@ export function buildStatsAttacksEmbed(
     readonly days: number | null;
     readonly season: Date | null;
     readonly parityFilters: StatsParityFilters;
+    readonly linkedClanCount?: number;
     readonly rowsConsidered: number;
     readonly latestAttackAt: Date | null;
   },
@@ -562,6 +567,20 @@ export function buildStatsAttacksEmbed(
           rowsVisible: selectedRows.length,
           rowsMatched: rows.length,
           rowLabel: 'attacker rows',
+          latestEventAt: input.latestAttackAt,
+        }),
+        inline: false,
+      },
+      {
+        name: 'Selection diagnostics',
+        value: buildStatsSelectionDiagnostics({
+          selectedSource: 'attacker history',
+          linkedClanCount: input.linkedClanCount ?? 0,
+          hasClanFilter: Boolean(input.clanLabel),
+          hasUserFilter: Boolean(input.user),
+          playerTagCount: input.playerTagCount,
+          rowsConsidered: input.rowsConsidered,
+          rowsMatched: rows.length,
           latestEventAt: input.latestAttackAt,
         }),
         inline: false,
@@ -652,6 +671,7 @@ export function buildStatsDefenseEmbed(
     readonly days: number | null;
     readonly season: Date | null;
     readonly parityFilters: StatsParityFilters;
+    readonly linkedClanCount?: number;
     readonly rowsConsidered: number;
     readonly latestDefenseAt: Date | null;
   },
@@ -684,6 +704,20 @@ export function buildStatsDefenseEmbed(
           rowsVisible: selectedRows.length,
           rowsMatched: rows.length,
           rowLabel: 'defender rows',
+          latestEventAt: input.latestDefenseAt,
+        }),
+        inline: false,
+      },
+      {
+        name: 'Selection diagnostics',
+        value: buildStatsSelectionDiagnostics({
+          selectedSource: 'defender history',
+          linkedClanCount: input.linkedClanCount ?? 0,
+          hasClanFilter: Boolean(input.clanLabel),
+          hasUserFilter: Boolean(input.user),
+          playerTagCount: input.playerTagCount,
+          rowsConsidered: input.rowsConsidered,
+          rowsMatched: rows.length,
           latestEventAt: input.latestDefenseAt,
         }),
         inline: false,
@@ -736,6 +770,7 @@ function buildStatsNoDefenseEventsMessage(input: {
   readonly days: number | null;
   readonly season: Date | null;
   readonly parityFilters: StatsParityFilters;
+  readonly linkedClanCount?: number;
   readonly rowsConsidered: number;
   readonly latestDefenseAt: Date | null;
 }): string {
@@ -746,6 +781,7 @@ function buildStatsNoDefenseEventsMessage(input: {
     ...formatStatsParityFilters(input.parityFilters),
   ];
   if (input.user) filters.push(`Linked player tags checked: ${input.playerTagCount}`);
+  filters.push(`Linked clans in server: ${input.linkedClanCount ?? 0}`);
   const filterText = filters.length > 0 ? ` Active filters: ${filters.join(' · ')}.` : '';
   return `${STATS_NO_DEFENSE_EVENTS_MESSAGE} Source: persisted war attack events grouped by defender tag for linked/configured clans only; no live Clash API lookup, search, historical backfill, or on-demand polling is performed. Rows considered: ${input.rowsConsidered}; latest stored defense: ${formatLatestEventAge(input.latestDefenseAt)}.${filterText} Try removing the user/clan/time/star/attempt filters or choose a wider season/days window.`;
 }
@@ -810,6 +846,33 @@ function buildStatsCoverageNote(input: {
   return `${input.rowsConsidered} stored ${input.rowLabel} considered · ${input.rowsMatched} matched aggregate filters · ${input.rowsVisible} visible in this embed · latest stored event ${formatLatestEventAge(input.latestEventAt)}.`;
 }
 
+function buildStatsSelectionDiagnostics(input: {
+  readonly selectedSource: string;
+  readonly linkedClanCount: number;
+  readonly hasClanFilter: boolean;
+  readonly hasUserFilter: boolean;
+  readonly playerTagCount: number;
+  readonly rowsConsidered: number;
+  readonly rowsMatched: number;
+  readonly latestEventAt: Date | null;
+}): string {
+  const clanScope = input.hasClanFilter
+    ? `1 selected linked clan out of ${input.linkedClanCount}`
+    : `${input.linkedClanCount} linked clans in server`;
+  const playerScope = input.hasUserFilter
+    ? `${input.playerTagCount} linked player tags selected`
+    : 'all stored player tags in selected clan scope';
+
+  return [
+    `Selected source: persisted ${input.selectedSource}.`,
+    `Clan scope: ${clanScope}.`,
+    `Player scope: ${playerScope}.`,
+    `Rows: ${input.rowsConsidered} read · ${input.rowsMatched} after aggregate filters.`,
+    `Latest timestamp: ${formatLatestEventAge(input.latestEventAt)}.`,
+    'Persisted-only: no live Clash API lookup, search, backfill, or polling enrollment happens from `/stats`.',
+  ].join('\n');
+}
+
 function formatStatsAppliedFilterLabels(input: {
   readonly clanLabel: string | undefined;
   readonly user: User | null;
@@ -844,6 +907,7 @@ function buildStatsNoAttackEventsMessage(input: {
   readonly days: number | null;
   readonly season: Date | null;
   readonly parityFilters: StatsParityFilters;
+  readonly linkedClanCount?: number;
   readonly latestAttackAt: Date | null;
 }): string {
   const filters = [
@@ -851,6 +915,7 @@ function buildStatsNoAttackEventsMessage(input: {
     ...formatStatsParityFilters(input.parityFilters),
   ];
   if (input.user) filters.push(`Linked player tags checked: ${input.playerTagCount}`);
+  filters.push(`Linked clans in server: ${input.linkedClanCount ?? 0}`);
   const filterText = filters.length > 0 ? ` Active filters: ${filters.join(' · ')}.` : '';
   const nextHint =
     input.rowsConsidered > 0
