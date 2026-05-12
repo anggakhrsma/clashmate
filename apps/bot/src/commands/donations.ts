@@ -35,11 +35,13 @@ interface DonationHistoryQueryFilters extends DonationsParityFilters {
   readonly until: Date | null;
 }
 
-interface DonationsReplyContext {
+export interface DonationsReplyContext {
   readonly clanLabel: string | null;
   readonly user: User | null;
   readonly filters: DonationsParityFilters;
   readonly sort: DonationSort;
+  readonly linkedClanCount: number;
+  readonly requestedClanCount: number;
 }
 
 export function createRecentSeasonChoices(
@@ -266,6 +268,8 @@ export async function executeDonations(
         user: userOption,
         filters: historyFilters,
         sort,
+        linkedClanCount: clans.length,
+        requestedClanCount: 1,
       });
       return;
     }
@@ -278,6 +282,8 @@ export async function executeDonations(
       user: userOption,
       filters,
       sort,
+      linkedClanCount: clans.length,
+      requestedClanCount: 1,
     });
     return;
   }
@@ -299,7 +305,14 @@ export async function executeDonations(
     await replyWithDonations(
       interaction,
       historyRowsToDonations(createAllLinkedClansHistoryClan(clans), history),
-      { clanLabel: null, user: userOption, filters: historyFilters, sort },
+      {
+        clanLabel: null,
+        user: userOption,
+        filters: historyFilters,
+        sort,
+        linkedClanCount: clans.length,
+        requestedClanCount: clans.length,
+      },
     );
     return;
   }
@@ -321,6 +334,8 @@ export async function executeDonations(
     user: userOption,
     filters,
     sort,
+    linkedClanCount: clans.length,
+    requestedClanCount: selected ? 1 : clans.length,
   });
 }
 
@@ -465,7 +480,7 @@ async function replyWithDonations(
     return;
   }
   await interaction.editReply({
-    embeds: [buildDonationsEmbed(snapshots, context.sort, context.user, context.filters)],
+    embeds: [buildDonationsEmbed(snapshots, context)],
   });
 }
 
@@ -491,10 +506,12 @@ export function resolveDonationClan(
 
 export function buildDonationsEmbed(
   snapshots: DonationsClanSnapshots,
-  sort: DonationSort,
-  user: User | null,
+  contextOrSort: DonationsReplyContext | DonationSort,
+  user: User | null = null,
   filters: DonationsParityFilters = { season: null, startDate: null, endDate: null },
 ): EmbedBuilder {
+  const context = normalizeDonationsReplyContext(contextOrSort, user, filters);
+  const sort = context.sort;
   const rows = sortDonationRows(snapshots.members, sort).slice(0, MAX_DONATION_ROWS);
   const clanName = snapshots.clan.alias ?? snapshots.clan.name ?? 'Linked Clan';
   const totals = computeDonationTotals(snapshots.members);
@@ -513,19 +530,24 @@ export function buildDonationsEmbed(
         inline: false,
       },
       {
+        name: 'Diagnostics',
+        value: formatDonationDiagnostics(snapshots, rows, context),
+        inline: false,
+      },
+      {
         name: 'Coverage',
-        value: formatDonationCoverage(snapshots, rows, filters, sort, user),
+        value: formatDonationCoverage(snapshots, rows, context.filters, sort, context.user),
         inline: false,
       },
       {
         name: 'Data source',
-        value: formatDonationSourceContext(snapshots, filters),
+        value: formatDonationSourceContext(snapshots, context.filters),
         inline: false,
       },
     )
     .setFooter({ text: `Sorted by ${sort}; showing ${rows.length}/${snapshots.members.length}` });
 
-  const filterSummary = formatDonationParityFilters(filters);
+  const filterSummary = formatDonationParityFilters(context.filters);
   if (filterSummary) {
     embed.addFields({
       name: 'Accepted filters',
@@ -537,19 +559,54 @@ export function buildDonationsEmbed(
     });
   }
 
-  if (user) embed.setAuthor({ name: user.displayName, iconURL: user.displayAvatarURL() });
+  if (context.user) {
+    embed.setAuthor({ name: context.user.displayName, iconURL: context.user.displayAvatarURL() });
+  }
   return embed;
+}
+
+function normalizeDonationsReplyContext(
+  contextOrSort: DonationsReplyContext | DonationSort,
+  user: User | null,
+  filters: DonationsParityFilters,
+): DonationsReplyContext {
+  if (typeof contextOrSort !== 'string') return contextOrSort;
+  return {
+    clanLabel: null,
+    user,
+    filters,
+    sort: contextOrSort,
+    linkedClanCount: 1,
+    requestedClanCount: 1,
+  };
 }
 
 function formatNoDonationSnapshotMessage(context: DonationsReplyContext): string {
   const scope = formatDonationScope(context.clanLabel, context.user);
   const filterSummary = formatDonationActiveFilters(context.filters, context.sort, context.user);
-  return `${DONATIONS_NO_SNAPSHOT_MESSAGE} Source: latest snapshot · rows: 0.${scope} Active filters: ${filterSummary}. No live fallback: ClashMate does not call the Clash API from this leaderboard; wait for clan polling or adjust the clan/user filters.`;
+  return `${DONATIONS_NO_SNAPSHOT_MESSAGE} Source: latest snapshot · linked clans: ${context.linkedClanCount} · requested clans: ${context.requestedClanCount} · rows: 0 · latest fetched: unknown.${scope} Active filters: ${filterSummary}. No live fallback: ClashMate does not call the Clash API from this leaderboard; wait for clan polling or adjust the clan/user filters.`;
 }
 
 function formatNoDonationHistoryMessage(context: DonationsReplyContext): string {
   const filterSummary = formatDonationActiveFilters(context.filters, context.sort, context.user);
-  return `${DONATIONS_NO_HISTORY_MESSAGE} Source: derived history · rows: 0.${formatDonationScope(context.clanLabel, context.user)} Active filters: ${filterSummary}. No live fallback or automatic backfill: link the clan before the requested date/season, keep polling enabled, or choose a period with recorded donation changes.`;
+  return `${DONATIONS_NO_HISTORY_MESSAGE} Source: derived history · linked clans: ${context.linkedClanCount} · requested clans: ${context.requestedClanCount} · rows: 0 · latest detected: unknown.${formatDonationScope(context.clanLabel, context.user)} Active filters: ${filterSummary}. No live fallback or automatic backfill: link the clan before the requested date/season, keep polling enabled, or choose a period with recorded donation changes.`;
+}
+
+function formatDonationDiagnostics(
+  snapshots: DonationsClanSnapshots,
+  visibleRows: readonly DonationSnapshotRow[],
+  context: DonationsReplyContext,
+): string {
+  const latest = getLatestDonationTimestamp(snapshots.members);
+  const source = snapshots.source === 'history' ? 'derived history' : 'latest snapshot';
+  const latestLabel = snapshots.source === 'history' ? 'latest detected' : 'latest fetched';
+  return [
+    `Linked clans: ${context.linkedClanCount} · requested clans: ${context.requestedClanCount}`,
+    `Selected source: ${source} · ${latestLabel}: ${formatDonationTimestampContext(latest)}`,
+    `Rows: ${snapshots.members.length} matched · ${visibleRows.length} shown · sort: \`${context.sort}\``,
+    `Filters: ${formatDonationActiveFilters(context.filters, context.sort, context.user)}`,
+    'Persisted only: no live Clash API lookup, polling enrollment, or automatic backfill is performed by this command.',
+  ].join('\n');
 }
 
 function formatDonationScope(clanLabel: string | null, user: User | null): string {
