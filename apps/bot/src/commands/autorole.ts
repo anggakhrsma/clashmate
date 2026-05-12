@@ -146,6 +146,7 @@ export interface AutoroleSnapshotCoverage {
   readonly distinctPlayerCount: number;
   readonly latestSnapshotAt: Date | null;
   readonly latestSnapshotAge: string;
+  readonly latestSnapshotAgeMs: number | null;
 }
 
 export interface AutoroleRefreshPlanCounts {
@@ -224,7 +225,7 @@ export const autoroleCommandData = new SlashCommandBuilder()
     ).addStringOption((option) =>
       option
         .setName('only_verified')
-        .setDescription('Only apply clan role mappings to verified accounts when implemented.')
+        .setDescription('Only apply clan role mappings to verified accounts.')
         .addChoices({ name: 'Yes', value: 'true' }, { name: 'No', value: 'false' }),
     ),
   )
@@ -238,7 +239,7 @@ export const autoroleCommandData = new SlashCommandBuilder()
     ).addStringOption((option) =>
       option
         .setName('allow_non_family_accounts')
-        .setDescription('Allow non-family accounts to receive these roles when implemented.')
+        .setDescription('Allow non-family accounts to receive these roles.')
         .addChoices({ name: 'Yes', value: 'true' }, { name: 'No', value: 'false' }),
     ),
   )
@@ -252,7 +253,7 @@ export const autoroleCommandData = new SlashCommandBuilder()
       .addStringOption((option) =>
         option
           .setName('allow_non_family_accounts')
-          .setDescription('Allow non-family accounts to receive these roles when implemented.')
+          .setDescription('Allow non-family accounts to receive these roles.')
           .addChoices({ name: 'Yes', value: 'true' }, { name: 'No', value: 'false' }),
       ),
   )
@@ -311,25 +312,25 @@ export const autoroleCommandData = new SlashCommandBuilder()
       .addStringOption((option) =>
         option
           .setName('auto_update_roles')
-          .setDescription('Store whether automated updates should run when implemented.')
+          .setDescription('Store whether scheduled autorole refresh may run.')
           .addChoices({ name: 'Yes', value: 'true' }, { name: 'No', value: 'false' }),
       )
       .addStringOption((option) =>
         option
           .setName('role_removal_delays')
-          .setDescription('Delay before removing roles when implemented.')
+          .setDescription('Stored delay before removing roles.')
           .addChoices(...delayChoices()),
       )
       .addStringOption((option) =>
         option
           .setName('role_addition_delays')
-          .setDescription('Delay before adding roles when implemented.')
+          .setDescription('Stored delay before adding roles.')
           .addChoices(...delayChoices()),
       )
       .addBooleanOption((option) =>
         option
           .setName('always_force_refresh_roles')
-          .setDescription('Store whether refreshes should always be forced when implemented.'),
+          .setDescription('Store whether refreshes should ignore delay gating.'),
       )
       .addBooleanOption((option) =>
         option
@@ -339,7 +340,7 @@ export const autoroleCommandData = new SlashCommandBuilder()
       .addStringOption((option) =>
         option
           .setName('verified_only_clan_roles')
-          .setDescription('Only apply clan roles to verified accounts when implemented.')
+          .setDescription('Only apply clan roles to verified accounts.')
           .addChoices({ name: 'Yes', value: 'true' }, { name: 'No', value: 'false' }),
       ),
   );
@@ -576,7 +577,7 @@ async function reconcileAutoroles(
     failed,
     scannedMembers: members.length,
     notes: [
-      'Applied only manageable configured roles. Nicknames and live Clash API were not used.',
+      'Applied only configured roles that currently pass Discord permission and hierarchy checks. Skipped roles are not retried by preview, and nicknames/live Clash API were not used.',
     ],
   };
 }
@@ -917,7 +918,7 @@ export function buildAutoroleRefreshPreviewEmbed(
         inline: false,
       },
       {
-        name: 'Future refresh would consider',
+        name: 'Apply eligibility checks',
         value: plan.prerequisites.join('\n'),
         inline: false,
       },
@@ -1070,7 +1071,7 @@ export function buildAutoroleRefreshPlan(
       'Stored clan and member snapshots already collected by polling.',
       'Saved clan, Town Hall, league/trophy, and family role mappings above.',
       'No live Clash API fallback is used by this preview.',
-      'Discord member fetching and current-role reconciliation run only for explicit non-test refreshes and still honor permission/hierarchy safety checks.',
+      'Apply eligibility requires `is_test_run:false`, manageable Discord members, manageable configured roles, linked player tags, and matching snapshot eligibility.',
     ],
     actionabilityNotes: formatRefreshActionability(counts, snapshotCoverage),
   };
@@ -1146,7 +1147,7 @@ function buildAutorolePreviewActions(
     candidateRemoves: null,
     examples,
     removalReason:
-      'Unavailable: snapshots show Clash eligibility, but current Discord role state is unknown until a future Discord member/role reconciliation step exists.',
+      'Unavailable in preview: snapshots show Clash eligibility, but current Discord role state is read only during an explicit non-test refresh.',
   };
 }
 
@@ -1230,7 +1231,7 @@ function formatPreviewActions(actions: AutoroleRefreshPreviewActions): string {
     actions.examples.length
       ? `Examples:\n${actions.examples.join('\n')}`
       : 'Examples: none from current snapshots and mappings.',
-    'Unavailable from these snapshots: Town Hall, verified/account-linked, guest, and any removals.',
+    'Unavailable from these snapshots: Town Hall, verified/account-linked, guest, and removals that require reading current Discord role state.',
     'Basis: Clash linked-clan snapshot eligibility only; no Discord roles were changed.',
   ]
     .join('\n')
@@ -1322,7 +1323,7 @@ function formatRefreshReadiness(plan: AutoroleRefreshPlan): string {
     );
   } else if (plan.previewActions.candidateAdds === 0) {
     notes.push(
-      'No candidates from current snapshots; check that mappings match linked clan roles, leagues, or trophy ranges.',
+      'No candidates from current snapshots; check linked accounts, clan tags/aliases, member roles, league names, trophy ranges, and snapshot age.',
     );
   }
   notes.push(
@@ -1347,7 +1348,7 @@ function formatAppliedSafetySummary(result: AutoroleReconcileResult): string {
     `Applied mutations: ${applied}`,
     `Skipped by safety/data gates: ${result.skipped}`,
     `Failed Discord mutations: ${result.failed}`,
-    'Skip reasons include unmanageable members/roles, missing linked player tags, missing snapshot eligibility, and Discord API failures.',
+    'Skip reasons include configured roles below/equal to the bot role, deleted roles, unmanageable members, missing linked player tags, no matching snapshot eligibility, and Discord API failures.',
   ]
     .join('\n')
     .slice(0, 1024);
@@ -1379,8 +1380,18 @@ function formatRefreshActionability(
     notes.push(
       `Refresh planning can evaluate ${coverage.distinctPlayerCount} distinct player snapshot${coverage.distinctPlayerCount === 1 ? '' : 's'}; actual Discord role mutation remains gated by explicit non-test refresh and safety checks.`,
     );
+    notes.push(formatSnapshotStalenessGuidance(coverage));
   }
   return notes;
+}
+
+function formatSnapshotStalenessGuidance(coverage: AutoroleSnapshotCoverage): string {
+  if (!coverage.latestSnapshotAt) return 'Snapshot freshness: unavailable; wait for clan polling.';
+  const staleAfterMs = 24 * 60 * 60 * 1000;
+  if ((coverage.latestSnapshotAgeMs ?? 0) >= staleAfterMs) {
+    return `Snapshot freshness: latest data is ${coverage.latestSnapshotAge} old. Treat preview eligibility as stale until the clan poller stores newer member snapshots.`;
+  }
+  return `Snapshot freshness: latest data is ${coverage.latestSnapshotAge} old. If this looks wrong, wait for the next clan polling pass before applying.`;
 }
 
 function getAutoroleSnapshotCoverage(
@@ -1407,6 +1418,9 @@ function getAutoroleSnapshotCoverage(
     distinctPlayerCount: playerTags.size,
     latestSnapshotAt,
     latestSnapshotAge: formatSnapshotAge(latestSnapshotAt, now),
+    latestSnapshotAgeMs: latestSnapshotAt
+      ? Math.max(0, now.getTime() - latestSnapshotAt.getTime())
+      : null,
   };
 }
 
