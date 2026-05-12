@@ -35,6 +35,7 @@ const EMBED_DESCRIPTION_LIMIT = 4096;
 
 interface MembersFilterContext {
   readonly clan?: MembersLinkedClan;
+  readonly linkedClanLabels?: readonly string[];
   readonly linkedClanCount: number;
   readonly latestSnapshotAt: Date | null;
   readonly storedMemberRowCount: number;
@@ -203,6 +204,7 @@ export async function executeMembers(
     });
     await replyWithMembers(interaction, snapshots, {
       clan,
+      linkedClanLabels: [formatLinkedClanDiagnosticLabel(clan)],
       linkedClanCount: clans.length,
       latestSnapshotAt: getLatestSnapshotTimeForSnapshot(snapshots),
       storedMemberRowCount: snapshots?.members.length ?? 0,
@@ -223,6 +225,7 @@ export async function executeMembers(
     await interaction.editReply({
       content: formatNoLinkedMembersMessage(userOption, {
         linkedClanCount: clans.length,
+        linkedClanLabels: formatLinkedClanDiagnosticLabels(clans),
         latestSnapshotAt: getLatestSnapshotTimeForSnapshots(snapshots),
         storedMemberRowCount: countStoredMemberRows(snapshots),
         user: userOption,
@@ -234,6 +237,7 @@ export async function executeMembers(
 
   await replyWithMembers(interaction, selected, {
     linkedClanCount: clans.length,
+    linkedClanLabels: formatLinkedClanDiagnosticLabels(clans),
     latestSnapshotAt: getLatestSnapshotTimeForSnapshots(snapshots),
     storedMemberRowCount: countStoredMemberRows(snapshots),
     user: userOption,
@@ -280,6 +284,7 @@ function formatNoLinkedMembersMessage(user: User | null, filters: MembersFilterC
 function formatMembersCoverageContext(filters: MembersFilterContext): string {
   const parts = [
     `linked clans: ${filters.linkedClanCount}`,
+    `considered: ${formatLinkedClanDiagnosticList(filters.linkedClanLabels)}`,
     `stored member rows: ${filters.storedMemberRowCount}`,
     `latest snapshot: ${formatLatestMemberSnapshot(filters.latestSnapshotAt)}`,
     `view: ${formatMembersOptionLabel(filters.option)}`,
@@ -374,6 +379,7 @@ export function buildMembersEmbed(
     coverage ??
     ({
       clan: snapshots.clan,
+      linkedClanLabels: [formatLinkedClanDiagnosticLabel(snapshots.clan)],
       linkedClanCount: 1,
       latestSnapshotAt: latestFetchedAt,
       storedMemberRowCount: snapshots.members.length,
@@ -398,8 +404,9 @@ export function buildMembersEmbed(
     value: [
       `View: ${formatMembersOptionLabel(option)}`,
       `Linked clans considered: ${coverageContext.linkedClanCount}`,
+      `Clan set: ${formatLinkedClanDiagnosticList(coverageContext.linkedClanLabels)}`,
       `Stored member rows considered: ${coverageContext.storedMemberRowCount}`,
-      `Visible rows: ${members.length}`,
+      `Rows shown: ${members.length}/${snapshots.members.length} selected (limit ${MAX_MEMBER_ROWS})`,
       `Latest snapshot: ${formatLatestMemberSnapshot(coverageContext.latestSnapshotAt)}`,
       formatMembersClanFilterSummary(coverageContext.clan),
       formatMembersUserFilterSummary(user),
@@ -416,6 +423,22 @@ export function buildMembersEmbed(
 function formatLatestMemberSnapshot(latestFetchedAt: Date | null): string {
   if (!latestFetchedAt) return 'not available';
   return `${time(latestFetchedAt, 'R')} (${time(latestFetchedAt, 'f')})`;
+}
+
+function formatLinkedClanDiagnosticLabels(clans: readonly MembersLinkedClan[]): readonly string[] {
+  return clans.map((clan) => formatLinkedClanDiagnosticLabel(clan));
+}
+
+function formatLinkedClanDiagnosticLabel(clan: MembersLinkedClan): string {
+  const label = clan.alias ?? clan.name ?? clan.clanTag;
+  return `${escapeMarkdown(label)} (${clan.clanTag})`;
+}
+
+function formatLinkedClanDiagnosticList(labels: readonly string[] | undefined): string {
+  if (!labels || labels.length === 0) return 'none';
+  const shown = labels.slice(0, 3);
+  const suffix = labels.length > shown.length ? ` +${labels.length - shown.length} more` : '';
+  return `${shown.join(', ')}${suffix}`;
 }
 
 function formatMembersUserFilterSummary(user: User | null): string {
