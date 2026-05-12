@@ -140,8 +140,10 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     description: 'Manage linked clan categories on this server.',
     category: 'Setup & Logs',
     details: [
-      'Create, list, rename, or delete categories used by linked clans.',
-      'Requires Manage Server permission. Reorder UI is not available in the first pass.',
+      'Create, list, rename, or delete stored categories used by linked clans on this server.',
+      'Requires Manage Server permission. `/category` only renames stored rows; it does not provide a category reordering UI.',
+      '`/category list` shows visible and hidden counts for stored categories, and empty states explain that linked clans fall back to Uncategorized until categories are created.',
+      'Duplicate category names are matched by normalized saved configuration only, so autocomplete is the safest way to pick the intended row.',
     ],
   },
   {

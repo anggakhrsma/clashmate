@@ -202,7 +202,7 @@ async function executeCategory(
     if (rawDisplayName === null) {
       await interaction.reply({
         content:
-          'Choose a new category name to rename this saved clan category. Category reordering is not available in ClashMate yet; `/category list` shows the current saved order.',
+          'Choose a new category name to rename this stored clan category. `/category` does not provide a reordering UI; it only renames the saved row, and `/category list` shows the current stored order.',
         ephemeral: true,
       });
       return;
@@ -342,13 +342,13 @@ function formatCategoryChoiceName(category: CategoryRecord): string {
 
 export function formatCategoryList(categories: readonly CategoryRecord[]): string {
   const note =
-    'Persisted-only: categories come from saved linked-clan configuration and do not call the live Clash API or enroll extra polling.';
+    'Persisted-only: categories and linked-clan assignments come from saved server configuration only; this command does not call the live Clash API or enroll extra polling.';
   if (categories.length === 0) {
     return [
       'Stored clan categories: 0',
       note,
-      'No clan categories are configured for this server yet, so linked clans use Uncategorized.',
-      'Use `/category create` first, then assign the category when linking or updating a linked clan.',
+      'No stored categories exist for this server yet, so linked clans fall back to Uncategorized.',
+      'Use `/category create` before linking or updating clans that should use categories.',
     ].join('\n');
   }
 
@@ -362,12 +362,12 @@ export function formatCategoryList(categories: readonly CategoryRecord[]): strin
 
   return [
     `Stored clan categories: ${categories.length}`,
-    `Showing ${visibleCategories.length} of ${categories.length}; sorted by saved configuration order, then name.`,
+    `Visible rows: ${visibleCategories.length}; hidden rows: ${hiddenCount}. Stored order is shown first, then name for ties.`,
     note,
     ...rows,
     ...(hiddenCount > 0
-      ? [`${hiddenCount} more saved categories are hidden here to keep the response concise.`]
-      : []),
+      ? [`${hiddenCount} additional stored categories are hidden to keep the response concise.`]
+      : ['All stored categories fit in this response.']),
   ].join('\n');
 }
 
@@ -432,7 +432,7 @@ function formatCategoryLookupFailureMessage(
     return 'No stored categories exist for this server yet. Use `/category create` before editing or deleting a category; ClashMate will not search the live Clash API for categories.';
   }
 
-  return `No stored category matched that value across ${result.totalCategories} saved categories. Pick a saved category from autocomplete or run \`/category list\`; autocomplete filters persisted server categories by name only.`;
+  return `No stored category matched that value across ${result.totalCategories} saved categories. Pick a saved category from autocomplete or run \`/category list\`; autocomplete filters persisted server categories by name only, and there is no live category search.`;
 }
 
 function formatCategoryLookupContext(
@@ -442,7 +442,7 @@ function formatCategoryLookupContext(
     result.duplicateNameMatches > 0
       ? ` ${result.duplicateNameMatches} other saved categories share that normalized name; autocomplete IDs disambiguate duplicates.`
       : '';
-  return `Selected category: ${escapeMarkdown(result.category.displayName)} (${inlineCode(result.category.id)}) from ${result.totalCategories} saved categories; saved order ${formatCategorySavedOrder(result.category)}.${duplicateHint}`;
+  return `Selected category: ${escapeMarkdown(result.category.displayName)} (${inlineCode(result.category.id)}) from ${result.totalCategories} saved categories; stored order ${formatCategorySavedOrder(result.category)}.${duplicateHint}`;
 }
 
 export function formatCreateCategoryMessage(
@@ -451,9 +451,9 @@ export function formatCreateCategoryMessage(
 ): string {
   const countContext = formatSavedCategoryCountContext(totalCategories);
   if (result.status === 'duplicate') {
-    return `A stored category with this normalized name already exists for this server.${countContext} Choose a distinct name or pick the existing category from autocomplete; ClashMate matches duplicate names using saved server configuration only.`;
+    return `A stored category with this normalized name already exists for this server.${countContext} Choose a distinct name or select the existing row from autocomplete; ClashMate resolves duplicate names using saved server configuration only.`;
   }
-  return `Category created: ${escapeMarkdown(result.category.displayName)}.${countContext} Saved order: ${formatCategorySavedOrder(result.category)}. This persistent server configuration is audit logged and can now be assigned to linked clans.`;
+  return `Category created: ${escapeMarkdown(result.category.displayName)}.${countContext} Stored order: ${formatCategorySavedOrder(result.category)}. This persistent server configuration is audit logged and can now be assigned to linked clans.`;
 }
 
 export function formatUpdateCategoryMessage(
@@ -463,14 +463,14 @@ export function formatUpdateCategoryMessage(
     return 'A stored category with this normalized name already exists for this server. The saved category was left unchanged; use autocomplete to choose the intended row when names are similar.';
   }
   if (result.status === 'not_found') return 'No stored category matched that value.';
-  return `Category name was updated to ${escapeMarkdown(result.category.displayName)}. Saved order remains ${formatCategorySavedOrder(result.category)}. Linked clans keep this category assignment, and the persistent configuration change is audit logged.`;
+  return `Category name was updated to ${escapeMarkdown(result.category.displayName)}. Stored order remains ${formatCategorySavedOrder(result.category)}. Linked clans keep this category assignment, and the persistent configuration change is audit logged.`;
 }
 
 export function formatDeleteCategoryMessage(
   result: Awaited<ReturnType<CategoryStore['deleteClanCategory']>>,
 ): string {
   if (result.status === 'not_found') return 'No stored category matched that value.';
-  return `Successfully deleted category: ${escapeMarkdown(result.category.displayName)}. Removed saved order ${formatCategorySavedOrder(result.category)}. Linked clans assigned to it fall back to Uncategorized; this persistent server configuration change does not remove clans or change polling enrollment.`;
+  return `Successfully deleted category: ${escapeMarkdown(result.category.displayName)}. Removed stored order ${formatCategorySavedOrder(result.category)}. Linked clans assigned to it fall back to Uncategorized; this persistent server configuration change does not remove clans or change polling enrollment.`;
 }
 
 function formatSavedCategoryCountContext(totalCategories: number | undefined): string {
@@ -480,6 +480,6 @@ function formatSavedCategoryCountContext(totalCategories: number | undefined): s
 
 function formatCategorySavedOrder(category: CategoryRecord): string {
   return category.sortOrder === undefined
-    ? 'unspecified (sorted by name after ordered rows)'
+    ? 'unspecified (name-sorted after any ordered rows)'
     : `${category.sortOrder}`;
 }
