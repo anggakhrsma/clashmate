@@ -511,10 +511,12 @@ function formatDerivedNicknameDiagnostics(view: NicknameConfigView): string {
   ).length;
 
   return [
-    `Configured formats: ${configuredFormats}/2 (${familyCoverage}; ${nonFamilyCoverage})`,
-    `Discord nickname limit: ${DISCORD_NICKNAME_MAX_LENGTH} characters; previews and safe applies are truncated to this limit.`,
-    `Account preference: ${formatAccountPreference(view.accountPreferenceForNaming)}.`,
-    `change_nicknames gate: ${view.changeNicknames === 'true' ? 'enabled for safe, explicit applies' : view.changeNicknames === 'false' ? 'disabled' : 'not set'}.`,
+    `Configured formats: ${configuredFormats}/2 (${familyCoverage}; ${nonFamilyCoverage}).`,
+    `Length budget: ${formatLengthBudget('family', view.familyNicknameFormat)}; ${formatLengthBudget('non-family', view.nonFamilyNicknameFormat)}. Discord allows ${DISCORD_NICKNAME_MAX_LENGTH} characters, and previews/applies are clipped to that limit.`,
+    `Account preference: ${formatAccountPreference(view.accountPreferenceForNaming)} — ${formatAccountPreferenceDiagnostic(view.accountPreferenceForNaming)}.`,
+    `change_nicknames gate: ${formatChangeNicknameGateDiagnostic(view.changeNicknames)}.`,
+    'Safety checks for any apply: Manage Nicknames permission, Discord role hierarchy, a configured format, usable placeholder data, and explicit `change_nicknames: Yes` on this invocation.',
+    'Background reconciliation limitation: stored config can guide future refreshes, but this command does not enroll search-only players, create polling leases, or perform broad Discord nickname mutation.',
   ].join('\n');
 }
 
@@ -530,6 +532,33 @@ function collectRecognizedNicknamePlaceholders(value: string): string[] {
     /\{(?:NAME|PLAYER|PLAYER_NAME|player|player_name|playerName|name|TAG|tag|CLAN|CLAN_NAME|clan|ALIAS|CLAN_ALIAS|alias|TH|TOWN_HALL|townHall|town_hall|th|ROLE|CLAN_ROLE|role|DISCORD|DISCORD_NAME|USERNAME|DISCORD_USERNAME)\}/g,
   );
   return [...new Set([...matches].map((match) => match[0]))];
+}
+
+function formatLengthBudget(label: string, format: string | null): string {
+  if (!format) return `${label}: not configured`;
+  return `${label}: ${format.length}/${DISCORD_NICKNAME_MAX_LENGTH}`;
+}
+
+function formatAccountPreferenceDiagnostic(value: NicknameAccountPreference | null): string {
+  switch (value) {
+    case 'default-account':
+      return "prefer the user's saved default linked player when stored data is available";
+    case 'best-account':
+      return 'prefer the highest-value stored linked player data available to ClashMate';
+    case 'default-or-best-account':
+      return 'try the saved default account first, then fall back to the best stored account';
+    default:
+      return 'no stored account-selection preference has been configured';
+  }
+}
+
+function formatChangeNicknameGateDiagnostic(value: NicknameChangePreference | null): string {
+  if (value === 'true') {
+    return 'enabled in stored config, but applies are still limited to the invoking member and only when this invocation explicitly sets Yes';
+  }
+  if (value === 'false')
+    return 'disabled in stored config; previews are reported without nickname changes';
+  return 'not configured; previews are reported without nickname changes';
 }
 
 function formatNicknamePreview(view: NicknameConfigView): string {
