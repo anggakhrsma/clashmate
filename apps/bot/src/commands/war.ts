@@ -104,6 +104,10 @@ interface WarDiagnostics {
   readonly resolvedClan: WarTrackedClan | null;
   readonly userMention?: string;
   readonly linkedPlayerTagCount: number;
+  readonly candidateSnapshotCount?: number;
+  readonly readableSnapshotCount?: number;
+  readonly visibleSnapshotCount?: number;
+  readonly hiddenSnapshotCount?: number;
 }
 
 export function createWarSlashCommand(options: WarCommandOptions): SlashCommandDefinition {
@@ -355,15 +359,29 @@ async function executeWar(
     return;
   }
 
-  const entries = snapshots
-    .flatMap((snapshot): WarEntry[] => {
-      const war = extractWarData(snapshot.snapshot);
-      if (!war) return [];
-      return [{ snapshot, war, source: warKey ? 'historical' : 'current', diagnostics }];
-    })
-    .filter((entry) => playerTags.length === 0 || warIncludesPlayer(entry.war, playerTags));
+  const readableEntries = snapshots.flatMap((snapshot): WarEntry[] => {
+    const war = extractWarData(snapshot.snapshot);
+    if (!war) return [];
+    return [{ snapshot, war, source: warKey ? 'historical' : 'current', diagnostics }];
+  });
+  const entries = readableEntries.filter(
+    (entry) => playerTags.length === 0 || warIncludesPlayer(entry.war, playerTags),
+  );
+  const resultDiagnostics: WarDiagnostics = {
+    ...diagnostics,
+    candidateSnapshotCount: snapshots.length,
+    readableSnapshotCount: readableEntries.length,
+    visibleSnapshotCount: entries.length,
+    hiddenSnapshotCount: Math.max(0, readableEntries.length - entries.length),
+  };
+  const entriesWithDiagnostics = entries.map(
+    (entry): WarEntry => ({
+      ...entry,
+      diagnostics: resultDiagnostics,
+    }),
+  );
 
-  if (user && entries.length === 0) {
+  if (user && entriesWithDiagnostics.length === 0) {
     await interaction.editReply(
       buildWarNoDataMessage(
         'No readable persisted war snapshot includes linked players for the accepted user filter.',
@@ -372,7 +390,7 @@ async function executeWar(
           userMention: user.toString(),
           warKey,
           ...optionalCoverage(snapshots),
-          diagnostics,
+          diagnostics: resultDiagnostics,
           action:
             "The user filter keeps only persisted snapshots where one of the user's linked player tags appears on either war roster. Verify links and wait for a fresh war poll if the snapshot is stale.",
         },
@@ -381,7 +399,7 @@ async function executeWar(
     return;
   }
 
-  const entry = chooseWarEntry(entries);
+  const entry = chooseWarEntry(entriesWithDiagnostics);
   if (!entry) {
     await interaction.editReply(
       buildWarNoDataMessage(
@@ -606,13 +624,16 @@ export function buildWarEmbed(entry: WarEntry): EmbedBuilder {
 
 function buildWarContextRows(entry: WarEntry, normalizedState: string, war: WarData): string[] {
   const coverage = formatWarCoverage(war);
+  const source =
+    entry.source === 'historical' ? 'Historical retained snapshot' : 'Current latest snapshot';
   return [
     '**Snapshot Context**',
-    `Source: ${entry.source === 'historical' ? 'Historical retained snapshot' : 'Current latest snapshot'}`,
+    `Source: ${source} from ClashMate persisted war polling storage`,
     formatSnapshotAge(entry.snapshot),
     ...formatWarDiagnostics(entry.diagnostics),
     `Stored State: ${formatWarState(normalizeWarState(entry.snapshot.state))}`,
     `War State: ${formatWarState(normalizedState)}`,
+    `Availability: ${formatWarAvailability(war, normalizedState)}`,
     `Coverage: ${coverage}`,
     `Filters: ${formatWarSnapshotFilters(entry)}`,
     'Persisted only: no live Clash API lookup, fallback, or on-demand polling.',
@@ -633,7 +654,17 @@ function formatWarDiagnostics(diagnostics: WarDiagnostics | undefined): string[]
   return [
     `Linked Clans: ${diagnostics.linkedClanCount}`,
     `Filter Resolution: clan ${resolvedClan} • user ${user}`,
+    `Rows: ${formatWarRows(diagnostics)}`,
   ];
+}
+
+function formatWarRows(diagnostics: WarDiagnostics): string {
+  if (typeof diagnostics.candidateSnapshotCount !== 'number') return 'not evaluated yet';
+  return [
+    `${diagnostics.visibleSnapshotCount ?? 0} visible`,
+    `${diagnostics.hiddenSnapshotCount ?? 0} hidden by filters`,
+    `${diagnostics.readableSnapshotCount ?? 0}/${diagnostics.candidateSnapshotCount} readable`,
+  ].join(' • ');
 }
 
 function formatSnapshotAge(snapshot: WarSnapshotRecord): string {
@@ -660,6 +691,17 @@ function formatWarCoverage(war: WarData): string {
   const attacks = formatAttackCoverage(war);
   const members = formatMemberCoverage(war);
   return [attacks, members].filter((value) => value !== '?').join(' • ') || 'snapshot fields only';
+}
+
+function formatWarAvailability(war: WarData, normalizedState: string): string {
+  const attackFields =
+    typeof war.clan?.attacks === 'number' || typeof war.opponent?.attacks === 'number';
+  const rosterFields = Boolean(war.clan?.members?.length || war.opponent?.members?.length);
+  return [
+    `state ${normalizedState ? 'present' : 'missing'}`,
+    `attacks ${attackFields ? 'present' : 'missing'}`,
+    `missed-event hints ${attackFields && rosterFields ? 'available from snapshot' : 'not available from this snapshot'}`,
+  ].join(' • ');
 }
 
 function formatAttackCoverage(war: WarData): string {
@@ -700,6 +742,9 @@ function buildWarNoDataMessage(
   if (filters.coverage) rows.push(`Persisted snapshot coverage checked: ${filters.coverage}`);
   rows.push(
     '`/war` reads persisted current/latest and retained historical war snapshots only; no live Clash API fallback or on-demand polling is performed.',
+  );
+  rows.push(
+    'No data usually means the selected clan/user/war_id has no retained snapshot, the snapshot is stale/unreadable, or the user filter hid all rows.',
   );
   rows.push(
     `Action: ${
