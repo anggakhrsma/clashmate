@@ -328,10 +328,14 @@ interface ActivitySnapshotContext {
   readonly snapshotsConsidered: number;
   readonly memberRowsConsidered: number;
   readonly visibleRows: number;
+  readonly activeMembers: number;
+  readonly inactiveMembers: number;
+  readonly activePercentage: number;
   readonly linkedClanCount?: number;
   readonly clansWithSnapshots: number;
   readonly latestFetchedAt?: Date;
   readonly latestSnapshotAge?: string;
+  readonly snapshotFreshnessGuidance: string;
   readonly filters: readonly string[];
   readonly timezoneLabel: string;
   readonly windowLabel: string;
@@ -346,17 +350,24 @@ function collectActivitySnapshotContext(
   const latestFetchedAt = snapshots
     .flatMap((snapshot) => snapshot.members.map((member) => member.lastFetchedAt))
     .sort((a, b) => b.getTime() - a.getTime())[0];
+  const activeMembers = summaries.reduce((total, summary) => total + summary.activeMembers, 0);
+  const totalMembers = summaries.reduce((total, summary) => total + summary.totalMembers, 0);
+  const inactiveMembers = Math.max(0, totalMembers - activeMembers);
 
   return {
     snapshotsConsidered: snapshots.length,
     memberRowsConsidered: snapshots.reduce((total, snapshot) => total + snapshot.members.length, 0),
     visibleRows: summaries.reduce((total, summary) => total + summary.recentMembers.length, 0),
+    activeMembers,
+    inactiveMembers,
+    activePercentage: totalMembers === 0 ? 0 : Math.round((activeMembers / totalMembers) * 100),
     ...(typeof options.linkedClanCount === 'number'
       ? { linkedClanCount: options.linkedClanCount }
       : {}),
     clansWithSnapshots: snapshots.filter((snapshot) => snapshot.members.length > 0).length,
     ...(latestFetchedAt ? { latestFetchedAt } : {}),
     ...(latestFetchedAt ? { latestSnapshotAge: formatSnapshotAge(latestFetchedAt, now) } : {}),
+    snapshotFreshnessGuidance: formatSnapshotFreshnessGuidance(latestFetchedAt, now),
     filters: formatActivityFilters(options),
     timezoneLabel: formatActivityTimezoneLabel(options),
     windowLabel: formatActivityWindowLabel(options.days),
@@ -369,9 +380,10 @@ function formatActivitySourceContext(context: ActivitySnapshotContext): string {
   return [
     'Source: persisted ClashMate clan-member snapshots written by clan polling. This command does not call the Clash API live, backfill history, or render the old image chart.',
     `Activity calculation: members with last-seen timestamps inside ${context.windowLabel} count as active; other stored members count as inactive for the percentage.`,
+    `Derived totals: ${context.activeMembers} active · ${context.inactiveMembers} inactive · ${context.activePercentage}% active.`,
     `Linked clans configured: ${configuredClans} · Snapshot clans returned: ${context.snapshotsConsidered} · With member rows: ${context.clansWithSnapshots}`,
     `Member rows considered: ${context.memberRowsConsidered} · Visible rows: ${context.visibleRows}`,
-    `Latest stored snapshot fetch: ${formatLatestSnapshotLabel(context)}`,
+    `Latest stored snapshot fetch: ${formatLatestSnapshotLabel(context)} · ${context.snapshotFreshnessGuidance}`,
     `Active filters: ${context.filters.join(' · ')} · user=not filtered by /activity`,
     `Timezone: ${context.timezoneLabel}`,
     'Polling prerequisite: clan polling must run after the clan is linked/configured; search-only lookups and Discord user links do not create activity snapshots.',
@@ -386,7 +398,8 @@ function formatActivityNoDataMessage(context: ActivitySnapshotContext): string {
   return [
     ACTIVITY_NO_SNAPSHOT_MESSAGE,
     `${linkedClanText} Snapshot clans returned: ${context.snapshotsConsidered}; member rows considered: ${context.memberRowsConsidered}.`,
-    `Latest stored snapshot fetch: ${formatLatestSnapshotLabel(context)}.`,
+    `Derived totals for selected filters: ${context.activeMembers} active; ${context.inactiveMembers} inactive; ${context.activePercentage}% active.`,
+    `Latest stored snapshot fetch: ${formatLatestSnapshotLabel(context)}. ${context.snapshotFreshnessGuidance}.`,
     `Selected filters: ${context.filters.join(' · ')} · user=not filtered by /activity · timezone=${context.timezoneLabel}.`,
     `Activity calculation: ${context.windowLabel}; members seen inside the window are active, stored members outside it are inactive.`,
     'Source coverage: persisted linked-clan member snapshots only; no live Clash API fallback, backfill, historical ClickHouse activity table, or image chart renderer is used.',
@@ -413,6 +426,16 @@ function formatSnapshotAge(snapshotAt: Date, now: Date): string {
     ...(days === 0 && minutes > 0 ? [`${minutes}m`] : []),
   ];
   return parts.join(' ');
+}
+
+function formatSnapshotFreshnessGuidance(snapshotAt: Date | undefined, now: Date): string {
+  if (!snapshotAt) return 'No stored fetch is available yet; wait for the next clan polling pass';
+
+  const ageMs = Math.max(0, now.getTime() - snapshotAt.getTime());
+  if (ageMs > 24 * 60 * 60 * 1000) {
+    return 'Snapshot looks stale; check worker health if activity should be current';
+  }
+  return 'Snapshot is recent enough for persisted-output diagnostics';
 }
 
 function formatActivityFilters(options: BuildActivityOptions): string[] {
