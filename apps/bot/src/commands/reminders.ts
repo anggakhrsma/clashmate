@@ -488,6 +488,7 @@ async function handleCreateReminder(
       '. ' +
       formatUnmatchedClanWarning(unmatchedClanInputs) +
       `Exclude participant list: ${schedule.excludeParticipantList ? 'yes' : 'no'}. ` +
+      `Diagnostics: ${formatReminderDiagnostics([schedule])} ` +
       `${formatReminderPrerequisiteContext({ type: schedule.type, snapshots })} ` +
       REMINDER_LIMITS_NOTE +
       ' ' +
@@ -523,8 +524,8 @@ async function handleListReminders(
   await interaction.reply({
     content:
       schedules.length === 0
-        ? `${formatReminderNoDataContext({ type, clanFilter, channelId, reminderId, totalForType })} ${formatReminderPrerequisiteContext({ type, snapshots })} ${REMINDER_LIMITS_NOTE} ${STORAGE_ONLY_NOTE}`
-        : `${formatReminderList(schedules, compact)}\n\n${SUPPORTED_REMINDER_TYPES_NOTE} ${REMINDER_DUE_STATUS_NOTE} ${formatReminderPrerequisiteContext({ type, snapshots })} ${REMINDER_LIMITS_NOTE} ${STORAGE_ONLY_NOTE} ${MENTION_RESOLUTION_NOTE} ${REMINDER_WORKER_NOTE}`,
+        ? `${formatReminderNoDataContext({ type, clanFilter, channelId, reminderId, totalForType })} Diagnostics: ${formatReminderDiagnostics(settings.schedules)} ${formatReminderPrerequisiteContext({ type, snapshots })} ${REMINDER_LIMITS_NOTE} ${STORAGE_ONLY_NOTE}`
+        : `${formatReminderList(schedules, compact)}\n\nDiagnostics: ${formatReminderDiagnostics(schedules)} Guild coverage: ${formatReminderDiagnostics(settings.schedules)} ${SUPPORTED_REMINDER_TYPES_NOTE} ${REMINDER_DUE_STATUS_NOTE} ${formatReminderPrerequisiteContext({ type, snapshots })} ${REMINDER_LIMITS_NOTE} ${STORAGE_ONLY_NOTE} ${MENTION_RESOLUTION_NOTE} ${REMINDER_WORKER_NOTE}`,
     ephemeral: true,
   });
 }
@@ -606,7 +607,7 @@ async function handleReminderConfig(
     content:
       'Reminder ping exclusion is ' +
       (settings.reminderPingExclusion ? 'enabled' : 'disabled') +
-      `. Schedule count: ${settings.schedules.length}. ` +
+      `. Diagnostics: ${formatReminderDiagnostics(settings.schedules)} ` +
       'When enabled, players covered by reminder ping exclusion config are skipped by reminder delivery; immediate pings still use linked player accounts from the latest member snapshot. ' +
       `${MENTION_RESOLUTION_NOTE} ${REMINDER_LIMITS_NOTE} ${STORAGE_ONLY_NOTE}`,
     ephemeral: true,
@@ -861,6 +862,33 @@ function formatReminderDueStatus(
     return `Not due yet • Next due: ${formatDiscordTimestamp(status.nextDueMs, 'R')} (${formatDiscordTimestamp(status.nextDueMs, 'f')})`;
   }
   return `Overdue/due bucket ${status.bucket} since ${formatDiscordTimestamp(status.dueAtMs, 'R')} (${formatDiscordTimestamp(status.dueAtMs, 'f')}) • Next bucket: ${formatDiscordTimestamp(status.nextDueMs, 'R')} (${formatDiscordTimestamp(status.nextDueMs, 'f')})`;
+}
+
+function formatReminderDiagnostics(schedules: readonly ReminderSchedule[]): string {
+  const dueStatuses = schedules.map(computeReminderDueStatus).filter((status) => status !== null);
+  const dueCount = dueStatuses.filter((status) => status.due).length;
+  const nextBucketCount = dueStatuses.filter((status) => !status.due).length;
+  const unknownDueCount = schedules.length - dueStatuses.length;
+  const typeCounts = REMINDER_TYPES.map(
+    (type) =>
+      `${type.name}: ${schedules.filter((schedule) => schedule.type === type.value).length}`,
+  ).join(', ');
+  const channelCount = new Set(schedules.map((schedule) => schedule.channelId)).size;
+  const withParticipantExclusion = schedules.filter(
+    (schedule) => schedule.excludeParticipantList,
+  ).length;
+  const messageLimitCount = schedules.filter(
+    (schedule) => schedule.message.length >= MAX_MESSAGE_LENGTH,
+  ).length;
+
+  return (
+    `${schedules.length} stored schedule${schedules.length === 1 ? '' : 's'}; ` +
+    `due buckets: ${dueCount} due/overdue, ${nextBucketCount} pending, ${unknownDueCount} unknown; ` +
+    `type coverage: ${typeCounts}; ` +
+    `channels: ${channelCount}; messages at limit: ${messageLimitCount}; ` +
+    `participant list excluded: ${withParticipantExclusion}; ` +
+    'outbox delivery state is not queried by this command.'
+  );
 }
 
 function formatDiscordTimestamp(timeMs: number, style: 'R' | 'f'): string {
