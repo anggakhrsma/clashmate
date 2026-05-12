@@ -53,9 +53,37 @@ export interface PlayerPollerHandlerOptions {
   readonly now?: () => Date;
 }
 
+export type PlayerPollerSnapshotStatus = 'upserted' | 'not_linked';
+
+export type PlayerPollerSnapshotSource = 'clash_api';
+
+export type PlayerPollerSnapshotFreshness = 'fresh';
+
+export type PlayerPollerClanGamesEligibility = 'eligible' | 'ineligible' | 'unassessed';
+
+export type PlayerPollerClanGamesWindowStatus = 'active' | 'inactive' | 'unassessed';
+
+export type PlayerPollerAchievementCoverage = 'present' | 'missing';
+
+export interface PlayerPollerSkipContext {
+  readonly snapshotStatus: PlayerPollerSnapshotStatus;
+  readonly snapshotSource: PlayerPollerSnapshotSource;
+  readonly clanTagKnown: boolean;
+  readonly achievementCoverage: PlayerPollerAchievementCoverage;
+  readonly seasonId?: string;
+  readonly seasonWindowStatus?: PlayerPollerClanGamesWindowStatus;
+}
+
 export interface PlayerPollerResult {
   readonly status: 'snapshot_updated' | 'not_linked';
+  readonly snapshotStatus: PlayerPollerSnapshotStatus;
+  readonly snapshotSource: PlayerPollerSnapshotSource;
+  readonly snapshotFetchedAt: Date;
+  readonly snapshotFreshness: PlayerPollerSnapshotFreshness;
   readonly playerTag: string;
+  readonly clanGamesEligibility: PlayerPollerClanGamesEligibility;
+  readonly clanGamesWindowStatus: PlayerPollerClanGamesWindowStatus;
+  readonly achievementCoverage: PlayerPollerAchievementCoverage;
   readonly clanGamesConsidered: boolean;
   readonly clanGamesSkipReason?:
     | 'player_not_linked'
@@ -63,11 +91,83 @@ export interface PlayerPollerResult {
     | 'missing_clan_tag'
     | 'missing_games_champion_achievement'
     | 'no_active_clan_games_season';
+  readonly clanGamesSkipContext?: PlayerPollerSkipContext;
   readonly clanTag?: string;
   readonly gamesChampionAchievementValue?: number;
   readonly clanGamesSeasonId?: string;
   readonly clanGamesEventMaxPoints?: number;
   readonly clanGames?: ProcessClanGamesProgressResult;
+}
+
+function addPlayerPollerDiagnostics(
+  result: Pick<PlayerPollerResult, 'status' | 'playerTag' | 'clanGamesConsidered'> &
+    Partial<PlayerPollerResult>,
+  diagnostics: Partial<
+    Pick<
+      PlayerPollerResult,
+      | 'snapshotStatus'
+      | 'snapshotSource'
+      | 'snapshotFetchedAt'
+      | 'snapshotFreshness'
+      | 'clanGamesEligibility'
+      | 'clanGamesWindowStatus'
+      | 'achievementCoverage'
+      | 'clanGamesSkipContext'
+    >
+  >,
+): PlayerPollerResult {
+  Object.defineProperties(result, {
+    snapshotStatus: {
+      value: diagnostics.snapshotStatus,
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    },
+    snapshotSource: {
+      value: diagnostics.snapshotSource,
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    },
+    snapshotFetchedAt: {
+      value: diagnostics.snapshotFetchedAt,
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    },
+    snapshotFreshness: {
+      value: diagnostics.snapshotFreshness,
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    },
+    clanGamesEligibility: {
+      value: diagnostics.clanGamesEligibility,
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    },
+    clanGamesWindowStatus: {
+      value: diagnostics.clanGamesWindowStatus,
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    },
+    achievementCoverage: {
+      value: diagnostics.achievementCoverage,
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    },
+    clanGamesSkipContext: {
+      value: diagnostics.clanGamesSkipContext,
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    },
+  });
+
+  return result as PlayerPollerResult;
 }
 
 export function createPlayerPollerHandler(options: PlayerPollerHandlerOptions) {
@@ -86,18 +186,69 @@ export function createPlayerPollerHandler(options: PlayerPollerHandlerOptions) {
       fetchedAt,
     });
 
-    const pollerResult: PlayerPollerResult = {
-      status: result.status === 'upserted' ? 'snapshot_updated' : 'not_linked',
-      playerTag,
-      clanGamesConsidered: false,
-    };
+    const snapshotStatus: PlayerPollerSnapshotStatus = result.status;
+
+    const pollerResult: PlayerPollerResult = addPlayerPollerDiagnostics(
+      {
+        status: snapshotStatus === 'upserted' ? 'snapshot_updated' : 'not_linked',
+        playerTag,
+        clanGamesConsidered: false,
+      },
+      {
+        snapshotStatus,
+        snapshotSource: 'clash_api',
+        snapshotFetchedAt: fetchedAt,
+        snapshotFreshness: 'fresh',
+        clanGamesEligibility: snapshotStatus === 'upserted' ? 'unassessed' : 'ineligible',
+        clanGamesWindowStatus: 'unassessed',
+        achievementCoverage: 'missing',
+      },
+    );
 
     if (pollerResult.status !== 'snapshot_updated') {
-      return { ...pollerResult, clanGamesSkipReason: 'player_not_linked' };
+      return addPlayerPollerDiagnostics(
+        {
+          ...pollerResult,
+          clanGamesSkipReason: 'player_not_linked',
+        },
+        {
+          snapshotStatus,
+          snapshotSource: 'clash_api',
+          snapshotFreshness: 'fresh',
+          clanGamesEligibility: 'ineligible',
+          clanGamesWindowStatus: 'unassessed',
+          achievementCoverage: 'missing',
+          clanGamesSkipContext: {
+            snapshotStatus,
+            snapshotSource: 'clash_api',
+            clanTagKnown: false,
+            achievementCoverage: 'missing',
+          },
+        },
+      );
     }
 
     if (!options.clanGames) {
-      return { ...pollerResult, clanGamesSkipReason: 'clan_games_store_missing' };
+      return addPlayerPollerDiagnostics(
+        {
+          ...pollerResult,
+          clanGamesSkipReason: 'clan_games_store_missing',
+        },
+        {
+          snapshotStatus,
+          snapshotSource: 'clash_api',
+          snapshotFreshness: 'fresh',
+          clanGamesEligibility: 'ineligible',
+          clanGamesWindowStatus: 'unassessed',
+          achievementCoverage: 'missing',
+          clanGamesSkipContext: {
+            snapshotStatus,
+            snapshotSource: 'clash_api',
+            clanTagKnown: false,
+            achievementCoverage: 'missing',
+          },
+        },
+      );
     }
 
     const clanTag = extractPlayerClanTag(player);
@@ -105,47 +256,140 @@ export function createPlayerPollerHandler(options: PlayerPollerHandlerOptions) {
     const seasonConfig = normalizeClanGamesSeasonConfig(
       (options.clanGamesSeasonConfig ?? defaultClanGamesSeasonConfig)(fetchedAt),
     );
+    const achievementCoverage: PlayerPollerAchievementCoverage =
+      currentAchievementValue === null ? 'missing' : 'present';
+    const seasonWindowStatus: PlayerPollerClanGamesWindowStatus = seasonConfig
+      ? 'active'
+      : 'inactive';
+    const clanGamesEligibility: PlayerPollerClanGamesEligibility =
+      clanTag && currentAchievementValue !== null && seasonConfig ? 'eligible' : 'ineligible';
 
-    const clanGamesContext: PlayerPollerResult = {
-      ...pollerResult,
-      clanGamesConsidered: true,
-      ...(clanTag ? { clanTag } : {}),
-      ...(currentAchievementValue === null
-        ? {}
-        : { gamesChampionAchievementValue: currentAchievementValue }),
-      ...(seasonConfig
-        ? {
-            clanGamesSeasonId: seasonConfig.seasonId,
-            clanGamesEventMaxPoints: seasonConfig.eventMaxPoints,
-          }
-        : {}),
-    };
+    const clanGamesContext: PlayerPollerResult = addPlayerPollerDiagnostics(
+      {
+        ...pollerResult,
+        clanGamesConsidered: true,
+        ...(clanTag ? { clanTag } : {}),
+        ...(currentAchievementValue === null
+          ? {}
+          : { gamesChampionAchievementValue: currentAchievementValue }),
+        ...(seasonConfig
+          ? {
+              clanGamesSeasonId: seasonConfig.seasonId,
+              clanGamesEventMaxPoints: seasonConfig.eventMaxPoints,
+            }
+          : {}),
+      },
+      {
+        snapshotStatus,
+        snapshotSource: 'clash_api',
+        snapshotFetchedAt: fetchedAt,
+        snapshotFreshness: 'fresh',
+        clanGamesEligibility,
+        clanGamesWindowStatus: seasonWindowStatus,
+        achievementCoverage,
+      },
+    );
 
-    if (!clanTag) return { ...clanGamesContext, clanGamesSkipReason: 'missing_clan_tag' };
+    if (!clanTag) {
+      return addPlayerPollerDiagnostics(
+        {
+          ...clanGamesContext,
+          clanGamesSkipReason: 'missing_clan_tag',
+        },
+        {
+          snapshotStatus,
+          snapshotSource: 'clash_api',
+          snapshotFreshness: 'fresh',
+          clanGamesEligibility,
+          clanGamesWindowStatus: seasonWindowStatus,
+          achievementCoverage,
+          clanGamesSkipContext: {
+            snapshotStatus,
+            snapshotSource: 'clash_api',
+            clanTagKnown: false,
+            achievementCoverage,
+            ...(seasonConfig?.seasonId ? { seasonId: seasonConfig.seasonId } : {}),
+            seasonWindowStatus,
+          },
+        },
+      );
+    }
     if (currentAchievementValue === null) {
-      return { ...clanGamesContext, clanGamesSkipReason: 'missing_games_champion_achievement' };
+      return addPlayerPollerDiagnostics(
+        {
+          ...clanGamesContext,
+          clanGamesSkipReason: 'missing_games_champion_achievement',
+        },
+        {
+          snapshotStatus,
+          snapshotSource: 'clash_api',
+          snapshotFreshness: 'fresh',
+          clanGamesEligibility,
+          clanGamesWindowStatus: seasonWindowStatus,
+          achievementCoverage,
+          clanGamesSkipContext: {
+            snapshotStatus,
+            snapshotSource: 'clash_api',
+            clanTagKnown: true,
+            achievementCoverage,
+            ...(seasonConfig?.seasonId ? { seasonId: seasonConfig.seasonId } : {}),
+            seasonWindowStatus,
+          },
+        },
+      );
     }
     if (!seasonConfig) {
-      return { ...clanGamesContext, clanGamesSkipReason: 'no_active_clan_games_season' };
+      return addPlayerPollerDiagnostics(
+        {
+          ...clanGamesContext,
+          clanGamesSkipReason: 'no_active_clan_games_season',
+        },
+        {
+          snapshotStatus,
+          snapshotSource: 'clash_api',
+          snapshotFreshness: 'fresh',
+          clanGamesEligibility,
+          clanGamesWindowStatus: seasonWindowStatus,
+          achievementCoverage,
+          clanGamesSkipContext: {
+            snapshotStatus,
+            snapshotSource: 'clash_api',
+            clanTagKnown: true,
+            achievementCoverage,
+            seasonWindowStatus,
+          },
+        },
+      );
     }
 
-    return {
-      ...clanGamesContext,
-      clanGames: await options.clanGames.processClanGamesProgress({
-        clanTag,
-        seasonId: seasonConfig.seasonId,
-        eventMaxPoints: seasonConfig.eventMaxPoints,
-        fetchedAt,
-        players: [
-          {
-            playerTag: player.tag,
-            playerName: player.name,
-            currentAchievementValue,
-            rawPlayer: player,
-          },
-        ],
-      }),
-    };
+    return addPlayerPollerDiagnostics(
+      {
+        ...clanGamesContext,
+        clanGames: await options.clanGames.processClanGamesProgress({
+          clanTag,
+          seasonId: seasonConfig.seasonId,
+          eventMaxPoints: seasonConfig.eventMaxPoints,
+          fetchedAt,
+          players: [
+            {
+              playerTag: player.tag,
+              playerName: player.name,
+              currentAchievementValue,
+              rawPlayer: player,
+            },
+          ],
+        }),
+      },
+      {
+        snapshotStatus,
+        snapshotSource: 'clash_api',
+        snapshotFetchedAt: fetchedAt,
+        snapshotFreshness: 'fresh',
+        clanGamesEligibility,
+        clanGamesWindowStatus: seasonWindowStatus,
+        achievementCoverage,
+      },
+    );
   };
 }
 
