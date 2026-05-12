@@ -26,6 +26,8 @@ interface SummaryCoverageContext {
   readonly linkedClanCount: number;
   readonly consideredClanCount: number;
   readonly usableRowCount: number;
+  readonly displayedRowCount?: number;
+  readonly rowLimit?: number;
   readonly latestAt?: Date;
   readonly filters?: readonly string[];
 }
@@ -434,7 +436,7 @@ export async function executeSummary(
         snapshots,
         limit,
         order,
-        buildSnapshotCoverage(clans.length, snapshots, baseFilters),
+        withRowLimit(buildSnapshotCoverage(clans.length, snapshots, baseFilters), limit),
       ),
     );
     return;
@@ -540,7 +542,10 @@ export async function executeSummary(
       buildSummaryTrophiesPayload(
         snapshots,
         interaction.options.getInteger('limit') ?? SUMMARY_ROW_LIMIT,
-        buildSnapshotCoverage(clans.length, snapshots, baseFilters),
+        withRowLimit(
+          buildSnapshotCoverage(clans.length, snapshots, baseFilters),
+          interaction.options.getInteger('limit') ?? SUMMARY_ROW_LIMIT,
+        ),
       ),
     );
     return;
@@ -1196,6 +1201,18 @@ function buildRowsCoverage(
   };
 }
 
+function withRowLimit(
+  coverage: SummaryCoverageContext,
+  requestedLimit: number,
+): SummaryCoverageContext {
+  const rowLimit = clampSummaryLimit(requestedLimit);
+  return {
+    ...coverage,
+    rowLimit,
+    displayedRowCount: Math.min(coverage.usableRowCount, rowLimit),
+  };
+}
+
 function coverageField(coverage: SummaryCoverageContext | undefined): {
   name: string;
   value: string;
@@ -1204,16 +1221,21 @@ function coverageField(coverage: SummaryCoverageContext | undefined): {
   if (!coverage) {
     return {
       name: 'Coverage',
-      value: 'Persisted snapshots/events only; no live Clash API lookup.',
+      value:
+        'Persisted snapshots/events only; no live Clash API lookup. Output is limited to rows ClashMate has already collected.',
       inline: false,
     };
   }
+  const rowLimit = coverage.rowLimit ?? SUMMARY_ROW_LIMIT;
+  const displayedRowCount =
+    coverage.displayedRowCount ?? Math.min(coverage.usableRowCount, rowLimit);
   const parts = [
-    `${coverage.consideredClanCount}/${coverage.linkedClanCount} linked clans considered`,
-    `${coverage.usableRowCount} rows with usable data`,
-    `latest ${coverage.latestAt ? time(coverage.latestAt, 'R') : 'unknown'}`,
+    `linked clans ${coverage.consideredClanCount}/${coverage.linkedClanCount}`,
+    `usable rows ${coverage.usableRowCount}`,
+    `shown ${displayedRowCount}/${coverage.usableRowCount} (limit ${rowLimit})`,
+    `latest snapshot/event ${coverage.latestAt ? time(coverage.latestAt, 'R') : 'unknown'}`,
     `filters: ${coverage.filters?.length ? coverage.filters.join('; ') : 'none'}`,
-    'persisted snapshots/events only; no live Clash API lookup',
+    'persisted-only; no live Clash API lookup or polling enrollment',
   ];
   return { name: 'Coverage', value: parts.join(' · '), inline: false };
 }
@@ -1224,7 +1246,7 @@ function sourceField(value: string): { name: string; value: string; inline: fals
 
 function noDataMessage(subject: string, coverage: SummaryCoverageContext | undefined): string {
   const field = coverageField(coverage).value;
-  return `No ${subject} are available for the accepted filters. ${field}. This summary reads persisted ClashMate snapshots/events only and does not run a live Clash API lookup. Link or configure clans with \`/setup clan\`, keep the relevant poller enabled, and wait for new snapshots/events to be persisted.`;
+  return `No ${subject} are available for the accepted filters. ${field}. This summary is persisted-only: it will not query Clash live or start tracking new clans. Link/configure clans with \`/setup clan\`, keep the relevant poller enabled, and wait for new snapshots/events to be persisted.`;
 }
 
 function latestMemberSnapshotAt(members: readonly SummaryMemberSnapshotRow[]): Date | undefined {
