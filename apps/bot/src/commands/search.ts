@@ -83,6 +83,8 @@ export async function executeSearch(
 
 export function buildSearchEmbed(name: string, clans: readonly ClashClan[]): EmbedBuilder {
   const shownCount = Math.min(clans.length, SEARCH_RESULT_LIMIT);
+  const queryDiagnostics = buildSearchQueryDiagnostics(name);
+  const topResult = clans[0] ? formatTopResultCoverage(clans[0], shownCount, clans.length) : null;
 
   return new EmbedBuilder()
     .setTitle(`Clan search results for ${escapeMarkdown(name)}`)
@@ -94,13 +96,30 @@ export function buildSearchEmbed(name: string, clans: readonly ClashClan[]): Emb
     )
     .addFields(
       {
+        name: 'Query diagnostics',
+        value: queryDiagnostics,
+        inline: false,
+      },
+      {
         name: 'Accepted filters',
-        value: '`name` only. Use setup/link commands for persisted guild tracking.',
+        value:
+          '`name` only. Town hall, trophy, location, language, label, and linked-clan filters are not applied by `/search`.',
         inline: false,
       },
       {
         name: 'Result coverage',
-        value: `Query: \`${escapeInlineCode(name)}\` • Returned: ${clans.length}/${SEARCH_API_LIMIT} • Visible: ${shownCount}/${SEARCH_RESULT_LIMIT}. Results depend on the live API search index and may change over time.`,
+        value: [
+          `Returned: ${clans.length}/${SEARCH_API_LIMIT} API limit • Visible: ${shownCount}/${SEARCH_RESULT_LIMIT} display limit.`,
+          topResult,
+          'Coverage is limited to the live API search page and its current ranking; results may change over time.',
+        ]
+          .filter((value): value is string => Boolean(value))
+          .join(' '),
+        inline: false,
+      },
+      {
+        name: 'Persistence',
+        value: 'Search results are not linked, saved, or enrolled in clan/player/war polling.',
         inline: false,
       },
     )
@@ -112,13 +131,19 @@ export function buildSearchEmbed(name: string, clans: readonly ClashClan[]): Emb
 export function buildSearchNoResultsMessage(name: string): string {
   const query = name.trim();
   const queryText = query ? ` for \`${escapeInlineCode(query)}\`` : '';
+  const diagnostics = query
+    ? `Normalized query: \`${escapeInlineCode(query)}\` (trimmed only).`
+    : '';
 
   return [
     `No clans found from the live Clash API${queryText}.`,
+    diagnostics,
     `Returned 0 of up to ${SEARCH_API_LIMIT}; visible results 0/${SEARCH_RESULT_LIMIT}.`,
-    '`/search` accepts only the `name` filter. Try a more specific clan name, alternate spelling, or fewer words.',
+    '`/search` accepts only the `name` filter; no linked-clan, location, trophy, label, or language filters are applied. Try a more specific clan name, alternate spelling, or fewer words.',
     'This one-off lookup does not link clans or enroll polling.',
-  ].join(' ');
+  ]
+    .filter((value) => value.length > 0)
+    .join(' ');
 }
 
 export function buildSearchApiErrorMessage(name: string): string {
@@ -127,10 +152,39 @@ export function buildSearchApiErrorMessage(name: string): string {
 
   return [
     `Could not search clans from the live Clash API${queryText}.`,
+    query ? `Normalized query: \`${escapeInlineCode(query)}\` (trimmed only).` : '',
     `Requested up to ${SEARCH_API_LIMIT}; visible results 0/${SEARCH_RESULT_LIMIT}.`,
     'This is usually temporary: try again shortly, then check the clan name and Clash API availability if it keeps failing.',
     'No clans were linked or enrolled for polling.',
+  ]
+    .filter((value) => value.length > 0)
+    .join(' ');
+}
+
+function buildSearchQueryDiagnostics(name: string): string {
+  const normalized = name.trim();
+  const tokenCount = normalized.split(/\s+/u).filter((token) => token.length > 0).length;
+
+  return [
+    `Normalized: \`${escapeInlineCode(normalized)}\` (trimmed only; case and punctuation preserved).`,
+    `Terms: ${tokenCount}.`,
   ].join(' ');
+}
+
+function formatTopResultCoverage(
+  clan: ClashClan,
+  shownCount: number,
+  returnedCount: number,
+): string {
+  const data = readSearchClanData(clan);
+  const details = [
+    `Top visible result: ${escapeMarkdown(clan.name)} (${clan.tag})`,
+    `level ${formatNumber(data.clanLevel)}`,
+    `${formatNumber(data.members)} members`,
+    `${formatNumber(data.clanPoints)} points`,
+  ].join(', ');
+
+  return `${details}. Showing the first ${shownCount} live-ranked result${shownCount === 1 ? '' : 's'} from ${returnedCount} returned.`;
 }
 
 export function formatSearchResultLine(clan: ClashClan): string {
