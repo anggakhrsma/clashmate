@@ -787,6 +787,7 @@ export function buildAutoroleSettingsEmbed(
       {
         name: 'Summary',
         value: [
+          `Configured groups: ${formatConfiguredGroups(counts)}`,
           `Clan role groups: ${counts.clanRoleGroups}`,
           `Clan role mappings: ${counts.clanRoleMappings}`,
           `Town Hall roles: ${counts.townHallRoles}`,
@@ -806,6 +807,7 @@ export function buildAutoroleSettingsEmbed(
       { name: 'League roles', value: formatRoles(view.leagueRoles), inline: false },
       { name: 'Family roles', value: formatRoles(view.familyRoles), inline: false },
       { name: 'Config', value: formatConfig(view), inline: false },
+      { name: 'Readiness guidance', value: formatSettingsReadiness(counts), inline: false },
       { name: 'Data sources', value: AUTOROLE_DATA_SOURCE_NOTE, inline: false },
       { name: 'No data?', value: formatNoDataActionability(counts), inline: false },
       {
@@ -862,12 +864,18 @@ export function buildAutoroleRefreshPreviewEmbed(
       {
         name: 'Stored config counts',
         value: [
+          `Configured groups: ${formatConfiguredGroups(plan.counts)}`,
           `Clan role groups: ${plan.counts.clanRoleGroups}`,
           `Clan role mappings: ${plan.counts.clanRoleMappings}`,
           `Town Hall roles: ${plan.counts.townHallRoles}`,
           `League/trophy roles: ${plan.counts.leagueRoles}`,
           `Family roles: ${plan.counts.familyRoles}`,
         ].join('\n'),
+        inline: false,
+      },
+      {
+        name: 'Derived readiness',
+        value: formatRefreshReadiness(plan),
         inline: false,
       },
       {
@@ -1240,6 +1248,57 @@ function formatConfig(view: AutoroleSettingsView): string {
     `Verified only clan roles: ${formatBool(view.config.verifiedOnlyClanRoles ?? view.clanRolesOnlyVerified)}`,
     'Persistence: saved for this Discord server; manager permissions control who can update it.',
   ].join('\n');
+}
+
+function formatConfiguredGroups(counts: AutoroleRefreshPlanCounts): string {
+  const groups = [
+    counts.clanRoleMappings > 0 ? 'clan roles' : null,
+    counts.townHallRoles > 0 ? 'Town Hall' : null,
+    counts.leagueRoles > 0 ? 'leagues/trophy ranges' : null,
+    counts.familyRoles > 0 ? 'family/guest/verified' : null,
+  ].filter((group): group is string => group !== null);
+  return groups.length ? groups.join(', ') : 'none';
+}
+
+function formatSettingsReadiness(counts: AutoroleRefreshPlanCounts): string {
+  const notes = [
+    `Included configured groups: ${formatConfiguredGroups(counts)}.`,
+    'Excluded groups stay unavailable here: builder hall, builder leagues, wars, and EOS push.',
+  ];
+  if (formatConfiguredGroups(counts) === 'none') {
+    notes.push(
+      'Disabled/not configured: add mappings with the included subcommands before refresh can find candidates.',
+    );
+  } else {
+    notes.push(
+      'Configured mappings can be previewed with `/autorole refresh`; actual changes still require a non-test refresh and Discord safety checks.',
+    );
+  }
+  return notes.join('\n');
+}
+
+function formatRefreshReadiness(plan: AutoroleRefreshPlan): string {
+  const notes = [
+    `Configured mapping total: ${plan.counts.clanRoleMappings + plan.counts.townHallRoles + plan.counts.leagueRoles + plan.counts.familyRoles}`,
+    `Included configured groups: ${formatConfiguredGroups(plan.counts)}.`,
+    `Snapshot/member coverage: ${plan.snapshotCoverage.linkedClanSnapshotCount} snapshot${plan.snapshotCoverage.linkedClanSnapshotCount === 1 ? '' : 's'} / ${plan.snapshotCoverage.snapshotMemberCount} member row${plan.snapshotCoverage.snapshotMemberCount === 1 ? '' : 's'} / ${plan.snapshotCoverage.distinctPlayerCount} distinct player${plan.snapshotCoverage.distinctPlayerCount === 1 ? '' : 's'}.`,
+    `Preview candidates: ${plan.previewActions.candidateAdds} add candidate${plan.previewActions.candidateAdds === 1 ? '' : 's'}; remove candidates unavailable without Discord member role state.`,
+  ];
+  if (!plan.mappingsExist.any) {
+    notes.push('Disabled/not configured: no included autorole mappings are stored yet.');
+  } else if (plan.snapshotCoverage.snapshotMemberCount === 0) {
+    notes.push(
+      'Waiting on coverage: linked-clan member snapshots are required before snapshot-backed candidates appear.',
+    );
+  } else if (plan.previewActions.candidateAdds === 0) {
+    notes.push(
+      'No candidates from current snapshots; check that mappings match linked clan roles, leagues, or trophy ranges.',
+    );
+  }
+  notes.push(
+    'Safety gate: non-test refreshes still skip unmanageable members, unmanageable roles, unlinked Discord users, and failed Discord mutations.',
+  );
+  return notes.join('\n').slice(0, 1024);
 }
 
 function formatNoDataActionability(counts: ReturnType<typeof getAutoroleConfigCounts>): string {
