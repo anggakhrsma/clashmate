@@ -214,10 +214,18 @@ export async function executeAttacks(
   const { clan } = resolution;
   if (!clan) {
     await interaction.editReply({
-      content: `No linked clan was found for that clan option.\n${ATTACKS_FILTER_HELP_TEXT}`,
+      content: `No linked clan was found for that clan option.\nLinked clans available: ${clans.length}.\n${ATTACKS_FILTER_HELP_TEXT}`,
     });
     return;
   }
+
+  const diagnostics = createAttacksDiagnostics({
+    clans,
+    clan,
+    clanFilter: clanOption,
+    userFilterApplied: Boolean(userOption),
+    resolutionNote: resolution.note,
+  });
 
   let clashClan: ClashClan;
   try {
@@ -232,7 +240,9 @@ export async function executeAttacks(
   const memberTags = discoveredMemberTags.slice(0, MAX_PLAYER_FETCHES);
   if (discoveredMemberTags.length === 0) {
     await interaction.editReply({
-      content: `${ATTACKS_NO_DATA_MESSAGE}\n${formatAttacksLimitationsText(season)}\n${formatAttacksCoverageText(
+      content: `${ATTACKS_NO_DATA_MESSAGE}\n${formatAttacksDiagnosticsText(
+        diagnostics,
+      )}\n${formatAttacksLimitationsText(season)}\n${formatAttacksCoverageText(
         createAttacksScanCoverage({
           clanMembersDiscovered: 0,
           playerLookupsAttempted: 0,
@@ -256,16 +266,16 @@ export async function executeAttacks(
   });
   if (rows.length === 0) {
     await interaction.editReply({
-      content: `${ATTACKS_NO_DATA_MESSAGE}\n${formatAttacksLimitationsText(season)}\n${formatAttacksCoverageText(
-        coverage,
-      )}`,
+      content: `${ATTACKS_NO_DATA_MESSAGE}\n${formatAttacksDiagnosticsText(
+        diagnostics,
+      )}\n${formatAttacksLimitationsText(season)}\n${formatAttacksCoverageText(coverage)}`,
     });
     return;
   }
 
   await interaction.editReply({
     ...(resolution.note ? { content: resolution.note } : {}),
-    embeds: [buildAttacksEmbed(clashClan, rows, { coverage, season })],
+    embeds: [buildAttacksEmbed(clashClan, rows, { coverage, diagnostics, season })],
   });
 }
 
@@ -357,6 +367,7 @@ export function buildAttacksEmbed(
   rows: readonly AttackWinsRow[],
   options: {
     readonly coverage?: AttacksScanCoverage | null;
+    readonly diagnostics?: AttacksDiagnostics | null;
     readonly season?: string | null;
   } = {},
 ): EmbedBuilder {
@@ -373,6 +384,12 @@ export function buildAttacksEmbed(
     .setTimestamp();
 
   const seasonContext = options.season ? formatAttacksSeasonContext(options.season) : null;
+  if (options.diagnostics) {
+    embed.addFields({
+      name: 'Selection',
+      value: formatAttacksDiagnosticsText(options.diagnostics),
+    });
+  }
   if (seasonContext) embed.addFields({ name: 'Season', value: seasonContext, inline: true });
   if (options.coverage) {
     embed.addFields({ name: 'Scan Coverage', value: formatAttacksCoverageText(options.coverage) });
@@ -381,6 +398,14 @@ export function buildAttacksEmbed(
 
   if (badgeUrl) embed.setThumbnail(badgeUrl);
   return embed;
+}
+
+export interface AttacksDiagnostics {
+  readonly linkedClanCount: number;
+  readonly selectedClan: AttacksLinkedClan;
+  readonly clanFilter: string | null;
+  readonly userFilterApplied: boolean;
+  readonly resolutionNote: string | null;
 }
 
 export function createAttacksScanCoverage(input: {
@@ -424,6 +449,36 @@ export function formatAttacksLimitationsText(season: string | null | undefined):
   return season
     ? `${ATTACKS_SOURCE_HELP_TEXT}\nRequested season: ${formatAttacksSeasonLabel(season)}.`
     : ATTACKS_SOURCE_HELP_TEXT;
+}
+
+export function createAttacksDiagnostics(input: {
+  readonly clans: readonly AttacksLinkedClan[];
+  readonly clan: AttacksLinkedClan;
+  readonly clanFilter: string | null;
+  readonly userFilterApplied: boolean;
+  readonly resolutionNote: string | null;
+}): AttacksDiagnostics {
+  return {
+    linkedClanCount: input.clans.length,
+    selectedClan: input.clan,
+    clanFilter: input.clanFilter?.trim() || null,
+    userFilterApplied: input.userFilterApplied,
+    resolutionNote: input.resolutionNote,
+  };
+}
+
+export function formatAttacksDiagnosticsText(diagnostics: AttacksDiagnostics): string {
+  const filterSource = diagnostics.clanFilter
+    ? `clan filter resolved from \`${escapeInlineCode(diagnostics.clanFilter)}\``
+    : diagnostics.userFilterApplied
+      ? 'user filter checked linked players against linked clans'
+      : 'no filter supplied; using the first linked clan';
+  return [
+    `Linked clans in this server: ${diagnostics.linkedClanCount}`,
+    `Selected clan: ${formatAttacksClanLabel(diagnostics.selectedClan)}`,
+    `Resolution: ${filterSource}`,
+    ...(diagnostics.resolutionNote ? [`Note: ${diagnostics.resolutionNote}`] : []),
+  ].join('\n');
 }
 
 export function formatAttacksSeasonLabel(season: string): string {
@@ -503,6 +558,10 @@ function formatAttacksClanLabel(clan: AttacksLinkedClan): string {
   const alias = clan.alias?.trim();
   const context = alias ? `, alias ${alias}` : '';
   return name ? `${name} (${clan.clanTag}${context})` : `${clan.clanTag}${context}`;
+}
+
+function escapeInlineCode(value: string): string {
+  return value.replace(/`/g, '\\`').slice(0, 80);
 }
 
 function isCurrentAttacksSeason(season: string): boolean {
