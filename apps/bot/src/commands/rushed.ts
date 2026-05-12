@@ -25,12 +25,13 @@ export const RUSHED_COMMAND_DESCRIPTION = 'Show likely rushed or incomplete play
 const EMBED_FIELD_VALUE_LIMIT = 1024;
 const EMBED_MAX_FIELDS = 25;
 const EMBED_DESCRIPTION_LIMIT = 4096;
-const RUSHED_CLAN_LOOKUP_LIMIT = 15;
 const RUSHED_CLAN_ROW_LIMIT = 10;
 const RUSHED_HEURISTIC_NOTE =
   'Heuristic note: ClashMate currently compares public API unit levels to API maxLevel values. This is a conservative incomplete-units view, not the legacy previous-town-hall rushed table yet.';
 const RUSHED_NO_DATA_GUIDANCE =
   'If this looks empty or outdated, make sure the player is public, the clan is linked in this server, and the clan/player pollers have had time to refresh stored member snapshots.';
+const RUSHED_PERSISTED_ONLY_GUIDANCE =
+  'Clan mode is persisted-only: it uses stored linked-clan member snapshots and does not call live Clash, enroll polling, or persist rushed history.';
 
 export const rushedCommandData = new SlashCommandBuilder()
   .setName(RUSHED_COMMAND_NAME)
@@ -245,8 +246,11 @@ async function executeRushedClanMode(
   const clan = resolveRushedClan(clans, clanOption);
   if (!clan) {
     await interaction.editReply({
-      content:
+      content: [
         "No linked clan was found for that clan option. Choose one of this server's linked clans from autocomplete, or link the clan before using clan mode.",
+        `Filter resolution: ${formatRushedClanFilterResolution(clans, clanOption, undefined)}`,
+        RUSHED_PERSISTED_ONLY_GUIDANCE,
+      ].join('\n'),
     });
     return;
   }
@@ -257,39 +261,21 @@ async function executeRushedClanMode(
   });
   if (!snapshots || snapshots.members.length === 0) {
     await interaction.editReply({
-      content: formatRushedNoSnapshotMessage(clan, snapshots),
-    });
-    return;
-  }
-
-  const players: ClashPlayer[] = [];
-  let failedLookups = 0;
-  for (const member of snapshots.members.slice(0, RUSHED_CLAN_LOOKUP_LIMIT)) {
-    try {
-      players.push(await options.coc.getPlayer(member.playerTag));
-    } catch {
-      failedLookups += 1;
-      // Keep clan mode best-effort and avoid failing the whole summary for one member lookup.
-    }
-  }
-
-  if (players.length === 0) {
-    await interaction.editReply({
-      content: `No analyzable live player data could be fetched for the selected clan snapshot (${clan.clanTag}). Analyzed 0/${Math.min(snapshots.members.length, RUSHED_CLAN_LOOKUP_LIMIT)} current members; skipped ${countSkippedRushedMembers(snapshots.members.length)} over the live lookup cap; failed ${failedLookups}. Latest snapshot: ${formatLatestRushedSnapshotLabel(snapshots.members)}. ${RUSHED_NO_DATA_GUIDANCE}`,
+      content: formatRushedNoSnapshotMessage(clan, snapshots, clans.length, clanOption),
     });
     return;
   }
 
   await interaction.editReply({
-    embeds: [buildRushedClanEmbed(clan, snapshots.members, players, failedLookups)],
+    embeds: [buildRushedClanEmbed(clan, snapshots.members, clans.length, clanOption)],
   });
 }
 
 export function buildRushedClanEmbed(
   clan: RushedLinkedClan,
   snapshotMembersOrCount: readonly RushedSnapshotRow[] | number,
-  players: readonly ClashPlayer[],
-  failedLookups = 0,
+  linkedClanCount = 1,
+  clanFilter = clan.alias ?? clan.clanTag,
 ): EmbedBuilder {
   const snapshotMemberCount =
     typeof snapshotMembersOrCount === 'number'
@@ -299,65 +285,65 @@ export function buildRushedClanEmbed(
     typeof snapshotMembersOrCount === 'number'
       ? 'unavailable'
       : formatLatestRushedSnapshotLabel(snapshotMembersOrCount);
-  const analyzedCap = Math.min(snapshotMemberCount, RUSHED_CLAN_LOOKUP_LIMIT);
-  const skippedLookups = countSkippedRushedMembers(snapshotMemberCount);
-  const rows = players
-    .map((player) => ({ player, summary: summarizeRushedGroups(collectRushedUnits(player)) }))
-    .filter((row) => row.summary.totalUnits > 0)
-    .sort(
-      (left, right) =>
-        right.summary.incompleteLevels - left.summary.incompleteLevels ||
-        right.summary.incompleteUnits - left.summary.incompleteUnits ||
-        left.player.name.localeCompare(right.player.name),
-    );
+  const members = typeof snapshotMembersOrCount === 'number' ? [] : snapshotMembersOrCount;
   const clanName = clan.alias ?? clan.name ?? 'Linked Clan';
-  const rowsShown = Math.min(rows.length, RUSHED_CLAN_ROW_LIMIT);
-  const coverageLine = `Snapshot coverage: ${snapshotMemberCount.toLocaleString('en-US')} stored members; considered ${players.length.toLocaleString('en-US')}/${analyzedCap.toLocaleString('en-US')} live lookups; rows shown ${rowsShown.toLocaleString('en-US')}/${rows.length.toLocaleString('en-US')}.`;
-  const lookupLimitLine =
-    snapshotMemberCount > RUSHED_CLAN_LOOKUP_LIMIT
-      ? `Lookup limit: only the first ${RUSHED_CLAN_LOOKUP_LIMIT.toLocaleString('en-US')} snapshot members are checked per run; ${skippedLookups.toLocaleString('en-US')} were not looked up.`
-      : 'Lookup limit: all stored snapshot members were eligible for this run.';
+  const rows = members.slice(0, RUSHED_CLAN_ROW_LIMIT);
+  const rowsShown = Math.min(snapshotMemberCount, RUSHED_CLAN_ROW_LIMIT);
+  const coverageLine = `Snapshot coverage: ${snapshotMemberCount.toLocaleString('en-US')} stored members; rows shown ${rowsShown.toLocaleString('en-US')}/${snapshotMemberCount.toLocaleString('en-US')}; linked clans in server ${linkedClanCount.toLocaleString('en-US')}.`;
+  const heuristicLine =
+    'Town Hall/rushed heuristic coverage: unavailable from member snapshots; player unit levels require player records, so clan mode reports snapshot context only.';
+  const persistedLine = `Source: persisted linked-clan member snapshots only; live Clash lookups 0; polling enrollments 0; latest snapshot ${latestSnapshotLabel}.`;
   return new EmbedBuilder()
     .setTitle(`Rushed Clan Summary: ${escapeMarkdown(clanName)} (${clan.clanTag})`)
     .setDescription(
-      rows.length
+      snapshotMemberCount > 0
         ? [
+            `Filter resolution: ${formatRushedClanFilterResolution([], clanFilter, clan)}`,
             coverageLine,
-            lookupLimitLine,
-            ...rows
-              .slice(0, RUSHED_CLAN_ROW_LIMIT)
-              .map((row, index) => formatRushedClanRow(row, index)),
+            heuristicLine,
+            persistedLine,
+            ...rows.map((member, index) => formatPersistedRushedClanRow(member, index)),
           ].join('\n')
-        : `No incomplete units found in fetched member data. ${coverageLine} ${lookupLimitLine} Failed lookups: ${failedLookups.toLocaleString('en-US')}. ${RUSHED_NO_DATA_GUIDANCE}`,
+        : `No stored member rows found. ${coverageLine} ${heuristicLine} ${persistedLine} ${RUSHED_NO_DATA_GUIDANCE}`,
     )
     .setFooter({
-      text: `Source: clan snapshot + current live player lookups; analyzed ${players.length}/${analyzedCap}; skipped ${skippedLookups}; failed ${failedLookups}; stored members ${snapshotMemberCount}; latest snapshot ${latestSnapshotLabel}. No polling enrollment or persisted rushed history.`,
+      text: `Persisted-only diagnostics; stored rows ${snapshotMemberCount}; shown ${rowsShown}; linked clans ${linkedClanCount}; latest snapshot ${latestSnapshotLabel}.`,
     });
 }
 
-function formatRushedClanRow(
-  row: { readonly player: ClashPlayer; readonly summary: RushedSummary },
-  index: number,
-): string {
-  const percent = calculateIncompletePercent(row.summary);
-  return `${index + 1}. **${escapeMarkdown(row.player.name)}** (${row.player.tag}) · ${row.summary.incompleteUnits}/${row.summary.totalUnits} incomplete · ${percent}% short`;
+function formatPersistedRushedClanRow(member: RushedSnapshotRow, index: number): string {
+  const freshness = member.lastFetchedAt ? ` · ${time(member.lastFetchedAt, 'R')}` : '';
+  return `${index + 1}. **${escapeMarkdown(member.name)}** (${member.playerTag})${freshness}`;
 }
 
 function formatRushedNoSnapshotMessage(
   clan: RushedLinkedClan,
   snapshots: RushedClanSnapshots | undefined,
+  linkedClanCount: number,
+  clanFilter: string,
 ): string {
   const storedMembers = snapshots?.members.length ?? 0;
   return [
     `No current member snapshot is available for the selected linked clan (${clan.clanTag}).`,
-    `Source: clan snapshot; analyzed 0 current members; skipped 0; failed 0; stored members ${storedMembers}; latest snapshot ${formatLatestRushedSnapshotLabel(snapshots?.members ?? [])}.`,
-    "Clan mode uses this server's linked-clan member snapshot plus current live player lookups, not a free-form clan search.",
+    `Filter resolution: ${formatRushedClanFilterResolution([], clanFilter, clan)}`,
+    `Linked clans in server: ${linkedClanCount.toLocaleString('en-US')}; stored rows: ${storedMembers.toLocaleString('en-US')}; rows shown: 0; latest snapshot ${formatLatestRushedSnapshotLabel(snapshots?.members ?? [])}.`,
+    'Town Hall/rushed heuristic coverage: unavailable because no persisted member rows are available.',
+    RUSHED_PERSISTED_ONLY_GUIDANCE,
     'Action: verify the clan is linked in this server, keep the worker running, and wait for clan polling to observe members. Search-only lookups do not enroll polling, and /rushed does not persist history.',
   ].join('\n');
 }
 
-function countSkippedRushedMembers(snapshotMemberCount: number): number {
-  return Math.max(0, snapshotMemberCount - RUSHED_CLAN_LOOKUP_LIMIT);
+function formatRushedClanFilterResolution(
+  clans: readonly RushedLinkedClan[],
+  clanFilter: string,
+  clan: RushedLinkedClan | undefined,
+): string {
+  const linkedCount = clans.length
+    ? ` across ${clans.length.toLocaleString('en-US')} linked clans`
+    : '';
+  if (!clan) return `"${clanFilter}" matched 0 clans${linkedCount}.`;
+  const label = clan.alias ?? clan.name ?? clan.clanTag;
+  return `"${clanFilter}" resolved to ${label} (${clan.clanTag}).`;
 }
 
 function formatLatestRushedSnapshotLabel(members: readonly RushedSnapshotRow[]): string {
