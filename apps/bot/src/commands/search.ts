@@ -74,16 +74,18 @@ export async function executeSearch(
   }
 
   if (result.items.length === 0) {
-    await interaction.editReply({ content: buildSearchNoResultsMessage(name) });
+    await interaction.editReply({ content: buildSearchNoResultsMessage(name, result) });
     return;
   }
 
-  await interaction.editReply({ embeds: [buildSearchEmbed(name, result.items)] });
+  await interaction.editReply({ embeds: [buildSearchEmbed(name, result)] });
 }
 
-export function buildSearchEmbed(name: string, clans: readonly ClashClan[]): EmbedBuilder {
+export function buildSearchEmbed(name: string, result: ClashClanSearchResult): EmbedBuilder {
+  const clans = result.items;
   const shownCount = Math.min(clans.length, SEARCH_RESULT_LIMIT);
   const queryDiagnostics = buildSearchQueryDiagnostics(name);
+  const responseDiagnostics = buildSearchResponseDiagnostics(result);
   const topResult = clans[0] ? formatTopResultCoverage(clans[0], shownCount, clans.length) : null;
 
   return new EmbedBuilder()
@@ -97,7 +99,9 @@ export function buildSearchEmbed(name: string, clans: readonly ClashClan[]): Emb
     .addFields(
       {
         name: 'Query diagnostics',
-        value: queryDiagnostics,
+        value: [queryDiagnostics, responseDiagnostics]
+          .filter((value) => value.length > 0)
+          .join(' '),
         inline: false,
       },
       {
@@ -128,16 +132,18 @@ export function buildSearchEmbed(name: string, clans: readonly ClashClan[]): Emb
     });
 }
 
-export function buildSearchNoResultsMessage(name: string): string {
+export function buildSearchNoResultsMessage(name: string, result?: ClashClanSearchResult): string {
   const query = name.trim();
   const queryText = query ? ` for \`${escapeInlineCode(query)}\`` : '';
   const diagnostics = query
     ? `Normalized query: \`${escapeInlineCode(query)}\` (trimmed only).`
     : '';
+  const responseDiagnostics = result ? buildSearchResponseDiagnostics(result) : '';
 
   return [
-    `No clans found from the live Clash API${queryText}.`,
+    `No clans found from the public Clash API${queryText}.`,
     diagnostics,
+    responseDiagnostics,
     `Returned 0 of up to ${SEARCH_API_LIMIT}; visible results 0/${SEARCH_RESULT_LIMIT}.`,
     '`/search` accepts only the `name` filter; no linked-clan, location, trophy, label, or language filters are applied. Try a more specific clan name, alternate spelling, or fewer words.',
     'This one-off lookup does not link clans or enroll polling.',
@@ -169,6 +175,20 @@ function buildSearchQueryDiagnostics(name: string): string {
     `Normalized: \`${escapeInlineCode(normalized)}\` (trimmed only; case and punctuation preserved).`,
     `Terms: ${tokenCount}.`,
   ].join(' ');
+}
+
+function buildSearchResponseDiagnostics(result: ClashClanSearchResult): string {
+  const data = readRecord(result.data);
+  if (!data) return '';
+
+  const paging = readRecord(readValue(data, 'paging'));
+  const cursors = paging ? readRecord(readValue(paging, 'cursors')) : null;
+  const after = cursors ? readString(readValue(cursors, 'after')) : null;
+  const before = cursors ? readString(readValue(cursors, 'before')) : null;
+  const cursorText =
+    after || before ? 'additional page cursor present' : 'no additional page cursor';
+
+  return `API source: public clan search endpoint; requested limit ${SEARCH_API_LIMIT}; ${cursorText}.`;
 }
 
 function formatTopResultCoverage(
