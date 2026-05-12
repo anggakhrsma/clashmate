@@ -277,13 +277,16 @@ async function resolveAttacksClanForUser(input: {
   readonly userId: string | null;
 }): Promise<{ readonly clan: AttacksLinkedClan | undefined; readonly note: string | null }> {
   const fallbackClan = input.clans[0];
+  if (!fallbackClan) return { clan: undefined, note: null };
   if (!input.userId) return { clan: fallbackClan, note: null };
 
   const linkedPlayerTags = await input.store.listPlayerTagsForUser(input.guildId, input.userId);
   if (linkedPlayerTags.length === 0) {
     return {
       clan: fallbackClan,
-      note: 'That Discord user has no linked players in this server, so I used the first linked clan.',
+      note: `That Discord user has no linked players in this server, so I used the first linked clan: ${formatAttacksClanLabel(
+        fallbackClan,
+      )}.`,
     };
   }
 
@@ -302,7 +305,9 @@ async function resolveAttacksClanForUser(input: {
 
   return {
     clan: fallbackClan,
-    note: "I couldn't find that user's linked players in any linked clan, so I used the first linked clan.",
+    note: `I couldn't find that user's linked players in any linked clan, so I used the first linked clan: ${formatAttacksClanLabel(
+      fallbackClan,
+    )}.`,
   };
 }
 
@@ -396,11 +401,20 @@ export function createAttacksScanCoverage(input: {
 
 export function formatAttacksCoverageText(coverage: AttacksScanCoverage): string {
   const analyzedPercent = formatAnalyzedPercentage(coverage);
+  const attemptedPercent = formatCoveragePercentage(
+    coverage.playerLookupsAttempted,
+    coverage.clanMembersDiscovered,
+  );
+  const failedPercent = formatCoveragePercentage(
+    coverage.failedLookups,
+    coverage.playerLookupsAttempted,
+  );
   const notes = formatAttacksCoverageNotes(coverage);
   return [
     `Clan members discovered: ${coverage.clanMembersDiscovered}`,
+    `Player lookups attempted: ${coverage.playerLookupsAttempted}/${coverage.clanMembersDiscovered} (${attemptedPercent})`,
     `Analyzed: ${coverage.playerLookupsAnalyzed}/${coverage.clanMembersDiscovered} (${analyzedPercent})`,
-    `Lookup results: ${coverage.playerLookupsAttempted} attempted, ${coverage.failedLookups} failed`,
+    `Lookup failures: ${coverage.failedLookups}/${coverage.playerLookupsAttempted} (${failedPercent})`,
     `Rows with attack/defense data: ${coverage.rowsWithData}`,
     ...(notes.length > 0 ? [`Notes: ${notes.join('; ')}`] : []),
   ].join('\n');
@@ -460,18 +474,19 @@ function formatAttacksTable(rows: readonly AttackWinsRow[]): string {
 }
 
 function formatAnalyzedPercentage(coverage: AttacksScanCoverage): string {
-  if (coverage.clanMembersDiscovered === 0) return '0%';
-  const percentage = Math.round(
-    (coverage.playerLookupsAnalyzed / coverage.clanMembersDiscovered) * 100,
-  );
-  return `${percentage}%`;
+  return formatCoveragePercentage(coverage.playerLookupsAnalyzed, coverage.clanMembersDiscovered);
+}
+
+function formatCoveragePercentage(numerator: number, denominator: number): string {
+  if (denominator === 0) return '0%';
+  return `${Math.round((numerator / denominator) * 100)}%`;
 }
 
 function formatAttacksCoverageNotes(coverage: AttacksScanCoverage): string[] {
   const notes: string[] = [];
   if (coverage.skippedDueToMaxPlayerFetches > 0) {
     notes.push(
-      `${coverage.skippedDueToMaxPlayerFetches} not scanned after ${MAX_PLAYER_FETCHES} member cap`,
+      `${coverage.skippedDueToMaxPlayerFetches} not scanned after the ${MAX_PLAYER_FETCHES}-member cap; choose a smaller linked clan or retry later when the public member list changes`,
     );
   }
   if (coverage.failedLookups > 0) {
@@ -481,6 +496,13 @@ function formatAttacksCoverageNotes(coverage: AttacksScanCoverage): string[] {
     notes.push('partial result');
   }
   return notes;
+}
+
+function formatAttacksClanLabel(clan: AttacksLinkedClan): string {
+  const name = clan.name?.trim();
+  const alias = clan.alias?.trim();
+  const context = alias ? `, alias ${alias}` : '';
+  return name ? `${name} (${clan.clanTag}${context})` : `${clan.clanTag}${context}`;
 }
 
 function isCurrentAttacksSeason(season: string): boolean {
