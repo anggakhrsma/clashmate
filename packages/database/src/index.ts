@@ -49,6 +49,17 @@ export interface DatabaseCommandUsageRecorder {
   recordCommandUsage: (input: RecordCommandUsageInput) => Promise<void>;
 }
 
+export interface RecordGuildGrowthInput {
+  guildId: string;
+  guildName?: string | null;
+  usedAt?: Date;
+}
+
+export interface DatabaseBotGrowthRecorder {
+  recordGuildAddition: (input: RecordGuildGrowthInput) => Promise<void>;
+  recordGuildDeletion: (input: RecordGuildGrowthInput) => Promise<void>;
+}
+
 export interface NormalizedCommandUsageIncrement {
   commandName: string;
   guildId: string;
@@ -4298,6 +4309,95 @@ export function createDatabaseCommandUsageRecorder(
   };
 }
 
+export function createDatabaseBotGrowthRecorder(database: Database): DatabaseBotGrowthRecorder {
+  return {
+    recordGuildAddition: async (input) => {
+      const increment = normalizeGuildGrowthIncrement(input);
+
+      await database.transaction(async (tx) => {
+        const [existingGuild] = await tx
+          .select({ id: schema.guilds.id })
+          .from(schema.guilds)
+          .where(eq(schema.guilds.id, increment.guildId))
+          .limit(1);
+
+        await tx
+          .insert(schema.botGrowthDaily)
+          .values({
+            usageDate: increment.usageDate,
+            guildAdditions: 1,
+            guildDeletions: 0,
+            guildRetention: existingGuild ? 1 : 0,
+            createdAt: increment.usedAt,
+            updatedAt: increment.usedAt,
+          })
+          .onConflictDoUpdate({
+            target: schema.botGrowthDaily.usageDate,
+            set: {
+              guildAdditions: sql`${schema.botGrowthDaily.guildAdditions} + 1`,
+              guildRetention: sql`${schema.botGrowthDaily.guildRetention} + ${
+                existingGuild ? 1 : 0
+              }`,
+              updatedAt: increment.usedAt,
+            },
+          });
+
+        await tx
+          .insert(schema.guilds)
+          .values({
+            id: increment.guildId,
+            name: increment.guildName,
+            updatedAt: increment.usedAt,
+          })
+          .onConflictDoUpdate({
+            target: schema.guilds.id,
+            set: {
+              name: increment.guildName,
+              updatedAt: increment.usedAt,
+            },
+          });
+      });
+    },
+    recordGuildDeletion: async (input) => {
+      const increment = normalizeGuildGrowthIncrement(input);
+
+      await database.transaction(async (tx) => {
+        await tx
+          .insert(schema.botGrowthDaily)
+          .values({
+            usageDate: increment.usageDate,
+            guildAdditions: 0,
+            guildDeletions: 1,
+            guildRetention: 0,
+            createdAt: increment.usedAt,
+            updatedAt: increment.usedAt,
+          })
+          .onConflictDoUpdate({
+            target: schema.botGrowthDaily.usageDate,
+            set: {
+              guildDeletions: sql`${schema.botGrowthDaily.guildDeletions} + 1`,
+              updatedAt: increment.usedAt,
+            },
+          });
+
+        await tx
+          .insert(schema.guilds)
+          .values({
+            id: increment.guildId,
+            name: increment.guildName,
+            updatedAt: increment.usedAt,
+          })
+          .onConflictDoUpdate({
+            target: schema.guilds.id,
+            set: {
+              updatedAt: increment.usedAt,
+            },
+          });
+      });
+    },
+  };
+}
+
 export function normalizeCommandUsageIncrement(
   input: RecordCommandUsageInput,
 ): NormalizedCommandUsageIncrement {
@@ -4315,6 +4415,35 @@ export function normalizeCommandUsageIncrement(
     usageDate: usedAt.toISOString().slice(0, 10),
     usedAt,
   };
+}
+
+function normalizeGuildGrowthIncrement(input: RecordGuildGrowthInput): {
+  guildId: string;
+  guildName: string | null;
+  usageDate: string;
+  usedAt: Date;
+} {
+  const guildId = input.guildId.trim();
+
+  if (!guildId) {
+    throw new Error('Guild growth recording requires a guild id');
+  }
+
+  const usedAt = input.usedAt ?? new Date();
+  const guildName = normalizeOptionalNonBlankString(input.guildName);
+
+  return {
+    guildId,
+    guildName,
+    usageDate: usedAt.toISOString().slice(0, 10),
+    usedAt,
+  };
+}
+
+function normalizeOptionalNonBlankString(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
 }
 
 export function createDatabaseDebugReader(database: Database): DatabaseDebugReader {

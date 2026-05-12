@@ -7,6 +7,7 @@ import {
   createClanMemberSnapshotReader,
   createDatabase,
   createDatabaseAutoroleSettingsStore,
+  createDatabaseBotGrowthRecorder,
   createDatabaseCallerBaseStore,
   createDatabaseClanMemberNotificationConfigStore,
   createDatabaseCommandUsageRecorder,
@@ -52,6 +53,7 @@ const config = loadConfig();
 const logger = createLogger('bot', config.LOG_LEVEL);
 const startupStartedAt = Date.now();
 const database = createDatabase(config.DATABASE_URL);
+const botGrowthRecorder = createDatabaseBotGrowthRecorder(database);
 const commandUsageRecorder = createDatabaseCommandUsageRecorder(database);
 const commandWhitelistStore = createDatabaseCommandWhitelistStore(database);
 const databaseAutoroleSettingsStore = createDatabaseAutoroleSettingsStore(database);
@@ -475,6 +477,46 @@ client.once('ready', async (readyClient) => {
         commandRegistrationMode: config.COMMAND_REGISTRATION,
       },
       'Failed to register slash commands',
+    );
+  }
+});
+
+client.on('guildCreate', async (guild) => {
+  if (isOwner(guild.ownerId, config.DISCORD_OWNER_IDS)) return;
+
+  try {
+    await botGrowthRecorder.recordGuildAddition({
+      guildId: guild.id,
+      guildName: guild.name,
+    });
+    logger.info(
+      { guildId: guild.id, guildName: guild.name, ownerId: guild.ownerId },
+      'Recorded guild addition growth metric',
+    );
+  } catch (error) {
+    logger.warn(
+      { error, guildId: guild.id, guildName: guild.name, ownerId: guild.ownerId },
+      'Failed to record guild addition growth metric',
+    );
+  }
+});
+
+client.on('guildDelete', async (guild) => {
+  if (isOwner(guild.ownerId, config.DISCORD_OWNER_IDS)) return;
+
+  try {
+    await botGrowthRecorder.recordGuildDeletion({
+      guildId: guild.id,
+      guildName: guild.name,
+    });
+    logger.info(
+      { guildId: guild.id, guildName: guild.name, ownerId: guild.ownerId },
+      'Recorded guild deletion growth metric',
+    );
+  } catch (error) {
+    logger.warn(
+      { error, guildId: guild.id, guildName: guild.name, ownerId: guild.ownerId },
+      'Failed to record guild deletion growth metric',
     );
   }
 });
