@@ -395,16 +395,21 @@ function normalizePlayerEmbedContext(
 }
 
 function formatPlayerSourceContext(context: PlayerEmbedContext): string {
-  const source =
+  const targetLabel = context.targetUser
+    ? ` for **${escapeMarkdown(context.targetUser.displayName)}**`
+    : '';
+  const resolution =
     context.source === 'explicit_tag'
-      ? 'Source: explicit `tag` option.'
-      : `Source: stored Discord user link${context.targetUser ? ` for **${context.targetUser.displayName}**` : ''}.`;
-  const lookup = 'Lookup: live Clash API request; this one-off command does not enroll polling.';
-  const owner = context.linkedDiscordUserId
-    ? `Owner link: <@${context.linkedDiscordUserId}> is linked to this player in ClashMate.`
-    : 'Owner link: none found in this server. Use `/link create` to connect a Discord user.';
+      ? 'Resolution: explicit `tag` option normalized to the fetched player tag.'
+      : `Resolution: stored Discord user link${targetLabel} selected the fetched player tag.`;
+  const source = 'API source: live public Clash API player profile response.';
+  const scope = context.linkedDiscordUserId
+    ? `Linked scope: fetched tag has a stored ClashMate owner link to <@${context.linkedDiscordUserId}>.`
+    : 'Linked scope: no stored ClashMate owner link was returned for the fetched tag.';
+  const persistence =
+    'Persistence: this lookup does not write snapshots, links, or polling leases.';
 
-  return `${source}\n${lookup}\n${owner}`;
+  return [resolution, source, scope, persistence].join('\n');
 }
 
 function formatPlayerDiagnostics(data: PlayerDataView): string {
@@ -414,11 +419,13 @@ function formatPlayerDiagnostics(data: PlayerDataView): string {
   const league = data.leagueName
     ? `League: ${escapeMarkdown(data.leagueName)} with ${formatNumber(data.trophies)} trophies.`
     : `League: unavailable with ${formatNumber(data.trophies)} trophies.`;
-  const halls = `Coverage: TH ${formatTownHall(data.townHallLevel, data.townHallWeaponLevel)} / BH ${formatNumber(data.builderHallLevel)}.`;
+  const profileCoverage = `Profile coverage: TH ${formatTownHall(data.townHallLevel, data.townHallWeaponLevel)}, BH ${formatNumber(data.builderHallLevel)}, XP ${formatNumber(data.expLevel)}, heroes ${data.heroes.length ? data.heroes.length.toLocaleString('en-US') : 'none returned'}.`;
+  const activityCoverage = `Returned stats: donations ${formatNumber(data.donations)}/${formatNumber(data.donationsReceived)}, attacks ${formatNumber(data.attackWins)}, defenses ${formatNumber(data.defenseWins)}, war stars ${formatNumber(data.warStars)}.`;
   const builder = `Builder Base: ${formatNumber(data.builderBaseTrophies)} current / ${formatNumber(data.bestBuilderBaseTrophies)} best trophies.`;
-  const limitation = 'Live lookup only: no historical snapshots or polling enrollment are changed.';
+  const limitation =
+    'Guidance: live one-off lookup only; link state, snapshots, and polling enrollment are unchanged.';
 
-  return [clan, league, halls, builder, limitation].join('\n');
+  return [clan, league, profileCoverage, activityCoverage, builder, limitation].join('\n');
 }
 
 interface PlayerDataView {
