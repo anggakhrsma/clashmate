@@ -73,19 +73,20 @@ export async function executeClan(
 
 export function buildClanEmbed(clan: ClashClan): EmbedBuilder {
   const data = readClanData(clan);
+  const normalizedTag = normalizeClanTagForDisplay(clan.tag);
   const embed = new EmbedBuilder()
-    .setTitle(`${escapeMarkdown(clan.name)} (${clan.tag})`)
-    .setURL(getClanUrl(clan.tag));
+    .setTitle(`${escapeMarkdown(clan.name)} (${normalizedTag})`)
+    .setURL(getClanUrl(normalizedTag));
 
   if (data.badgeUrl) embed.setThumbnail(data.badgeUrl);
 
   embed.setDescription(
     [
+      `Tag **${escapeMarkdown(normalizedTag)}**`,
       `Level **${formatNumber(data.clanLevel)}**`,
-      `Members **${formatNumber(data.members)}**`,
+      `Members **${formatMembers(data.members)}**`,
       `Type **${formatClanType(data.type)}**`,
-      `Trophies **${formatNumber(data.clanPoints)}**`,
-      `Builder Trophies **${formatNumber(data.clanBuilderBasePoints)}**`,
+      `Location **${escapeMarkdown(formatText(data.locationName))}**`,
       data.description ? `\n${escapeMarkdown(data.description)}` : null,
     ]
       .filter((line): line is string => Boolean(line))
@@ -94,9 +95,18 @@ export function buildClanEmbed(clan: ClashClan): EmbedBuilder {
 
   embed.addFields(
     {
+      name: '**Trophies**',
+      value: [
+        `**Home Village**\n${formatNumber(data.clanPoints)}`,
+        `**Builder Base**\n${formatNumber(data.clanBuilderBasePoints)}`,
+      ].join('\n'),
+      inline: true,
+    },
+    {
       name: '**War**',
       value: [
         `**Wins**\n${formatNumber(data.warWins)}`,
+        `**Losses/Ties**\n${formatWarRecordRemainder(data.warLosses, data.warTies)}`,
         `**Win Streak**\n${formatNumber(data.warWinStreak)}`,
         `**War League**\n${formatText(data.warLeagueName)}`,
       ].join('\n'),
@@ -111,18 +121,27 @@ export function buildClanEmbed(clan: ClashClan): EmbedBuilder {
       inline: true,
     },
     {
-      name: '**Location**',
-      value: formatText(data.locationName),
-      inline: true,
+      name: '**Coverage**',
+      value: [
+        `Level/member stats: ${formatCoverage(data.clanLevel, data.members)}`,
+        `League stats: ${formatCoverage(data.warLeagueName, data.capitalLeagueName)}`,
+        `War stats: ${formatCoverage(data.warWins, data.warWinStreak)}`,
+        `Capital/trophy stats: ${formatCoverage(
+          data.capitalHallLevel,
+          data.clanPoints,
+          data.clanBuilderBasePoints,
+        )}`,
+      ].join('\n'),
     },
     {
       name: '**Lookup Source**',
-      value:
-        'Live Clash API profile lookup. This one-off search does not link the clan or enroll it in ClashMate polling.',
+      value: `Live Clash API clan profile for normalized tag ${escapeMarkdown(
+        normalizedTag,
+      )}. This one-off lookup does not link the clan, create history, or enroll it in ClashMate polling.`,
     },
   );
 
-  embed.setFooter({ text: `Open the public in-game profile: ${getClanUrl(clan.tag)}` });
+  embed.setFooter({ text: `Open the public in-game profile: ${getClanUrl(normalizedTag)}` });
 
   return embed;
 }
@@ -134,6 +153,8 @@ interface ClanDataView {
   readonly clanPoints: number | null;
   readonly clanBuilderBasePoints: number | null;
   readonly warWins: number | null;
+  readonly warLosses: number | null;
+  readonly warTies: number | null;
   readonly warWinStreak: number | null;
   readonly warLeagueName: string | null;
   readonly capitalLeagueName: string | null;
@@ -158,6 +179,8 @@ function readClanData(clan: ClashClan): ClanDataView {
     clanPoints: readNumber(readValue(data, 'clanPoints')),
     clanBuilderBasePoints: readNumber(readValue(data, 'clanBuilderBasePoints')),
     warWins: readNumber(readValue(data, 'warWins')),
+    warLosses: readNumber(readValue(data, 'warLosses')),
+    warTies: readNumber(readValue(data, 'warTies')),
     warWinStreak: readNumber(readValue(data, 'warWinStreak')),
     warLeagueName: readString(warLeague ? readValue(warLeague, 'name') : undefined),
     capitalLeagueName: readString(capitalLeague ? readValue(capitalLeague, 'name') : undefined),
@@ -170,6 +193,14 @@ function readClanData(clan: ClashClan): ClanDataView {
       readString(badgeUrls ? readValue(badgeUrls, 'medium') : undefined) ??
       readString(badgeUrls ? readValue(badgeUrls, 'small') : undefined),
   };
+}
+
+function normalizeClanTagForDisplay(tag: string): string {
+  try {
+    return normalizeClashTag(tag);
+  } catch {
+    return tag;
+  }
 }
 
 function formatClanType(type: string | null): string {
@@ -187,6 +218,19 @@ function formatClanType(type: string | null): string {
 
 function formatNumber(value: number | null): string {
   return value === null ? 'Unknown' : value.toLocaleString('en-US');
+}
+
+function formatMembers(value: number | null): string {
+  return value === null ? 'Unknown' : `${value.toLocaleString('en-US')}/50`;
+}
+
+function formatWarRecordRemainder(losses: number | null, ties: number | null): string {
+  if (losses === null && ties === null) return 'Unknown';
+  return `${formatNumber(losses)} / ${formatNumber(ties)}`;
+}
+
+function formatCoverage(...values: readonly unknown[]): string {
+  return values.every((value) => value !== null && value !== undefined) ? 'available' : 'partial';
 }
 
 function formatText(value: string | null): string {
