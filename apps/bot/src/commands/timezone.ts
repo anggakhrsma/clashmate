@@ -17,7 +17,7 @@ export const TIMEZONE_FIRST_PASS_NOTE =
 const INVALID_TIMEZONE_MESSAGE = [
   'I could not recognize that timezone.',
   'Choose an autocomplete suggestion or enter a valid IANA timezone such as `UTC`, `America/New_York`, `Europe/London`, or `Asia/Jakarta`.',
-  'City nicknames are accepted for common locations, but saved preferences are stored as canonical IANA identifiers.',
+  'Common aliases like `london`, `nyc`, `tokyo`, and `gmt` are accepted, but saved preferences use canonical IANA identifiers.',
 ].join('\n');
 
 export interface TimezoneCommandOptions {
@@ -38,13 +38,22 @@ export const timezoneCommandData = new SlashCommandBuilder()
 
 export interface TimezoneView {
   timezone: string;
+  requestedTimezone: string;
+  canonicalizationSummary: string;
   localDateTime: string;
   gmtOffset: string;
   note: string;
+  preferenceSaveStatus: string;
   preferenceSummary: string;
   botName: string;
   botAvatarUrl?: string;
   color?: ColorResolvable;
+}
+
+interface ParsedTimezoneInput {
+  timezone: string;
+  requestedTimezone: string;
+  canonicalizationSummary: string;
 }
 
 interface TimeZoneDateParts {
@@ -203,8 +212,8 @@ export async function executeTimezoneInteraction(
   }
 
   const timezoneInput = interaction.options.getString('location', true).trim();
-  const timezone = canonicalizeTimeZone(timezoneInput);
-  if (!timezone) {
+  const parsedTimezone = parseTimezoneInput(timezoneInput);
+  if (!parsedTimezone) {
     await interaction.reply({
       content: INVALID_TIMEZONE_MESSAGE,
       ephemeral: true,
@@ -217,30 +226,41 @@ export async function executeTimezoneInteraction(
     guildName: interaction.guild?.name ?? null,
     actorDiscordUserId: interaction.user.id,
     discordUserId: interaction.user.id,
-    timezone,
+    timezone: parsedTimezone.timezone,
   });
 
   await interaction.reply({
-    embeds: [buildTimezoneEmbed(collectTimezoneView(timezone, interaction, context))],
+    embeds: [buildTimezoneEmbed(collectTimezoneView(parsedTimezone, interaction, context))],
     ephemeral: true,
   });
 }
 
 export function collectTimezoneView(
-  timezone: string,
+  parsedTimezone: ParsedTimezoneInput | string,
   source: Pick<ChatInputCommandInteraction, 'guild'>,
   context: CommandContext,
   now = new Date(),
 ): TimezoneView {
   const botAvatarUrl = context.client.user?.displayAvatarURL({ extension: 'png' });
+  const timezoneView =
+    typeof parsedTimezone === 'string'
+      ? {
+          timezone: parsedTimezone,
+          requestedTimezone: parsedTimezone,
+          canonicalizationSummary: 'Input already matched the saved canonical timezone.',
+        }
+      : parsedTimezone;
 
   return {
-    timezone,
-    localDateTime: formatLocalDateTime(timezone, now),
-    gmtOffset: formatGmtOffset(timezone, now),
+    timezone: timezoneView.timezone,
+    requestedTimezone: timezoneView.requestedTimezone,
+    canonicalizationSummary: timezoneView.canonicalizationSummary,
+    localDateTime: formatLocalDateTime(timezoneView.timezone, now),
+    gmtOffset: formatGmtOffset(timezoneView.timezone, now),
     note: TIMEZONE_FIRST_PASS_NOTE,
+    preferenceSaveStatus: 'Saved successfully for this Discord server.',
     preferenceSummary: [
-      `Canonical timezone: \`${timezone}\``,
+      `Canonical timezone: \`${timezoneView.timezone}\``,
       'Scope: this Discord server only.',
       'Persistence: saved in guild settings and audit logged as a timezone preference update.',
     ].join('\n'),
@@ -262,6 +282,12 @@ export function buildTimezoneEmbed(view: TimezoneView): EmbedBuilder {
     )
     .addFields(
       { name: 'Saved server preference', value: view.preferenceSummary, inline: false },
+      { name: 'Preference save status', value: view.preferenceSaveStatus, inline: false },
+      {
+        name: 'Accepted input',
+        value: `\`${view.requestedTimezone}\` → \`${view.timezone}\`\n${view.canonicalizationSummary}`,
+        inline: false,
+      },
       { name: 'Timezone', value: `\`${view.timezone}\``, inline: false },
       { name: 'Current local time', value: view.localDateTime, inline: false },
       { name: 'Approximate GMT offset', value: `GMT${view.gmtOffset}`, inline: false },
@@ -271,6 +297,39 @@ export function buildTimezoneEmbed(view: TimezoneView): EmbedBuilder {
         inline: false,
       },
     );
+}
+
+export function parseTimezoneInput(timezone: string): ParsedTimezoneInput | null {
+  const requestedTimezone = timezone.trim();
+  if (!requestedTimezone) return null;
+
+  const aliasMatch = COMMON_TIMEZONE_ALIASES.get(requestedTimezone.toLowerCase());
+  const canonicalTimezone = canonicalizeTimeZone(requestedTimezone);
+  if (!canonicalTimezone) return null;
+
+  return {
+    timezone: canonicalTimezone,
+    requestedTimezone,
+    canonicalizationSummary: buildCanonicalizationSummary(
+      requestedTimezone,
+      canonicalTimezone,
+      aliasMatch,
+    ),
+  };
+}
+
+function buildCanonicalizationSummary(
+  requestedTimezone: string,
+  canonicalTimezone: string,
+  aliasMatch?: string,
+): string {
+  if (aliasMatch) return `Accepted alias for \`${canonicalTimezone}\`.`;
+  if (requestedTimezone === canonicalTimezone)
+    return 'Input already matched the saved canonical timezone.';
+  if (requestedTimezone.toLowerCase() === canonicalTimezone.toLowerCase()) {
+    return 'Letter casing was normalized to the canonical timezone.';
+  }
+  return 'Input was resolved to the canonical timezone supported by this runtime.';
 }
 
 export function canonicalizeTimeZone(timezone: string): string | null {
