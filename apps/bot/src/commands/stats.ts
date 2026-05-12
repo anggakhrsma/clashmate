@@ -402,6 +402,7 @@ export async function executeStats(
         season: seasonSince,
         parityFilters,
         rowsConsidered: rows.length,
+        latestAttackAt: getLatestAttackAt(rows),
       }),
     ],
   });
@@ -471,6 +472,8 @@ async function replyWithStatsDefenseEmbed(
         days,
         season: seasonSince,
         parityFilters,
+        rowsConsidered: rows.length,
+        latestDefenseAt: getLatestDefenseAt(rows),
       }),
     });
     return;
@@ -488,6 +491,7 @@ async function replyWithStatsDefenseEmbed(
         season: seasonSince,
         parityFilters,
         rowsConsidered: rows.length,
+        latestDefenseAt: getLatestDefenseAt(rows),
       }),
     ],
   });
@@ -527,6 +531,7 @@ export function buildStatsAttacksEmbed(
     readonly season: Date | null;
     readonly parityFilters: StatsParityFilters;
     readonly rowsConsidered: number;
+    readonly latestAttackAt: Date | null;
   },
 ): EmbedBuilder {
   const selectedRows = rows.slice(0, MAX_STATS_ROWS);
@@ -556,6 +561,8 @@ export function buildStatsAttacksEmbed(
           rowsConsidered: input.rowsConsidered,
           rowsVisible: selectedRows.length,
           rowsMatched: rows.length,
+          rowLabel: 'attacker rows',
+          latestEventAt: input.latestAttackAt,
         }),
         inline: false,
       },
@@ -646,6 +653,7 @@ export function buildStatsDefenseEmbed(
     readonly season: Date | null;
     readonly parityFilters: StatsParityFilters;
     readonly rowsConsidered: number;
+    readonly latestDefenseAt: Date | null;
   },
 ): EmbedBuilder {
   const selectedRows = rows.slice(0, MAX_STATS_ROWS);
@@ -675,7 +683,9 @@ export function buildStatsDefenseEmbed(
           rowsConsidered: input.rowsConsidered,
           rowsVisible: selectedRows.length,
           rowsMatched: rows.length,
-        }).replace('attacker rows', 'defender rows'),
+          rowLabel: 'defender rows',
+          latestEventAt: input.latestDefenseAt,
+        }),
         inline: false,
       },
       {
@@ -726,6 +736,8 @@ function buildStatsNoDefenseEventsMessage(input: {
   readonly days: number | null;
   readonly season: Date | null;
   readonly parityFilters: StatsParityFilters;
+  readonly rowsConsidered: number;
+  readonly latestDefenseAt: Date | null;
 }): string {
   const filters = [
     ...formatStatsAppliedFilterLabels(input).map((label) =>
@@ -735,7 +747,7 @@ function buildStatsNoDefenseEventsMessage(input: {
   ];
   if (input.user) filters.push(`Linked player tags checked: ${input.playerTagCount}`);
   const filterText = filters.length > 0 ? ` Active filters: ${filters.join(' · ')}.` : '';
-  return `${STATS_NO_DEFENSE_EVENTS_MESSAGE} Source: persisted war attack events grouped by defender tag for linked/configured clans only; no live Clash API lookup, search, historical backfill, or on-demand polling is performed.${filterText} Try removing the user/clan/time/star/attempt filters or choose a wider season/days window.`;
+  return `${STATS_NO_DEFENSE_EVENTS_MESSAGE} Source: persisted war attack events grouped by defender tag for linked/configured clans only; no live Clash API lookup, search, historical backfill, or on-demand polling is performed. Rows considered: ${input.rowsConsidered}; latest stored defense: ${formatLatestEventAge(input.latestDefenseAt)}.${filterText} Try removing the user/clan/time/star/attempt filters or choose a wider season/days window.`;
 }
 
 function formatDefenseStatsRows(rows: readonly StatsWarDefenseHistoryRow[]): string {
@@ -792,8 +804,10 @@ function buildStatsCoverageNote(input: {
   readonly rowsConsidered: number;
   readonly rowsMatched: number;
   readonly rowsVisible: number;
+  readonly rowLabel: string;
+  readonly latestEventAt: Date | null;
 }): string {
-  return `${input.rowsConsidered} stored attacker rows considered · ${input.rowsMatched} matched aggregate filters · ${input.rowsVisible} visible in this embed.`;
+  return `${input.rowsConsidered} stored ${input.rowLabel} considered · ${input.rowsMatched} matched aggregate filters · ${input.rowsVisible} visible in this embed · latest stored event ${formatLatestEventAge(input.latestEventAt)}.`;
 }
 
 function formatStatsAppliedFilterLabels(input: {
@@ -842,7 +856,7 @@ function buildStatsNoAttackEventsMessage(input: {
     input.rowsConsidered > 0
       ? 'Try removing the user/clan/time/attempt filters or choose a wider season/days window; some accepted parity labels are echoed but cannot narrow aggregate rows yet.'
       : 'Link/configure a clan in this server, make sure the user has linked players when using the user filter, let the war poller observe wars for the linked clan, and wait for war attack events to be persisted.';
-  return `${STATS_NO_ATTACK_EVENTS_MESSAGE} Source: persisted war attack events for linked/configured clans only; no live Clash API lookup, search, historical backfill, or on-demand polling is performed. Rows considered: ${input.rowsConsidered}; latest stored attack: ${formatLatestAttackAge(input.latestAttackAt)}.${filterText} ${nextHint}`;
+  return `${STATS_NO_ATTACK_EVENTS_MESSAGE} Source: persisted war attack events for linked/configured clans only; no live Clash API lookup, search, historical backfill, or on-demand polling is performed. Rows considered: ${input.rowsConsidered}; latest stored attack: ${formatLatestEventAge(input.latestAttackAt)}.${filterText} ${nextHint}`;
 }
 
 function getLatestAttackAt(rows: readonly StatsWarAttackHistoryRow[]): Date | null {
@@ -852,7 +866,14 @@ function getLatestAttackAt(rows: readonly StatsWarAttackHistoryRow[]): Date | nu
   }, null);
 }
 
-function formatLatestAttackAge(value: Date | null): string {
+function getLatestDefenseAt(rows: readonly StatsWarDefenseHistoryRow[]): Date | null {
+  return rows.reduce<Date | null>((latest, row) => {
+    if (!latest || row.lastDefendedAt.getTime() > latest.getTime()) return row.lastDefendedAt;
+    return latest;
+  }, null);
+}
+
+function formatLatestEventAge(value: Date | null): string {
   return value ? time(value, 'R') : 'none available';
 }
 
