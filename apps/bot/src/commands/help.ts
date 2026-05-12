@@ -553,6 +553,18 @@ const HELP_LIMITATION_NOTES = [
   'Use each command detail view to see whether it uses persisted data or a live lookup.',
 ] as const;
 
+const EXCLUDED_FEATURE_LABELS = [
+  'premium/Patreon/redemption',
+  'export',
+  'roster',
+  'flag',
+  'eval',
+  'suggestions',
+  'bot-personalizer',
+] as const;
+
+const OVERVIEW_COMMANDS_PER_CATEGORY = 12;
+
 export function createHelpSlashCommand(): SlashCommandDefinition {
   return {
     name: HELP_COMMAND_NAME,
@@ -597,6 +609,7 @@ export function collectHelpView(
 }
 
 export function buildHelpOverviewEmbed(view: HelpView): EmbedBuilder {
+  const counts = getHelpCatalogCounts();
   const embed = new EmbedBuilder()
     .setColor(view.color ?? DEFAULT_HELP_EMBED_COLOR)
     .setTitle('ClashMate Help')
@@ -613,8 +626,21 @@ export function buildHelpOverviewEmbed(view: HelpView): EmbedBuilder {
     );
 
   embed.addFields(
+    {
+      name: 'Catalog coverage',
+      value: [
+        `${counts.commands} commands across ${counts.categories} categories are documented from the local help catalog.`,
+        `Overview lists up to ${OVERVIEW_COMMANDS_PER_CATEGORY} commands per category; use \`/help command:<name>\` for exact details and source notes.`,
+      ].join('\n'),
+      inline: false,
+    },
     { name: 'Scope', value: HELP_SCOPE_NOTES.join('\n'), inline: false },
     { name: 'Current limitations', value: HELP_LIMITATION_NOTES.join('\n'), inline: false },
+    {
+      name: 'Excluded features',
+      value: `${EXCLUDED_FEATURE_LABELS.join(', ')} are intentionally unavailable in ClashMate help and commands.`,
+      inline: false,
+    },
     {
       name: 'Data source guide',
       value:
@@ -626,8 +652,8 @@ export function buildHelpOverviewEmbed(view: HelpView): EmbedBuilder {
   for (const category of CATEGORY_ORDER) {
     const commands = HELP_CATALOG.filter((entry) => entry.category === category);
     embed.addFields({
-      name: category,
-      value: commands.map((entry) => `\`/${entry.name}\` — ${entry.description}`).join('\n'),
+      name: `${category} (${commands.length})`,
+      value: formatOverviewCategory(commands),
       inline: false,
     });
   }
@@ -652,17 +678,54 @@ export function buildHelpCommandEmbed(view: HelpView, entry: HelpCatalogEntry): 
     )
     .addFields(
       { name: 'Usage', value: entry.usage, inline: false },
-      { name: 'Category', value: entry.category, inline: false },
+      {
+        name: 'Resolution',
+        value: `Exact catalog match for \`/${entry.name}\` in ${entry.category}.`,
+        inline: false,
+      },
       { name: 'Details', value: entry.details.join('\n'), inline: false },
       { name: 'ClashMate parity notes', value: parityNotes.join('\n'), inline: false },
     );
 }
 
 export function findHelpCatalogEntry(commandName: string): HelpCatalogEntry | undefined {
-  const normalized = commandName.trim().toLowerCase().replace(/^\//, '');
+  const normalized = normalizeHelpCommandName(commandName);
   return HELP_CATALOG.find((entry) => entry.name === normalized);
 }
 
 export function formatUnknownHelpCommand(commandName: string): string {
-  return `I do not have help for \`${commandName}\`. Use \`/help\` to see available ClashMate commands.`;
+  const normalized = normalizeHelpCommandName(commandName);
+  const suggestions = HELP_CATALOG.filter((entry) => entry.name.includes(normalized)).slice(0, 3);
+  const suggestionText = suggestions.length
+    ? ` Did you mean ${suggestions.map((entry) => `\`/${entry.name}\``).join(', ')}?`
+    : '';
+
+  return [
+    `I do not have an exact help catalog match for \`${commandName}\`.${suggestionText}`,
+    `Use \`/help\` for the catalog overview or \`/help command:<name>\` with one of the listed command names.`,
+    `Excluded features such as ${EXCLUDED_FEATURE_LABELS.slice(0, 4).join(', ')} are intentionally unavailable.`,
+  ].join('\n');
+}
+
+function normalizeHelpCommandName(commandName: string): string {
+  return commandName.trim().toLowerCase().replace(/^\//, '');
+}
+
+function getHelpCatalogCounts(): { commands: number; categories: number } {
+  return {
+    commands: HELP_CATALOG.length,
+    categories: new Set(HELP_CATALOG.map((entry) => entry.category)).size,
+  };
+}
+
+function formatOverviewCategory(commands: readonly HelpCatalogEntry[]): string {
+  const visibleCommands = commands.slice(0, OVERVIEW_COMMANDS_PER_CATEGORY);
+  const hiddenCount = commands.length - visibleCommands.length;
+  const lines = visibleCommands.map((entry) => `\`/${entry.name}\` — ${entry.description}`);
+
+  if (hiddenCount > 0) {
+    lines.push(`…and ${hiddenCount} more. Use \`/help command:<name>\` for exact command details.`);
+  }
+
+  return lines.join('\n');
 }
