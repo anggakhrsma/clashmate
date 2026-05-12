@@ -583,6 +583,11 @@ client.on('interactionCreate', async (interaction) => {
       'Slash command execution completed',
     );
 
+    if (isOwner(interaction.user.id, config.DISCORD_OWNER_IDS)) {
+      logger.debug({ ...context, reason: 'owner_invocation' }, 'Skipped command usage metric');
+      return;
+    }
+
     try {
       await commandUsageRecorder.recordCommandUsage({
         commandName: interaction.commandName,
