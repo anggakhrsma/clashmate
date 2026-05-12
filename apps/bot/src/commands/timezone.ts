@@ -92,6 +92,14 @@ const COMMON_TIMEZONE_ALIASES = new Map<string, string>([
   ['zulu', 'UTC'],
 ]);
 
+interface TimezoneChoiceCandidate {
+  readonly name: string;
+  readonly value: string;
+  readonly matchText: string;
+  readonly hasAliasContext: boolean;
+  readonly index: number;
+}
+
 type SupportedTimeZoneIntl = typeof Intl & {
   readonly supportedValuesOf?: (key: 'timeZone') => string[];
 };
@@ -125,39 +133,60 @@ async function autocompleteTimezone(interaction: AutocompleteInteraction): Promi
 
 export function filterTimezoneChoices(query: string): ApplicationCommandOptionChoiceData<string>[] {
   const normalizedQuery = query.trim().toLowerCase();
-  const choices = new Map<string, string>();
+  const candidates: TimezoneChoiceCandidate[] = [];
+  let index = 0;
 
   for (const timezone of listSupportedTimezones()) {
     const normalizedTimezone = timezone.toLowerCase();
-    if (timezoneMatchesQuery(normalizedTimezone, normalizedQuery)) choices.set(timezone, timezone);
-  }
-
-  for (const [alias, timezone] of COMMON_TIMEZONE_ALIASES) {
-    if (!canonicalizeTimeZone(timezone)) continue;
-    const normalizedTimezone = timezone.toLowerCase();
-    if (
-      !normalizedQuery ||
-      alias.includes(normalizedQuery) ||
-      timezoneMatchesQuery(normalizedTimezone, normalizedQuery)
-    ) {
-      choices.set(`${timezone} (${alias})`, timezone);
+    if (timezoneMatchesQuery(normalizedTimezone, normalizedQuery)) {
+      candidates.push({
+        name: timezone,
+        value: timezone,
+        matchText: normalizedTimezone,
+        hasAliasContext: false,
+        index,
+      });
+      index += 1;
     }
   }
 
-  return [...choices.entries()]
-    .map((timezone, index) => ({
-      name: timezone[0],
-      value: timezone[1],
-      index,
-      normalizedTimezone: timezone[0].toLowerCase(),
-    }))
-    .sort((left, right) => {
-      const leftRank = timezoneMatchRank(left.normalizedTimezone, normalizedQuery);
-      const rightRank = timezoneMatchRank(right.normalizedTimezone, normalizedQuery);
-      return leftRank - rightRank || left.index - right.index;
-    })
-    .slice(0, 25)
-    .map(({ name, value }) => ({ name, value }));
+  for (const [timezone, aliases] of listCanonicalTimezoneAliases()) {
+    const normalizedTimezone = timezone.toLowerCase();
+    const matchingAliases = aliases.filter((alias) =>
+      timezoneMatchesQuery(alias.toLowerCase(), normalizedQuery),
+    );
+    const timezoneMatches = timezoneMatchesQuery(normalizedTimezone, normalizedQuery);
+    if (!normalizedQuery || timezoneMatches || matchingAliases.length > 0) {
+      const labelAliases = matchingAliases.length > 0 ? matchingAliases : aliases;
+      candidates.push({
+        name: `${timezone} (${labelAliases.join(', ')})`,
+        value: timezone,
+        matchText: `${normalizedTimezone} ${aliases.join(' ').toLowerCase()}`,
+        hasAliasContext: true,
+        index,
+      });
+      index += 1;
+    }
+  }
+
+  const rankedChoices = candidates.sort((left, right) => {
+    const leftRank = timezoneMatchRank(left.matchText, normalizedQuery);
+    const rightRank = timezoneMatchRank(right.matchText, normalizedQuery);
+    return (
+      leftRank - rightRank ||
+      Number(right.hasAliasContext) - Number(left.hasAliasContext) ||
+      left.value.localeCompare(right.value) ||
+      left.index - right.index
+    );
+  });
+
+  const uniqueChoices = new Map<string, TimezoneChoiceCandidate>();
+  for (const choice of rankedChoices) {
+    if (uniqueChoices.has(choice.value)) continue;
+    uniqueChoices.set(choice.value, choice);
+  }
+
+  return [...uniqueChoices.values()].slice(0, 25).map(({ name, value }) => ({ name, value }));
 }
 
 export async function executeTimezoneInteraction(
@@ -288,6 +317,23 @@ function listSupportedTimezones(): string[] {
   const timezones = supportedValuesOf?.('timeZone') ?? [];
   const uniqueTimezones = new Set<string>(['UTC', ...timezones, ...FALLBACK_TIMEZONES]);
   return [...uniqueTimezones].filter(isValidTimeZone);
+}
+
+function listCanonicalTimezoneAliases(): Array<readonly [timezone: string, aliases: string[]]> {
+  const aliasesByTimezone = new Map<string, string[]>();
+
+  for (const [alias, timezone] of COMMON_TIMEZONE_ALIASES) {
+    const canonicalTimezone = canonicalizeTimeZone(timezone);
+    if (!canonicalTimezone) continue;
+
+    const aliases = aliasesByTimezone.get(canonicalTimezone) ?? [];
+    aliases.push(alias);
+    aliasesByTimezone.set(canonicalTimezone, aliases);
+  }
+
+  return [...aliasesByTimezone.entries()].sort(([leftTimezone], [rightTimezone]) =>
+    leftTimezone.localeCompare(rightTimezone),
+  );
 }
 
 function timezoneMatchesQuery(normalizedTimezone: string, normalizedQuery: string): boolean {
