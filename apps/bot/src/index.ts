@@ -445,16 +445,18 @@ client.once('ready', async (readyClient) => {
 
 client.on('interactionCreate', async (interaction) => {
   if (interaction.isAutocomplete()) {
+    const context = getInteractionLogContext(interaction);
     try {
       const handled = await routeAutocompleteInteraction(commandRegistry, interaction, {
         client,
         ownerIds: config.DISCORD_OWNER_IDS,
       });
       if (!handled) {
+        logger.debug(context, 'Autocomplete interaction was not handled; sending empty choices');
         await respondAutocompleteEmpty(interaction, 'Autocomplete interaction was not handled');
       }
     } catch (error) {
-      logger.error({ error, command: interaction.commandName }, 'Autocomplete interaction failed');
+      logger.error({ error, ...context }, 'Autocomplete interaction failed');
       await respondAutocompleteEmpty(interaction, 'Failed to send autocomplete fallback response');
     }
     return;
@@ -463,11 +465,18 @@ client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   const command = commandRegistry.slashCommands.get(interaction.commandName);
-  if (!command) return;
+  const context = getInteractionLogContext(interaction);
+  if (!command) {
+    logger.warn(context, 'Unhandled slash command interaction');
+    return;
+  }
+
+  const startedAt = Date.now();
 
   try {
     if (!isOwner(interaction.user.id, config.DISCORD_OWNER_IDS)) {
       if (await globalAccessBlocks.isUserBlacklisted(interaction.user.id)) {
+        logger.info({ ...context, reason: 'user_blacklisted' }, 'Blocked command interaction');
         await interaction.reply({
           content: 'You are not allowed to use ClashMate commands.',
           ephemeral: true,
@@ -479,6 +488,7 @@ client.on('interactionCreate', async (interaction) => {
         interaction.guildId &&
         (await globalAccessBlocks.isGuildBlacklisted(interaction.guildId))
       ) {
+        logger.info({ ...context, reason: 'guild_blacklisted' }, 'Blocked command interaction');
         await interaction.reply({
           content: 'This server is not allowed to use ClashMate commands.',
           ephemeral: true,
@@ -490,6 +500,10 @@ client.on('interactionCreate', async (interaction) => {
     if (!(await enforceCommandWhitelist(interaction))) return;
 
     await command.execute(interaction, { client, ownerIds: config.DISCORD_OWNER_IDS });
+    logger.info(
+      { ...context, durationMs: Date.now() - startedAt },
+      'Slash command execution completed',
+    );
 
     try {
       await commandUsageRecorder.recordCommandUsage({
@@ -497,10 +511,10 @@ client.on('interactionCreate', async (interaction) => {
         guildId: interaction.guildId,
       });
     } catch (error) {
-      logger.warn({ error, command: interaction.commandName }, 'Failed to record command usage');
+      logger.warn({ error, ...context }, 'Failed to record command usage');
     }
   } catch (error) {
-    logger.error({ error, command: interaction.commandName }, 'Slash command failed');
+    logger.error({ error, ...context, durationMs: Date.now() - startedAt }, 'Slash command failed');
     await sendCommandFailure(interaction);
   }
 });
@@ -542,6 +556,24 @@ function registerShutdownHandlers(discordClient: Client): void {
 
   process.once('SIGTERM', handleShutdown);
   process.once('SIGINT', handleShutdown);
+}
+
+function getInteractionLogContext(
+  interaction: AutocompleteInteraction | ChatInputCommandInteraction,
+): {
+  command: string;
+  guildId: string | null;
+  channelId: string | null;
+  userId: string;
+  interactionId: string;
+} {
+  return {
+    command: interaction.commandName,
+    guildId: interaction.guildId,
+    channelId: interaction.channelId,
+    userId: interaction.user.id,
+    interactionId: interaction.id,
+  };
 }
 
 export interface CommandWhitelistAccessInput {
@@ -595,6 +627,18 @@ async function enforceCommandWhitelist(interaction: ChatInputCommandInteraction)
 
   if (allowed) return true;
 
+  logger.info(
+    {
+      ...getInteractionLogContext(interaction),
+      reason: 'command_whitelist',
+      whitelistEntries: entries.filter((entry) => entry.commandName === interaction.commandName)
+        .length,
+      roleCount: roleIds.length,
+      hasManageGuild: interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild) ?? false,
+    },
+    'Denied command interaction by whitelist',
+  );
+
   await interaction.reply({
     content: 'This command is whitelisted for specific users or roles in this server.',
     ephemeral: true,
@@ -637,6 +681,6 @@ async function respondAutocompleteEmpty(
   try {
     await interaction.respond([]);
   } catch (error) {
-    logger.warn({ error, command: interaction.commandName }, failureMessage);
+    logger.warn({ error, ...getInteractionLogContext(interaction) }, failureMessage);
   }
 }
