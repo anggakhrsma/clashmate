@@ -39,41 +39,67 @@ interface ShutdownController {
   readonly stop: () => void;
 }
 
+interface NamedShutdownController extends ShutdownController {
+  readonly name: string;
+}
+
 function registerShutdownHandlers(
-  controllers: readonly ShutdownController[],
+  controllers: readonly NamedShutdownController[],
   shutdownLogger: Pick<Logger, 'error' | 'info'>,
 ): void {
   let shuttingDown = false;
 
   const handleShutdown = (signal: NodeJS.Signals) => {
-    if (shuttingDown) return;
+    if (shuttingDown) {
+      shutdownLogger.info(
+        { signal, exitCode: process.exitCode ?? 0, exitCodeReason: 'shutdown_already_in_progress' },
+        'Duplicate worker shutdown signal ignored',
+      );
+      return;
+    }
     shuttingDown = true;
 
-    shutdownLogger.info({ signal }, 'Worker shutdown started');
+    shutdownLogger.info(
+      { signal, controllers: controllers.map((controller) => controller.name) },
+      'Worker shutdown started',
+    );
 
     let failed = false;
+    const stopResults: { name: string; stopped: boolean }[] = [];
 
     for (const controller of controllers) {
       try {
         controller.stop();
+        stopResults.push({ name: controller.name, stopped: true });
       } catch (error) {
         failed = true;
-        shutdownLogger.error({ error, signal }, 'Worker shutdown controller stop failed');
+        stopResults.push({ name: controller.name, stopped: false });
+        shutdownLogger.error(
+          { controller: controller.name, error, signal },
+          'Worker shutdown controller stop failed',
+        );
       }
     }
 
+    const exitCodeReason = failed ? 'controller_stop_failed' : 'all_controllers_stopped';
     process.exitCode = failed ? 1 : 0;
 
     if (failed) {
-      shutdownLogger.error({ signal }, 'Worker shutdown completed with errors');
+      shutdownLogger.error(
+        { signal, exitCode: process.exitCode, exitCodeReason, stopResults },
+        'Worker shutdown completed with errors',
+      );
       return;
     }
 
-    shutdownLogger.info({ signal }, 'Worker shutdown completed');
+    shutdownLogger.info(
+      { signal, exitCode: process.exitCode, exitCodeReason, stopResults },
+      'Worker shutdown completed',
+    );
   };
 
-  process.once('SIGTERM', handleShutdown);
-  process.once('SIGINT', handleShutdown);
+  process.on('SIGTERM', handleShutdown);
+  process.on('SIGINT', handleShutdown);
 }
 
 const config = loadConfig();
@@ -215,43 +241,87 @@ const workerPollingLoop = startWorkerPollingLoop({
 
 registerShutdownHandlers(
   [
-    pollingEnrollmentLoop,
-    notificationFanOutLoop,
-    reminderSchedulerLoop,
-    reconciliationPlanningLoop,
-    notificationDeliveryLoop,
-    workerPollingLoop,
+    { name: 'pollingEnrollment', ...pollingEnrollmentLoop },
+    { name: 'notificationFanOut', ...notificationFanOutLoop },
+    { name: 'reminderScheduler', ...reminderSchedulerLoop },
+    { name: 'reconciliationPlanning', ...reconciliationPlanningLoop },
+    { name: 'notificationDelivery', ...notificationDeliveryLoop },
+    { name: 'workerPolling', ...workerPollingLoop },
   ],
   logger,
 );
 
+const enabledLoopControllers = [
+  'pollingEnrollment',
+  'notificationFanOut',
+  'reminderScheduler',
+  'reconciliationPlanning',
+  'notificationDelivery',
+  'workerPolling',
+] as const;
+
+const loopConfiguration = {
+  polling: {
+    lockForSeconds: 60,
+    intervals: pollingIntervals,
+  },
+  pollingEnrollment: {
+    interval: pollingEnrollmentInterval,
+  },
+  notificationFanOut: {
+    interval: {
+      baseSeconds: config.NOTIFICATION_FANOUT_SECONDS,
+      jitterSeconds: config.NOTIFICATION_FANOUT_JITTER_SECONDS,
+    },
+    batchSize: config.NOTIFICATION_FANOUT_BATCH_SIZE,
+  },
+  reminderScheduler: {
+    interval: {
+      baseSeconds: config.NOTIFICATION_FANOUT_SECONDS,
+      jitterSeconds: config.NOTIFICATION_FANOUT_JITTER_SECONDS,
+    },
+    batchSize: config.NOTIFICATION_FANOUT_BATCH_SIZE,
+  },
+  reconciliationPlanning: {
+    interval: {
+      baseSeconds: config.RECONCILIATION_PLANNING_SECONDS,
+      jitterSeconds: config.RECONCILIATION_PLANNING_JITTER_SECONDS,
+    },
+  },
+  notificationDelivery: {
+    lockForSeconds: 60,
+    interval: {
+      baseSeconds: config.NOTIFICATION_DELIVERY_SECONDS,
+      jitterSeconds: config.NOTIFICATION_DELIVERY_JITTER_SECONDS,
+    },
+    batchSize: config.NOTIFICATION_DELIVERY_BATCH_SIZE,
+    maxAttempts: config.NOTIFICATION_DELIVERY_MAX_ATTEMPTS,
+    retryBaseSeconds: config.NOTIFICATION_DELIVERY_RETRY_SECONDS,
+  },
+} as const;
+
+const readinessChecks = {
+  databaseReady: Boolean(database),
+  clashApiReady: await coc.ready(),
+  clanPollerReady: Boolean(clanPollerHandler),
+  playerPollerReady: Boolean(playerPollerHandler),
+  warPollerReady: Boolean(warPollerHandler),
+  clanGamesReady: Boolean(clanGames),
+  notificationFanOutReady: Boolean(notificationFanOut),
+  notificationDeliveryReady: Boolean(notificationDelivery),
+  reminderSchedulerReady: Boolean(reminderDelivery),
+  reconciliationPlanningReady: Boolean(
+    autoroleSettings && nicknameConfigs && reconciliationPlanningOutcomes,
+  ),
+} as const;
+
 logger.info(
   {
-    databaseReady: Boolean(database),
-    clashApiReady: await coc.ready(),
-    clanPollerReady: Boolean(clanPollerHandler),
-    playerPollerReady: Boolean(playerPollerHandler),
-    warPollerReady: Boolean(warPollerHandler),
-    clanGamesReady: Boolean(clanGames),
-    notificationFanOutReady: Boolean(notificationFanOut),
-    notificationDeliveryReady: Boolean(notificationDelivery),
-    reminderSchedulerReady: Boolean(reminderDelivery),
-    reconciliationPlanningReady: Boolean(
-      autoroleSettings && nicknameConfigs && reconciliationPlanningOutcomes,
-    ),
-    reconciliationPlanningIntervalSeconds: config.RECONCILIATION_PLANNING_SECONDS,
-    reconciliationPlanningJitterSeconds: config.RECONCILIATION_PLANNING_JITTER_SECONDS,
-    notificationFanOutIntervalSeconds: config.NOTIFICATION_FANOUT_SECONDS,
-    notificationFanOutJitterSeconds: config.NOTIFICATION_FANOUT_JITTER_SECONDS,
-    notificationFanOutBatchSize: config.NOTIFICATION_FANOUT_BATCH_SIZE,
-    notificationDeliveryIntervalSeconds: config.NOTIFICATION_DELIVERY_SECONDS,
-    notificationDeliveryJitterSeconds: config.NOTIFICATION_DELIVERY_JITTER_SECONDS,
-    notificationDeliveryBatchSize: config.NOTIFICATION_DELIVERY_BATCH_SIZE,
-    notificationDeliveryMaxAttempts: config.NOTIFICATION_DELIVERY_MAX_ATTEMPTS,
+    readinessChecks,
+    loopConfiguration,
+    enabledLoopControllers,
     workerOwnerId,
     pollingEnrollment: pollingEnrollmentResult,
-    pollingEnrollmentIntervalSeconds: pollingEnrollmentInterval.baseSeconds,
-    pollingEnrollmentJitterSeconds: pollingEnrollmentInterval.jitterSeconds,
   },
   'Worker started',
 );
