@@ -23,6 +23,7 @@ const URL_IN_TEXT_REGEX = /https?:\/\/\S+/i;
 const MAX_FIELD_VALUE_LENGTH = 1024;
 const MAX_LIST_LINES = 20;
 const MAX_OVERVIEW_LINES = 8;
+const MAX_TIPS_LENGTH = 600;
 
 export const armyCommandData = new SlashCommandBuilder()
   .setName(ARMY_COMMAND_NAME)
@@ -53,12 +54,19 @@ export interface ParsedArmyHero {
 
 export interface ParsedArmyLink {
   readonly url: string;
+  readonly source: {
+    readonly host: string;
+    readonly locale: string;
+    readonly action: 'CopyArmy';
+  };
   readonly troops: readonly ParsedArmyUnit[];
   readonly spells: readonly ParsedArmyUnit[];
   readonly heroes: readonly ParsedArmyHero[];
   readonly clanCastleTroops: readonly ParsedArmyUnit[];
   readonly clanCastleSpells: readonly ParsedArmyUnit[];
 }
+
+type ParsedArmyPayload = Omit<ParsedArmyLink, 'url' | 'source'>;
 
 export function createArmySlashCommand(): SlashCommandDefinition {
   return {
@@ -118,7 +126,15 @@ export function parseArmyLink(input: string): ParsedArmyLink | null {
   const parsed = parseArmyPayload(payload);
   if (!parsed) return null;
 
-  return { url: url.toString(), ...parsed };
+  return {
+    url: url.toString(),
+    source: {
+      host: url.hostname.toLowerCase(),
+      locale: url.pathname.replace(/^\//, '').replace(/\/$/, '') || 'unknown',
+      action: 'CopyArmy',
+    },
+    ...parsed,
+  };
 }
 
 function extractArmyUrlCandidate(input: string): string | null {
@@ -131,7 +147,7 @@ function extractArmyUrlCandidate(input: string): string | null {
   return match?.[0]?.replace(/[)>.,!?]+$/, '') ?? null;
 }
 
-export function parseArmyPayload(payload: string): Omit<ParsedArmyLink, 'url'> | null {
+export function parseArmyPayload(payload: string): ParsedArmyPayload | null {
   const groups = payload.split(/(?=[ushid])/).filter(Boolean);
   if (!groups.length || groups.some((group) => !/^[ushid]/.test(group))) return null;
 
@@ -189,20 +205,22 @@ export function buildArmyEmbed(input: {
   readonly armyName: string | null;
   readonly tips: string | null;
 }): EmbedBuilder {
-  const title = input.armyName?.trim() || 'Shared Army Composition';
+  const rawTitle = input.armyName?.trim();
+  const title = rawTitle ? truncateText(escapeMarkdown(rawTitle), 256) : 'Shared Army Composition';
   const totals = calculateArmyTotals(input.army);
   const embed = new EmbedBuilder()
-    .setTitle(escapeMarkdown(title).slice(0, 256))
+    .setTitle(title)
     .setURL(input.army.url)
     .setDescription(
       [
-        `Troops **${totals.troops}**`,
-        `Spells **${totals.spells}**`,
+        `Troops **${totals.troops}** (${input.army.troops.length} ${pluralize('entry', input.army.troops.length)})`,
+        `Spells **${totals.spells}** (${input.army.spells.length} ${pluralize('entry', input.army.spells.length)})`,
         `Heroes **${totals.heroes}**`,
-        `Clan Castle **${totals.clanCastleTroops + totals.clanCastleSpells}**`,
+        `Clan Castle **${totals.clanCastleTroops + totals.clanCastleSpells}** (${totals.clanCastleTroops} ${pluralize('troop', totals.clanCastleTroops)} • ${totals.clanCastleSpells} ${pluralize('spell', totals.clanCastleSpells)})`,
       ].join(' • '),
     );
 
+  addListField(embed, 'Link Diagnostics', formatLinkDiagnostics(input.army));
   addListField(embed, 'Parsed Overview', formatArmyOverview(input.army));
   addListField(embed, 'Troops', formatUnits(input.army.troops));
   addListField(embed, 'Spells', formatUnits(input.army.spells));
@@ -216,9 +234,17 @@ export function buildArmyEmbed(input: {
   ]);
 
   const tips = input.tips?.trim();
-  if (tips) addListField(embed, 'Tips', [escapeMarkdown(tips)]);
+  if (tips) addListField(embed, 'Tips', [truncateText(escapeMarkdown(tips), MAX_TIPS_LENGTH)]);
 
   return embed;
+}
+
+function formatLinkDiagnostics(army: ParsedArmyLink): string[] {
+  return [
+    `Source host: \`${army.source.host}\``,
+    `Path locale: \`${army.source.locale}\``,
+    `Action: \`${army.source.action}\` validated from the link query string`,
+  ];
 }
 
 export function calculateArmyTotals(army: ParsedArmyLink): {
@@ -309,9 +335,15 @@ function formatHeroes(heroes: readonly ParsedArmyHero[]): string[] {
 function addListField(embed: EmbedBuilder, name: string, lines: readonly string[]): void {
   if (!lines.length) return;
   const capped = lines.slice(0, MAX_LIST_LINES);
-  const suffix = lines.length > capped.length ? `\n…and ${lines.length - capped.length} more` : '';
-  const value = `${capped.join('\n')}${suffix}`.slice(0, MAX_FIELD_VALUE_LENGTH);
+  const listSuffix =
+    lines.length > capped.length ? `\n…and ${lines.length - capped.length} more` : '';
+  const value = truncateText(`${capped.join('\n')}${listSuffix}`, MAX_FIELD_VALUE_LENGTH);
   embed.addFields({ name, value, inline: false });
+}
+
+function truncateText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, Math.max(0, maxLength - 10)).trimEnd()}… (trimmed)`;
 }
 
 function sumQuantities(units: readonly ParsedArmyUnit[]): number {
