@@ -50,6 +50,7 @@ import { loadBotPackageVersion, type StatusMetricReader } from './commands/statu
 
 const config = loadConfig();
 const logger = createLogger('bot', config.LOG_LEVEL);
+const startupStartedAt = Date.now();
 const database = createDatabase(config.DATABASE_URL);
 const commandUsageRecorder = createDatabaseCommandUsageRecorder(database);
 const commandWhitelistStore = createDatabaseCommandWhitelistStore(database);
@@ -430,16 +431,51 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
 });
 
+logger.info(
+  {
+    loadedCommandCount: loadedCommandNames.length,
+    registeredSlashCommandCount: commandRegistry.slashCommands.size,
+    commandRegistrationMode: config.COMMAND_REGISTRATION,
+    ownerIdCount: config.DISCORD_OWNER_IDS.length,
+  },
+  'Bot runtime initialized',
+);
+
 registerShutdownHandlers(client);
 
 client.once('ready', async (readyClient) => {
-  logger.info({ user: readyClient.user.tag }, 'Bot ready');
+  logger.info(
+    {
+      user: readyClient.user.tag,
+      startupDurationMs: Date.now() - startupStartedAt,
+      loadedCommandCount: loadedCommandNames.length,
+      registeredSlashCommandCount: commandRegistry.slashCommands.size,
+      commandRegistrationMode: config.COMMAND_REGISTRATION,
+      ownerIdCount: config.DISCORD_OWNER_IDS.length,
+    },
+    'Bot ready',
+  );
 
   try {
+    const registrationStartedAt = Date.now();
     await registerSlashCommands(readyClient, Array.from(commandRegistry.slashCommands.values()));
-    logger.info({ commands: commandRegistry.slashCommands.size }, 'Registered slash commands');
+    logger.info(
+      {
+        commands: commandRegistry.slashCommands.size,
+        commandRegistrationMode: config.COMMAND_REGISTRATION,
+        registrationDurationMs: Date.now() - registrationStartedAt,
+      },
+      'Registered slash commands',
+    );
   } catch (error) {
-    logger.error({ error }, 'Failed to register slash commands');
+    logger.error(
+      {
+        error,
+        commands: commandRegistry.slashCommands.size,
+        commandRegistrationMode: config.COMMAND_REGISTRATION,
+      },
+      'Failed to register slash commands',
+    );
   }
 });
 
@@ -529,8 +565,11 @@ async function startBot(discordClient: Client, token: string): Promise<void> {
   try {
     await discordClient.login(token);
   } catch (error) {
-    logger.error({ error }, 'Bot startup failed');
     process.exitCode = 1;
+    logger.error(
+      { error, startupDurationMs: Date.now() - startupStartedAt, exitCode: process.exitCode },
+      'Bot startup failed',
+    );
     throw error;
   }
 }
@@ -539,18 +578,21 @@ function registerShutdownHandlers(discordClient: Client): void {
   let isShuttingDown = false;
 
   const handleShutdown = (signal: NodeJS.Signals): void => {
-    if (isShuttingDown) return;
+    if (isShuttingDown) {
+      logger.warn({ signal, exitCode: process.exitCode ?? 0 }, 'Ignored duplicate shutdown signal');
+      return;
+    }
     isShuttingDown = true;
 
-    logger.info({ signal }, 'Bot shutdown started');
+    logger.info({ signal, exitCode: process.exitCode ?? 0 }, 'Bot shutdown started');
 
     try {
       discordClient.destroy();
-      logger.info({ signal }, 'Bot shutdown completed');
       process.exitCode = 0;
+      logger.info({ signal, exitCode: process.exitCode }, 'Bot shutdown completed');
     } catch (error) {
-      logger.error({ error, signal }, 'Bot shutdown failed');
       process.exitCode = 1;
+      logger.error({ error, signal, exitCode: process.exitCode }, 'Bot shutdown failed');
     }
   };
 
