@@ -16,6 +16,7 @@ export interface ClashApiRetryOptions {
 export interface ClashOfClansApiClient {
   getClan: (tag: string) => Promise<unknown>;
   getClans?: (query: { name: string; limit?: number }) => Promise<unknown>;
+  getCapitalRaidSeasons?: (tag: string, options?: { limit?: number }) => Promise<unknown>;
   getCurrentWar: (tag: string) => Promise<unknown | null>;
   getPlayer: (tag: string) => Promise<unknown>;
   verifyPlayerToken: (tag: string, token: string) => Promise<unknown>;
@@ -108,6 +109,51 @@ export class ClashMateCocClient {
         tag: normalizeResponseTag(item.tag, 'Clash API returned an invalid clan search response.'),
         name: item.name,
         data: item,
+      })),
+      data,
+    };
+  }
+
+  async getCapitalRaidSeasons(
+    input: ClashCapitalRaidSeasonsInput,
+  ): Promise<ClashCapitalRaidSeasonsResult> {
+    const query = normalizeCapitalRaidSeasonsInput(input, this.normalizeTag(input.clanTag));
+    if (typeof this.client.getCapitalRaidSeasons !== 'function') {
+      throw new ClashApiError({
+        reason: 'unsupported_client',
+        message: 'Clash API client does not support capital raid seasons.',
+        retryable: false,
+        expectedCapability: 'getCapitalRaidSeasons',
+        missingCapabilities: ['getCapitalRaidSeasons'],
+      });
+    }
+
+    const data = await this.request(
+      () =>
+        this.client.getCapitalRaidSeasons?.(query.clanTag, { limit: query.limit }) ??
+        Promise.resolve(null),
+    );
+    if (!isCapitalRaidSeasonsResponse(data)) {
+      throwInvalidResponse(
+        'Clash API returned an invalid capital raid seasons response.',
+        'getCapitalRaidSeasons',
+      );
+    }
+
+    return {
+      clanTag: query.clanTag,
+      items: data.map((season) => ({
+        clanTag: query.clanTag,
+        state: season.state,
+        startTime: normalizeSeasonTimestamp(
+          season.startTime,
+          'Clash API returned an invalid capital raid seasons response.',
+        ),
+        endTime: normalizeSeasonTimestamp(
+          season.endTime,
+          'Clash API returned an invalid capital raid seasons response.',
+        ),
+        data: season,
       })),
       data,
     };
@@ -273,6 +319,22 @@ function normalizeClanSearchInput(input: ClashClanSearchInput): ClashClanSearchI
   return { name, limit };
 }
 
+function normalizeCapitalRaidSeasonsInput(
+  input: ClashCapitalRaidSeasonsInput,
+  clanTag: string,
+): Required<ClashCapitalRaidSeasonsInput> {
+  if (!isPlainObject(input)) {
+    throw new Error('Clash API capital raid seasons input must be an object.');
+  }
+
+  const limit = input.limit ?? 10;
+  if (!Number.isInteger(limit) || limit <= 0 || limit > 50) {
+    throw new Error('Clash API capital raid seasons limit must be an integer between 1 and 50.');
+  }
+
+  return { clanTag, limit };
+}
+
 function normalizeResponseTag(tag: string, message: string): string {
   try {
     return normalizeClashTag(tag);
@@ -324,6 +386,25 @@ export interface ClashClanSearchInput {
 
 export interface ClashClanSearchResult {
   readonly items: readonly ClashClan[];
+  readonly data: unknown;
+}
+
+export interface ClashCapitalRaidSeasonsInput {
+  readonly clanTag: string;
+  readonly limit?: number;
+}
+
+export interface ClashCapitalRaidSeason {
+  readonly clanTag: string;
+  readonly state: 'ongoing' | 'ended';
+  readonly startTime: string;
+  readonly endTime: string;
+  readonly data: unknown;
+}
+
+export interface ClashCapitalRaidSeasonsResult {
+  readonly clanTag: string;
+  readonly items: readonly ClashCapitalRaidSeason[];
   readonly data: unknown;
 }
 
@@ -424,6 +505,47 @@ function isClanResponse(value: unknown): value is { tag: string; name: string } 
 function isClanSearchResponse(value: unknown): value is { items: { tag: string; name: string }[] } {
   const items = getRecordValue(value, 'items');
   return Array.isArray(items) && items.every(isClanResponse);
+}
+
+function isCapitalRaidSeasonsResponse(value: unknown): value is {
+  readonly state: 'ongoing' | 'ended';
+  readonly startTime: Date | string;
+  readonly endTime: Date | string;
+}[] {
+  return Array.isArray(value) && value.every(isCapitalRaidSeasonResponse);
+}
+
+function isCapitalRaidSeasonResponse(value: unknown): value is {
+  readonly state: 'ongoing' | 'ended';
+  readonly startTime: Date | string;
+  readonly endTime: Date | string;
+} {
+  if (!isRecord(value)) return false;
+  const state = getRecordValue(value, 'state');
+  return (
+    (state === 'ongoing' || state === 'ended') &&
+    isValidSeasonTimestamp(getRecordValue(value, 'startTime')) &&
+    isValidSeasonTimestamp(getRecordValue(value, 'endTime'))
+  );
+}
+
+function isValidSeasonTimestamp(value: unknown): value is Date | string {
+  if (value instanceof Date) return !Number.isNaN(value.getTime());
+  return typeof value === 'string' && !Number.isNaN(Date.parse(value));
+}
+
+function normalizeSeasonTimestamp(value: Date | string, message: string): string {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new ClashApiError({
+      reason: 'invalid_response',
+      message,
+      retryable: false,
+      responseContext: 'capitalRaidSeason.timestamp',
+    });
+  }
+
+  return date.toISOString();
 }
 
 function isWarResponse(value: unknown): value is {
