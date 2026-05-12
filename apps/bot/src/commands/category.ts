@@ -189,7 +189,11 @@ async function executeCategory(
       actorDiscordUserId: interaction.user.id,
       displayName: validation.displayName,
     });
-    await interaction.reply({ content: formatCreateCategoryMessage(result), ephemeral: true });
+    const categories = await options.store.listClanCategories(interaction.guildId);
+    await interaction.reply({
+      content: formatCreateCategoryMessage(result, categories.length),
+      ephemeral: true,
+    });
     return;
   }
 
@@ -438,31 +442,44 @@ function formatCategoryLookupContext(
     result.duplicateNameMatches > 0
       ? ` ${result.duplicateNameMatches} other saved categories share that normalized name; autocomplete IDs disambiguate duplicates.`
       : '';
-  return `Selected category: ${escapeMarkdown(result.category.displayName)} (${inlineCode(result.category.id)}) from ${result.totalCategories} saved categories.${duplicateHint}`;
+  return `Selected category: ${escapeMarkdown(result.category.displayName)} (${inlineCode(result.category.id)}) from ${result.totalCategories} saved categories; saved order ${formatCategorySavedOrder(result.category)}.${duplicateHint}`;
 }
 
 export function formatCreateCategoryMessage(
   result: Awaited<ReturnType<CategoryStore['createClanCategory']>>,
+  totalCategories?: number,
 ): string {
+  const countContext = formatSavedCategoryCountContext(totalCategories);
   if (result.status === 'duplicate') {
-    return 'A stored category with this name already exists for this server.';
+    return `A stored category with this normalized name already exists for this server.${countContext} Choose a distinct name or pick the existing category from autocomplete; ClashMate matches duplicate names using saved server configuration only.`;
   }
-  return `Category created: ${escapeMarkdown(result.category.displayName)}. This saved server configuration is audit logged and can now be assigned to linked clans.`;
+  return `Category created: ${escapeMarkdown(result.category.displayName)}.${countContext} Saved order: ${formatCategorySavedOrder(result.category)}. This persistent server configuration is audit logged and can now be assigned to linked clans.`;
 }
 
 export function formatUpdateCategoryMessage(
   result: Awaited<ReturnType<CategoryStore['updateClanCategory']>>,
 ): string {
   if (result.status === 'duplicate') {
-    return 'A stored category with this name already exists for this server.';
+    return 'A stored category with this normalized name already exists for this server. The saved category was left unchanged; use autocomplete to choose the intended row when names are similar.';
   }
   if (result.status === 'not_found') return 'No stored category matched that value.';
-  return `Category name was updated to ${escapeMarkdown(result.category.displayName)}. Linked clans keep this category assignment, and the configuration change is audit logged.`;
+  return `Category name was updated to ${escapeMarkdown(result.category.displayName)}. Saved order remains ${formatCategorySavedOrder(result.category)}. Linked clans keep this category assignment, and the persistent configuration change is audit logged.`;
 }
 
 export function formatDeleteCategoryMessage(
   result: Awaited<ReturnType<CategoryStore['deleteClanCategory']>>,
 ): string {
   if (result.status === 'not_found') return 'No stored category matched that value.';
-  return `Successfully deleted category: ${escapeMarkdown(result.category.displayName)}. Linked clans assigned to it fall back to Uncategorized; this does not remove clans or change polling enrollment.`;
+  return `Successfully deleted category: ${escapeMarkdown(result.category.displayName)}. Removed saved order ${formatCategorySavedOrder(result.category)}. Linked clans assigned to it fall back to Uncategorized; this persistent server configuration change does not remove clans or change polling enrollment.`;
+}
+
+function formatSavedCategoryCountContext(totalCategories: number | undefined): string {
+  if (totalCategories === undefined) return '';
+  return ` Stored category rows now: ${totalCategories}.`;
+}
+
+function formatCategorySavedOrder(category: CategoryRecord): string {
+  return category.sortOrder === undefined
+    ? 'unspecified (sorted by name after ordered rows)'
+    : `${category.sortOrder}`;
 }
