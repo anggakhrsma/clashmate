@@ -60,6 +60,7 @@ interface HistoryFilterContext {
   readonly clanLabel?: string;
   readonly playerTag?: string;
   readonly user: User | null;
+  readonly linkedClanCount: number;
 }
 
 export const historyCommandData = new SlashCommandBuilder()
@@ -349,6 +350,7 @@ export async function executeHistory(
     ...(clanLabel ? { clanLabel } : {}),
     ...(playerTagLabel ? { playerTag: playerTagLabel } : {}),
     user: userOption,
+    linkedClanCount: clans.length,
   };
 
   if (option === 'cwl-attacks' || option === 'war-attacks') {
@@ -551,6 +553,7 @@ export function buildClanGamesHistoryEmbed(
           latestLabel: 'Latest fetched',
           latestAt: latestFetchedAt,
           filters,
+          coverage: formatHistoryCoverage('clan-games'),
           note: 'Persisted Clan Games snapshots only; no live Clash API lookup or polling enrollment.',
         }),
         inline: false,
@@ -604,6 +607,7 @@ export function buildJoinLeaveHistoryEmbed(
           latestLabel: 'Latest detected',
           latestAt: latestDetectedAt,
           filters,
+          coverage: formatHistoryCoverage('join-leave'),
           note: 'Persisted clan member events only; no live Clash API lookup or polling enrollment.',
         }),
         inline: false,
@@ -666,6 +670,7 @@ export function buildWarAttackHistoryEmbed(
           latestLabel: 'Latest detected',
           latestAt: latestDetectedAt,
           filters,
+          coverage: formatHistoryCoverage(option),
           note: isCwlApproximation
             ? 'Persisted war attack events only; CWL-only classification is approximate because CWL metadata is not stored separately yet. No live Clash API lookup or polling enrollment.'
             : 'Persisted war attack events only; no live Clash API lookup or polling enrollment.',
@@ -778,6 +783,8 @@ export function buildCapitalRaidsHistoryEmbed(
           latestLabel: 'Latest snapshot',
           latestAt,
           filters,
+          coverage:
+            'Linked-clan capital snapshot fields only: Capital Hall, capital league, capital trophies, and/or capital points. Raid-week attack logs are not persisted.',
           note: 'Persisted linked-clan capital snapshots only. No live Clash API lookup, backfill, or polling enrollment is performed.',
         }),
         inline: false,
@@ -898,6 +905,7 @@ export function buildSnapshotBackedHistoryEmbed(
           latestLabel: 'Latest snapshot',
           latestAt,
           filters,
+          coverage: getSnapshotHistoryCoverage(option),
           note: 'Persisted linked-clan member snapshots only. This is snapshot-backed history, not a live Clash API lookup, backfill, or search-only polling enrollment.',
         }),
         inline: false,
@@ -1032,6 +1040,7 @@ export function buildUnavailableHistoryEmbed(
     .setDescription(`${message}\n\n${HISTORY_STORED_ONLY_HELP}`)
     .addFields(
       { name: 'Accepted filters', value: filterText, inline: false },
+      { name: 'Filter resolution', value: formatHistoryFilterResolution(filters), inline: false },
       {
         name: 'Available stored-history categories',
         value:
@@ -1055,6 +1064,7 @@ export function buildNoHistoryEmbed(
     .addFields(
       { name: 'Accepted filters', value: formatAcceptedHistoryFilters(filters), inline: false },
       { name: 'Source coverage', value: formatHistoryCoverage(option), inline: false },
+      { name: 'Filter resolution', value: formatHistoryFilterResolution(filters), inline: false },
       {
         name: 'Polling prerequisites',
         value:
@@ -1094,6 +1104,16 @@ function formatAcceptedHistoryFilters(filters: HistoryFilterContext): string {
   return activeFilters.length > 0
     ? `${activeFilters.join('\n')}\n${HISTORY_FILTER_HELP}`
     : HISTORY_FILTER_HELP;
+}
+
+function formatHistoryFilterResolution(filters: HistoryFilterContext): string {
+  const selected = [
+    filters.clanLabel ? `clan resolved to ${filters.clanLabel}` : undefined,
+    filters.playerTag ? `player resolved to \`${filters.playerTag}\`` : undefined,
+    filters.user ? `user resolved to <@${filters.user.id}> linked players` : undefined,
+  ].filter((value): value is string => Boolean(value));
+  const resolved = selected.length > 0 ? selected.join(' · ') : 'no optional filters selected';
+  return `${resolved}. ${filters.linkedClanCount} linked clan${filters.linkedClanCount === 1 ? '' : 's'} configured for this server.`;
 }
 
 function formatHistoryOptionTitle(option: HistoryOption): string {
@@ -1176,6 +1196,7 @@ export function buildDonationHistoryEmbed(
           latestLabel: 'Latest detected',
           latestAt: latestDetectedAt,
           filters,
+          coverage: formatHistoryCoverage('donations'),
           note: 'Persisted donation delta events only; no live Clash API lookup or polling enrollment.',
         }),
         inline: false,
@@ -1196,14 +1217,34 @@ function formatHistorySourceContext(input: {
   readonly latestLabel: string;
   readonly latestAt: Date | undefined;
   readonly filters: HistoryFilterContext;
+  readonly coverage: string;
   readonly note: string;
 }): string {
   return [
     `Rows: ${input.rowsConsidered} considered · ${input.rowsVisible} visible.`,
     `${input.latestLabel}: ${input.latestAt ? time(input.latestAt, 'f') : 'none'}.`,
+    `Linked clans: ${input.filters.linkedClanCount}.`,
     `Active filters: ${formatActiveHistoryFilters(input.filters)}.`,
+    `Coverage: ${input.coverage}`,
     input.note,
   ].join('\n');
+}
+
+function getSnapshotHistoryCoverage(
+  option: 'capital-contribution' | 'attacks' | 'loot' | 'legend-attacks' | 'eos-trophies',
+): string {
+  switch (option) {
+    case 'capital-contribution':
+      return 'Current linked-clan member capital contribution/capital gold snapshot fields only; raid-week contribution time series are not persisted.';
+    case 'attacks':
+      return 'Current linked-clan member trophy and league snapshot fields only; multiplayer attack/defense time series are not persisted.';
+    case 'loot':
+      return 'Current linked-clan member donation/received snapshot fields only; true loot resource time series are not persisted.';
+    case 'legend-attacks':
+      return 'Current linked-clan member trophy and league snapshot fields only; Legend day attack timelines are not persisted.';
+    case 'eos-trophies':
+      return 'Current linked-clan member trophy snapshot fields only; end-of-season trophy time series are not persisted.';
+  }
 }
 
 function formatActiveHistoryFilters(filters: HistoryFilterContext): string {
