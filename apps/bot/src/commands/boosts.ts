@@ -13,14 +13,14 @@ import {
 export const BOOSTS_COMMAND_NAME = 'boosts';
 export const BOOSTS_COMMAND_DESCRIPTION = 'Displays active super troops of clan members.';
 export const BOOSTS_NO_SNAPSHOT_MESSAGE =
-  'No member snapshot is available for this linked clan yet. `/boosts` needs a clan linked with `/setup clan`, then clan polling must observe at least one member before boosts can be checked.';
+  'No stored member snapshot is available for this selected clan yet. Link the clan with `/setup clan`, then wait for clan polling to capture members before using `/boosts` again.';
 export const BOOSTS_NO_ACTIVE_DATA_MESSAGE =
-  'No members are boosting in this clan from the live player lookups ClashMate could analyze.';
+  'No active boosts were found in the live player lookups for this selected clan.';
 
 const BOOSTS_CONTEXT_MESSAGE =
   'Source: current Clash player troop data for members in the latest stored clan member snapshot. `/boosts` performs one-off live lookups only; it does not enroll players into polling or persist boost results.';
 const BOOSTS_POLLING_PREREQUISITE_MESSAGE =
-  'Prerequisites: link the clan with `/setup clan`, keep the clan poller running so member snapshots stay fresh, and allow live player lookups to complete.';
+  'Keep clan polling running so stored member snapshots stay fresh, and allow live player lookups to complete.';
 const STALE_SNAPSHOT_WARNING_HOURS = 24;
 
 const EMBED_FIELD_VALUE_LIMIT = 1024;
@@ -180,8 +180,8 @@ export async function executeBoosts(
   }
 
   const clanOption = interaction.options.getString('clan');
-  const clan = clanOption ? resolveBoostsClan(clans, clanOption) : clans[0];
-  if (!clan) {
+  const clanResolution = resolveBoostsClanSelection(clans, clanOption);
+  if (!clanResolution.clan) {
     await interaction.editReply({
       content:
         'No linked clan was found for that `clan` option. Use a linked clan tag, alias, or exact clan name from `/setup clan`.',
@@ -189,6 +189,7 @@ export async function executeBoosts(
     return;
   }
 
+  const { clan, source } = clanResolution;
   const [snapshots] = await options.store.listClanMemberSnapshotsForGuild({
     guildId: interaction.guildId,
     clanTag: clan.clanTag,
@@ -197,7 +198,7 @@ export async function executeBoosts(
   if (!snapshots || snapshots.members.length === 0) {
     await interaction.editReply({
       content: [
-        `Selected clan: ${formatSelectedClan(clan)}.`,
+        `Selected clan: ${formatSelectedClan(clan)} (${source}).`,
         BOOSTS_NO_SNAPSHOT_MESSAGE,
         BOOSTS_POLLING_PREREQUISITE_MESSAGE,
       ].join('\n'),
@@ -213,9 +214,10 @@ export async function executeBoosts(
   if (boosts.length === 0) {
     await interaction.editReply({
       content: [
-        `Selected clan: ${formatSelectedClan(snapshots.clan)}.`,
+        `Selected clan: ${formatSelectedClan(snapshots.clan)} (${clanResolution.source}).`,
         BOOSTS_NO_ACTIVE_DATA_MESSAGE,
         coverageText,
+        formatBoostsLookupGuidance(coverage),
         BOOSTS_CONTEXT_MESSAGE,
       ].join('\n'),
     });
@@ -223,7 +225,7 @@ export async function executeBoosts(
   }
 
   await interaction.editReply({
-    embeds: [buildBoostsEmbed(snapshots.clan, boosts, coverage)],
+    embeds: [buildBoostsEmbed(snapshots.clan, boosts, coverage, clanResolution.source)],
   });
 }
 
@@ -274,7 +276,7 @@ export function formatBoostsScanCoverage(coverage: BoostsScanCoverage): string {
       )}`
     : '';
   const notes = formatCoverageNotes(coverage);
-  return `Scan coverage: ${coverage.fetchedPlayers}/${coverage.storedMembers} member(s) fetched/analyzed (${analyzedPercent}); skipped ${coverage.skippedPlayers} (${skippedPercent}); failed ${coverage.failedLookups} (${failedPercent})${snapshotText}. ${notes}`;
+  return `Scan coverage: ${coverage.storedMembers} stored member(s) scanned; ${coverage.fetchedPlayers} live player lookup(s) fetched/analyzed (${analyzedPercent}); ${coverage.skippedPlayers} skipped (${skippedPercent}); ${coverage.failedLookups} failed (${failedPercent})${snapshotText}. ${notes}`;
 }
 
 export function collectActiveBoosts(players: readonly ClashPlayer[]): ActiveBoostGroup[] {
@@ -323,6 +325,30 @@ function formatCoverageNotes(coverage: BoostsScanCoverage): string {
   return `Partial result: ${notes.join('; ')}.`;
 }
 
+function formatBoostsLookupGuidance(coverage: BoostsScanCoverage): string {
+  const guidance: string[] = [];
+  if (
+    coverage.latestSnapshotAt &&
+    Date.now() - coverage.latestSnapshotAt.getTime() >=
+      STALE_SNAPSHOT_WARNING_HOURS * 60 * 60 * 1000
+  ) {
+    guidance.push(
+      'Snapshot is stale; wait for clan polling to refresh members before expecting current boosts.',
+    );
+  }
+  if (coverage.skippedPlayers > 0) {
+    guidance.push(
+      `Only the first ${MAX_PLAYER_FETCHES} stored members were scanned, so some boosts may be outside the analyzed set.`,
+    );
+  }
+  if (coverage.failedLookups > 0) {
+    guidance.push('Some live player lookups failed, so the result may undercount active boosts.');
+  }
+  return guidance.length > 0
+    ? `Guidance: ${guidance.join(' ')}`
+    : 'Guidance: all stored members were scanned successfully.';
+}
+
 function formatSnapshotAge(snapshotAt: Date): string {
   const ageMs = Math.max(0, Date.now() - snapshotAt.getTime());
   const minuteMs = 60_000;
@@ -346,10 +372,20 @@ function formatSelectedClan(clan: BoostsLinkedClan): string {
   return `${label} (${clan.clanTag})`;
 }
 
+function resolveBoostsClanSelection(
+  clans: readonly BoostsLinkedClan[],
+  query: string | null,
+): { clan: BoostsLinkedClan | undefined; source: string } {
+  if (!query) return { clan: clans[0], source: 'default linked clan' };
+  const clan = resolveBoostsClan(clans, query);
+  return { clan, source: 'resolved from clan option' };
+}
+
 export function buildBoostsEmbed(
   clan: BoostsLinkedClan,
   boosts: readonly ActiveBoostGroup[],
   coverage: BoostsScanCoverage,
+  resolutionSource: string,
 ): EmbedBuilder {
   const clanName = clan.alias ?? clan.name ?? 'Linked Clan';
   const boostedPlayers = new Set(
@@ -360,12 +396,13 @@ export function buildBoostsEmbed(
     .setAuthor({ name: `${clanName} (${clan.clanTag})` })
     .setDescription(
       [
-        `Selected clan: ${formatSelectedClan(clan)}.`,
+        `Selected clan: ${formatSelectedClan(clan)} (${resolutionSource}).`,
         formatBoostsScanCoverage(coverage),
         `Boosted coverage: ${boostedPlayers.size}/${coverage.storedMembers} stored member(s) (${formatPercentage(
           boostedPlayers.size,
           coverage.storedMembers,
         )}) have at least one active boost in analyzed data.`,
+        formatBoostsLookupGuidance(coverage),
         BOOSTS_CONTEXT_MESSAGE,
       ].join('\n'),
     )
