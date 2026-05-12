@@ -300,13 +300,23 @@ export function filterCategoryChoices(
   query: string,
 ): ApplicationCommandOptionChoiceData<string>[] {
   const normalizedQuery = query.trim().toLowerCase();
-  const choices = categories
+  const seenCategoryIds = new Set<string>();
+  const choices = [...categories]
+    .sort(compareCategoriesForList)
     .filter((category) => category.displayName.toLowerCase().includes(normalizedQuery))
-    .slice(0, 25)
-    .map((category) => ({ name: category.displayName, value: category.id }));
+    .flatMap((category) => {
+      if (seenCategoryIds.has(category.id)) return [];
+      seenCategoryIds.add(category.id);
+      return [{ name: formatCategoryChoiceName(category), value: category.id }];
+    })
+    .slice(0, 25);
   if (choices.length > 0 || normalizedQuery.length === 0) return choices;
 
   return [{ name: 'No matching stored category', value: '__no_matching_category__' }];
+}
+
+function formatCategoryChoiceName(category: CategoryRecord): string {
+  return `${category.displayName} (Category)`;
 }
 
 export function formatCategoryList(categories: readonly CategoryRecord[]): string {
@@ -339,7 +349,11 @@ function compareCategoriesForList(left: CategoryRecord, right: CategoryRecord): 
   const orderDiff =
     (left.sortOrder ?? Number.MAX_SAFE_INTEGER) - (right.sortOrder ?? Number.MAX_SAFE_INTEGER);
   if (orderDiff !== 0) return orderDiff;
-  return left.displayName.localeCompare(right.displayName, undefined, { sensitivity: 'base' });
+  const nameDiff = left.displayName.localeCompare(right.displayName, undefined, {
+    sensitivity: 'base',
+  });
+  if (nameDiff !== 0) return nameDiff;
+  return left.id.localeCompare(right.id, undefined, { sensitivity: 'base' });
 }
 
 export async function resolveCategory(
