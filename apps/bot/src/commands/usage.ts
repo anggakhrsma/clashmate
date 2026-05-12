@@ -97,6 +97,7 @@ export interface UsageView {
   dailyUsage: UsageDailyRecord[];
   commandTotals: UsageCommandTotalRecord[];
   loadedCommandCoverage?: UsageLoadedCommandCoverage;
+  recentTrend?: UsageRecentTrend;
   totalUses: number;
   metricSource?: string;
 }
@@ -105,7 +106,16 @@ export interface UsageLoadedCommandCoverage {
   loadedCount: number;
   withUsageCount: number;
   withoutUsageCount: number;
+  coveragePercent: number;
   unusedSample: string[];
+}
+
+export interface UsageRecentTrend {
+  recentDays: number;
+  recentUses: number;
+  previousDays: number;
+  previousUses: number;
+  change: number;
 }
 
 export function createUsageSlashCommand(options: UsageCommandOptions): SlashCommandDefinition {
@@ -200,6 +210,7 @@ export async function collectUsageView(
   );
   const totalUses = commandTotals.reduce((sum, record) => sum + record.uses, 0);
   const botAvatarUrl = context.client.user?.displayAvatarURL({ extension: 'png' });
+  const recentTrend = buildRecentUsageTrend(dailyUsage);
 
   return {
     botName: context.client.user?.displayName ?? context.client.user?.username ?? 'ClashMate',
@@ -213,10 +224,12 @@ export async function collectUsageView(
             loadedCount: loadedCommandNames.length,
             withUsageCount: commandsWithUsage.size,
             withoutUsageCount: unusedLoadedCommandNames.length,
+            coveragePercent: Math.round((commandsWithUsage.size / loadedCommandNames.length) * 100),
             unusedSample: unusedLoadedCommandNames.slice(0, UNUSED_COMMAND_SAMPLE_LIMIT),
           },
         }
       : {}),
+    ...(recentTrend ? { recentTrend } : {}),
     totalUses,
     metricSource: metricReader
       ? 'PostgreSQL aggregate metric reader'
@@ -240,7 +253,10 @@ export function buildUsageEmbed(view: UsageView): EmbedBuilder {
 }
 
 export function formatUsageDescription(
-  view: Pick<UsageView, 'dailyUsage' | 'commandTotals' | 'loadedCommandCoverage' | 'metricSource'>,
+  view: Pick<
+    UsageView,
+    'dailyUsage' | 'commandTotals' | 'loadedCommandCoverage' | 'recentTrend' | 'metricSource'
+  >,
 ): string {
   const dailyRows = view.dailyUsage.length
     ? view.dailyUsage.map(
@@ -262,6 +278,7 @@ export function formatUsageDescription(
     '#      Uses Command',
     ...commandRows,
     '```',
+    formatRecentUsageTrend(view.recentTrend),
     formatLoadedCommandCoverage(view.loadedCommandCoverage),
     view.metricSource ? `Metrics source: ${view.metricSource}` : undefined,
   ]
@@ -277,7 +294,33 @@ function formatLoadedCommandCoverage(coverage: UsageLoadedCommandCoverage | unde
     ? ` Sample unused: ${coverage.unusedSample.map((name) => `/${name}`).join(', ')}`
     : ' No unused loaded commands.';
 
-  return `Loaded command coverage: ${formatCount(coverage.withUsageCount)} with usage, ${formatCount(coverage.withoutUsageCount)} without usage (${formatCount(coverage.loadedCount)} loaded).${sample}`;
+  return `Loaded command coverage: ${coverage.coveragePercent}% (${formatCount(coverage.withUsageCount)}/${formatCount(coverage.loadedCount)}) with usage; ${formatCount(coverage.withoutUsageCount)} unused loaded.${sample}`;
+}
+
+function formatRecentUsageTrend(trend: UsageRecentTrend | undefined): string | undefined {
+  if (!trend) return undefined;
+
+  const comparison = trend.previousDays
+    ? ` vs previous ${trend.previousDays}d ${formatSignedCount(trend.change)}`
+    : '';
+  return `Recent usage trend: last ${trend.recentDays}d ${formatCount(trend.recentUses)} uses${comparison}.`;
+}
+
+function buildRecentUsageTrend(records: readonly UsageDailyRecord[]): UsageRecentTrend | undefined {
+  if (!records.length) return undefined;
+
+  const recentRecords = records.slice(0, 7);
+  const previousRecords = records.slice(7, 14);
+  const recentUses = recentRecords.reduce((sum, record) => sum + record.uses, 0);
+  const previousUses = previousRecords.reduce((sum, record) => sum + record.uses, 0);
+
+  return {
+    recentDays: recentRecords.length,
+    recentUses,
+    previousDays: previousRecords.length,
+    previousUses,
+    change: recentUses - previousUses,
+  };
 }
 
 async function buildUsageChartReply(limit: number, options: UsageCommandOptions): Promise<string> {
