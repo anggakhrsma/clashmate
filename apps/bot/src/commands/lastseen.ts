@@ -365,8 +365,9 @@ export async function executeLastSeen(
   await interaction.reply({
     embeds: [
       buildLastSeenEmbed(latestRows, resolution.targetUser, timezone, {
-        snapshotContext,
+        snapshotContext: withLastSeenShownRows(snapshotContext, latestRows.slice(0, 25).length),
         source: resolution.source,
+        clan: resolution.clan,
       }),
     ],
   });
@@ -375,6 +376,7 @@ export async function executeLastSeen(
 interface LastSeenSnapshotContext {
   readonly requestedMembers: number;
   readonly snapshotRows: number;
+  readonly shownRows: number;
   readonly latestSnapshotAt: Date | null;
   readonly latestObservationAt: Date | null;
   readonly linkedClanCount: number;
@@ -409,10 +411,18 @@ function collectLastSeenSnapshotContext(
   return {
     requestedMembers,
     snapshotRows: snapshots.length,
+    shownRows: 0,
     latestSnapshotAt,
     latestObservationAt,
     ...coverage,
   };
+}
+
+function withLastSeenShownRows(
+  context: LastSeenSnapshotContext,
+  shownRows: number,
+): LastSeenSnapshotContext {
+  return { ...context, shownRows };
 }
 
 interface LastSeenResolvedTimezone {
@@ -575,6 +585,7 @@ export function buildLastSeenEmbed(
   coverage: {
     readonly snapshotContext: LastSeenSnapshotContext;
     readonly source: LastSeenResolutionSource;
+    readonly clan?: LastSeenLinkedClan | null;
   } = { snapshotContext: collectLastSeenSnapshotContext(rows.length, rows), source: 'user_links' },
 ): EmbedBuilder {
   const embed = new EmbedBuilder()
@@ -614,18 +625,18 @@ function formatLastSeenDescription(
   coverage: {
     readonly snapshotContext: LastSeenSnapshotContext;
     readonly source: LastSeenResolutionSource;
+    readonly clan?: LastSeenLinkedClan | null;
   },
 ): string {
   const base = [
-    LASTSEEN_PERSISTED_SNAPSHOT_NOTE,
-    formatLastSeenCoverageContext(coverage.source, coverage.snapshotContext),
-    LASTSEEN_POLLING_PREREQUISITE_NOTE,
-    LASTSEEN_NO_LIVE_FALLBACK_NOTE,
+    formatLastSeenResolutionContext(coverage.source, coverage.clan),
+    formatLastSeenSnapshotContext(coverage.snapshotContext),
+    'Data mode: persisted snapshots/events only; no live Clash lookup, backfill, or polling enrollment is performed by this command.',
   ].join('\n');
   if (!timezone.timezone) {
-    return `${base}\nNo saved /timezone preference was found, so absolute times fall back to Discord timestamps.`;
+    return `${base}\nDisplay: Discord timestamps; no saved /timezone preference was found.`;
   }
-  return `${base}\nAbsolute times use your saved /timezone preference (${timezone.timezone}).`;
+  return `${base}\nDisplay: saved /timezone preference (${timezone.timezone}) plus Discord relative timestamps.`;
 }
 
 function formatLastSeenCoverageContext(
@@ -645,12 +656,26 @@ function formatLastSeenSource(source: LastSeenResolutionSource): string {
   return 'Source: Discord user links. Checking linked player accounts for the selected Discord user only.';
 }
 
+function formatLastSeenResolutionContext(
+  source: LastSeenResolutionSource,
+  clan: LastSeenLinkedClan | null | undefined,
+): string {
+  const clanContext = clan ? ` within ${formatClanChoiceName(clan)}` : ' across linked clans';
+  if (source === 'player_filter') {
+    return `Resolution: explicit player tag${clanContext}; requires a stored observation.`;
+  }
+  if (source === 'linked_clan_snapshot') {
+    return `Resolution: stored linked-clan member snapshot${clanContext}.`;
+  }
+  return `Resolution: selected Discord user's linked player accounts${clanContext}.`;
+}
+
 function formatLastSeenSnapshotContext(context: LastSeenSnapshotContext): string {
   const latest = context.latestSnapshotAt ? time(context.latestSnapshotAt, 'R') : 'none';
   const latestObservation = context.latestObservationAt
     ? time(context.latestObservationAt, 'R')
     : 'none';
-  return `Context: ${context.linkedClanCount} linked clan${context.linkedClanCount === 1 ? '' : 's'}, ${context.snapshotClanCount} snapshot clan${context.snapshotClanCount === 1 ? '' : 's'}, ${context.snapshotMemberRows} member row${context.snapshotMemberRows === 1 ? '' : 's'} available; considered ${context.requestedMembers} member${context.requestedMembers === 1 ? '' : 's'} / ${context.snapshotRows} observation row${context.snapshotRows === 1 ? '' : 's'}; latest snapshot ${latest}, latest observation ${latestObservation}.`;
+  return `Context: ${context.linkedClanCount} linked clan${context.linkedClanCount === 1 ? '' : 's'}, ${context.snapshotClanCount} snapshot clan${context.snapshotClanCount === 1 ? '' : 's'}, ${context.snapshotMemberRows} member row${context.snapshotMemberRows === 1 ? '' : 's'} available; scanned ${context.requestedMembers} player${context.requestedMembers === 1 ? '' : 's'} / ${context.snapshotRows} stored row${context.snapshotRows === 1 ? '' : 's'}, showing ${context.shownRows}; latest snapshot ${latest}, latest observation ${latestObservation}.`;
 }
 
 function formatLastSeenNoDataAction(): string {
