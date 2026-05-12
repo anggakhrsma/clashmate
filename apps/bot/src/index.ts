@@ -1,6 +1,7 @@
 import { ClashMateCocClient } from '@clashmate/coc';
 import { loadConfig } from '@clashmate/config';
 import {
+  createCapitalRaidSeasonReader,
   createClanGamesHistoryReader,
   createClanGamesScoreboardReader,
   createClanMemberJoinLeaveHistoryReader,
@@ -70,6 +71,7 @@ const databaseUserTimezonePreferences = createDatabaseUserTimezonePreferenceStor
 const databaseTrackedClans = createDatabaseTrackedClanStore(database);
 const databaseClanGamesScoreboards = createClanGamesScoreboardReader(database);
 const databaseClanGamesHistory = createClanGamesHistoryReader(database);
+const databaseCapitalRaids = createCapitalRaidSeasonReader(database);
 const databaseClanMemberNotifications = createDatabaseClanMemberNotificationConfigStore(database);
 const databasePlayerLinks = createDatabasePlayerLinkStore(database);
 const databaseReminderSettings = createDatabaseReminderSettingsStore(database);
@@ -187,6 +189,7 @@ const commandRegistry = createBotCommandRegistry({
     store: {
       listClansForGuild: databaseTrackedClans.listClansForGuild,
       listClanMemberSnapshotsForGuild: databaseClanMemberSnapshots.listClanMemberSnapshotsForGuild,
+      listCapitalRaidSeasonsForGuild: databaseCapitalRaids.listCapitalRaidSeasonsForGuild,
       listPlayerTagsForUser: databasePlayerLinks.listPlayerTagsForUser,
     },
   },

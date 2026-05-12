@@ -81,12 +81,44 @@ export interface CapitalClanMemberSnapshots {
   readonly members: readonly CapitalMemberSnapshotRow[];
 }
 
+export interface CapitalRaidMemberRow {
+  readonly playerTag: string;
+  readonly playerName: string;
+  readonly attacks: number;
+  readonly attackLimit: number;
+  readonly bonusAttackLimit: number;
+  readonly capitalResourcesLooted: number;
+}
+
+export interface CapitalRaidSeasonRow {
+  readonly clanTag: string;
+  readonly seasonKey: string;
+  readonly state: string;
+  readonly startTime: Date;
+  readonly endTime: Date;
+  readonly capitalTotalLoot: number;
+  readonly raidsCompleted: number;
+  readonly totalAttacks: number;
+  readonly enemyDistrictsDestroyed: number;
+  readonly offensiveReward: number;
+  readonly defensiveReward: number;
+  readonly sourceFetchedAt: Date;
+  readonly members: readonly CapitalRaidMemberRow[];
+}
+
 export interface CapitalStore {
   readonly listClansForGuild: (guildId: string) => Promise<CapitalLinkedClan[]>;
   readonly listClanMemberSnapshotsForGuild: (input: {
     guildId: string;
     clanTag?: string;
   }) => Promise<CapitalClanMemberSnapshots[]>;
+  readonly listCapitalRaidSeasonsForGuild?: (input: {
+    guildId: string;
+    clanTag?: string;
+    weekStart?: Date;
+    weekEnd?: Date;
+    limit?: number;
+  }) => Promise<CapitalRaidSeasonRow[]>;
   readonly listPlayerTagsForUser: (guildId: string, discordUserId: string) => Promise<string[]>;
 }
 
@@ -175,6 +207,42 @@ export async function executeCapital(
 
   if (subcommand === 'raids') {
     const raidClans = clan ? [clan] : clans;
+    const weekRange = getRaidWeekRange(week);
+    if (options.store.listCapitalRaidSeasonsForGuild) {
+      const raidSeasons = await options.store.listCapitalRaidSeasonsForGuild({
+        guildId: interaction.guildId,
+        ...(clan ? { clanTag: clan.clanTag } : {}),
+        ...(weekRange ? { weekStart: weekRange.start, weekEnd: weekRange.end } : {}),
+        limit: 50,
+      });
+      const filteredRaidSeasons =
+        user && playerTags
+          ? raidSeasons.filter((season) =>
+              season.members.some((member) =>
+                new Set(playerTags.map((tag) => tag.toUpperCase())).has(
+                  member.playerTag.toUpperCase(),
+                ),
+              ),
+            )
+          : raidSeasons;
+
+      if (filteredRaidSeasons.length > 0 || weekRange) {
+        await interaction.editReply({
+          embeds: [
+            buildCapitalRaidSeasonsEmbed(filteredRaidSeasons, raidClans, {
+              subcommand: 'raids',
+              linkedClansConsidered: raidClans.length,
+              ...(clan ? { clanLabel: labelForClan(clan) } : {}),
+              week,
+              ...(user ? { userId: user.id } : {}),
+              ...(playerTags ? { playerTags } : {}),
+            }),
+          ],
+        });
+        return;
+      }
+    }
+
     if (user && playerTags) {
       const snapshots = await options.store.listClanMemberSnapshotsForGuild({
         guildId: interaction.guildId,
@@ -341,10 +409,74 @@ export function buildCapitalRaidsEmbed(
     .addFields({
       name: 'Raid Weekend Logs',
       value:
-        'Current source: linked-clan capital snapshots ranked by stored trophies/points, hall, and league. The `week` option is accepted as a display filter for parity, but ClashMate has no stored raid attack history source for per-attack raid logs in this command.',
+        'Fallback source: linked-clan capital snapshots ranked by stored trophies/points, hall, and league. When capital raid seasons have been persisted by the clan poller, `/capital raids` shows stored raid-week rows instead of this snapshot fallback.',
     })
     .setFooter({
       text: `Showing ${Math.min(rows.length, CAPITAL_ROW_LIMIT)}/${rows.length} linked clans`,
+    });
+}
+
+export function buildCapitalRaidSeasonsEmbed(
+  seasons: readonly CapitalRaidSeasonRow[],
+  clans: readonly CapitalLinkedClan[],
+  filters: {
+    readonly week: string | null;
+    readonly subcommand?: CapitalSubcommand;
+    readonly userId?: string;
+    readonly playerTags?: readonly string[];
+    readonly clanLabel?: string;
+    readonly linkedClansConsidered?: number;
+  },
+): EmbedBuilder {
+  const clanByTag = new Map(clans.map((clan) => [clan.clanTag.toUpperCase(), clan]));
+  const rows = [...seasons].sort(
+    (a, b) =>
+      b.startTime.getTime() - a.startTime.getTime() ||
+      b.capitalTotalLoot - a.capitalTotalLoot ||
+      b.totalAttacks - a.totalAttacks,
+  );
+  const latestFetchedAt = rows.reduce<Date | null>(
+    (latest, row) =>
+      !latest || row.sourceFetchedAt.getTime() > latest.getTime() ? row.sourceFetchedAt : latest,
+    null,
+  );
+  const memberRows = rows.reduce((total, row) => total + row.members.length, 0);
+  const embed = baseCapitalEmbed('Capital Raid Weekends', {
+    ...filters,
+    raidSeasonRows: rows.length,
+    raidMemberRows: memberRows,
+    visibleRows: Math.min(rows.length, CAPITAL_ROW_LIMIT),
+    hiddenRows: Math.max(rows.length - CAPITAL_ROW_LIMIT, 0),
+    latestRaidSeasonFetchedAt: latestFetchedAt,
+  });
+
+  if (rows.length === 0) {
+    return embed.setDescription(
+      formatCapitalNoDataMessage(
+        'No stored capital raid-week rows match the accepted filters.',
+        filters,
+        'Link/configure a clan and allow the clan poller to fetch and persist capital raid seasons.',
+      ),
+    );
+  }
+
+  return embed
+    .setDescription(
+      rows
+        .slice(0, CAPITAL_ROW_LIMIT)
+        .map((row, index) => {
+          const clan = clanByTag.get(row.clanTag.toUpperCase());
+          const label = clan ? formatClanLink(clan) : `\`${escapeMarkdown(row.clanTag)}\``;
+          return `${index + 1}. ${label} · ${formatRaidWeekDateRange(row)} · ${formatNumber(row.capitalTotalLoot)} loot · ${formatNumber(row.totalAttacks)} attacks · ${formatNumber(row.raidsCompleted)} raids · ${row.state}`;
+        })
+        .join('\n'),
+    )
+    .addFields({
+      name: 'Raid Member Coverage',
+      value: `Stored raid member rows: ${formatNumber(memberRows)}. User filters match against persisted raid member tags when available.`,
+    })
+    .setFooter({
+      text: `Showing ${Math.min(rows.length, CAPITAL_ROW_LIMIT)}/${rows.length} raid weekends`,
     });
 }
 
@@ -496,10 +628,13 @@ function baseCapitalEmbed(
     readonly usableRows?: number;
     readonly capitalContributionRows?: number;
     readonly capitalGoldRows?: number;
+    readonly raidSeasonRows?: number;
+    readonly raidMemberRows?: number;
+    readonly latestRaidSeasonFetchedAt?: Date | null;
   },
 ): EmbedBuilder {
   const notes = [
-    `Source: /capital ${filters.subcommand ?? 'unknown'} from persisted linked-clan/member snapshots only; no live Clash API lookup, fallback, or polling enrollment.`,
+    `Source: /capital ${filters.subcommand ?? 'unknown'} from persisted linked-clan/member snapshots and stored capital raid seasons only; no live Clash API lookup, fallback, or polling enrollment.`,
   ];
   const activeFilters = formatActiveCapitalFilters(filters);
   notes.push(`Filters: ${activeFilters.length > 0 ? activeFilters.join(', ') : 'none'}.`);
@@ -538,6 +673,14 @@ function baseCapitalEmbed(
     );
   if (typeof filters.capitalGoldRows === 'number')
     notes.push(`capitalGold coverage: ${filters.capitalGoldRows.toLocaleString('en-US')}.`);
+  if (typeof filters.raidSeasonRows === 'number')
+    notes.push(`Stored raid seasons: ${filters.raidSeasonRows.toLocaleString('en-US')}.`);
+  if (typeof filters.raidMemberRows === 'number')
+    notes.push(`Stored raid member rows: ${filters.raidMemberRows.toLocaleString('en-US')}.`);
+  if (filters.latestRaidSeasonFetchedAt)
+    notes.push(
+      `Latest raid season fetch: ${formatRelativeSnapshotAge(filters.latestRaidSeasonFetchedAt)}.`,
+    );
   if (filters.latestMemberSnapshotAt)
     notes.push(
       `Latest member snapshot: ${formatRelativeSnapshotAge(filters.latestMemberSnapshotAt)}.`,
@@ -546,7 +689,7 @@ function baseCapitalEmbed(
     notes.push(`Snapshot freshness: ${filters.memberSnapshotFreshness}.`);
   if (filters.week?.trim())
     notes.push(
-      `Week display filter: ${formatRaidWeekFilter(filters.week)} accepted; no raid attack history source is available for per-week attack-log filtering.`,
+      `Week filter: ${formatRaidWeekFilter(filters.week)} matched against stored raid seasons.`,
     );
   if (filters.userId)
     notes.push(
@@ -555,9 +698,7 @@ function baseCapitalEmbed(
   notes.push(
     'Polling required: link/configure clans and allow clan polling to store capital and member snapshots before data appears.',
   );
-  notes.push(
-    'Raid-week attack logs and per-week contribution history have no stored source for this command; week filters cannot load attack-log history.',
-  );
+  notes.push('Per-week contribution history uses stored raid member rows when available.');
   return new EmbedBuilder().setTitle(title).addFields({ name: 'Source', value: notes.join('\n') });
 }
 
@@ -591,7 +732,7 @@ function formatCapitalNoDataMessage(
     nextStep,
     'Accepted filter inputs are linked clan tag/name/alias, linked Discord user, and recent raid-week label. Filters only narrow stored snapshots for linked clans in this server.',
     'This command is persisted-only; it will not call the Clash API live or enroll search-only clans into polling.',
-    'Raid-week attack logs and per-week contribution history have no stored source for this command, so the week option is a display/parity label and does not load attack-log history.',
+    'Raid-week filters use stored capital raid seasons when available; otherwise they only narrow existing persisted snapshots and never call the Clash API live.',
   ]
     .filter((value): value is string => Boolean(value))
     .join('\n');
@@ -669,6 +810,18 @@ function getRecentRaidWeekChoices(now: Date): ApplicationCommandOptionChoiceData
   return choices;
 }
 
+function getRaidWeekRange(
+  week: string | null,
+): { readonly start: Date; readonly end: Date } | null {
+  if (!week?.trim()) return null;
+  const start = new Date(`${week.trim()}T00:00:00.000Z`);
+  if (Number.isNaN(start.getTime())) return null;
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 7);
+  end.setUTCMilliseconds(end.getUTCMilliseconds() - 1);
+  return { start, end };
+}
+
 function startOfUtcDay(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }
@@ -690,6 +843,10 @@ function formatRaidWeekFilter(week: string): string {
   const trimmed = week.trim();
   const label = RAID_WEEK_LABELS.get(trimmed);
   return label ? `${label} (${trimmed})` : trimmed;
+}
+
+function formatRaidWeekDateRange(season: Pick<CapitalRaidSeasonRow, 'startTime' | 'endTime'>) {
+  return `${formatRaidWeekChoiceName(season.startTime)}-${formatRaidWeekChoiceName(season.endTime)}`;
 }
 
 function clanMatchesQuery(clan: CapitalLinkedClan, normalizedQuery: string): boolean {

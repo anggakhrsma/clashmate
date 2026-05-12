@@ -762,6 +762,41 @@ export interface CapitalRaidSeasonStore {
   ) => Promise<ProcessCapitalRaidSeasonsResult>;
 }
 
+export interface CapitalRaidSeasonMemberRecord {
+  playerTag: string;
+  playerName: string;
+  attacks: number;
+  attackLimit: number;
+  bonusAttackLimit: number;
+  capitalResourcesLooted: number;
+}
+
+export interface CapitalRaidSeasonRecord {
+  clanTag: string;
+  seasonKey: string;
+  state: string;
+  startTime: Date;
+  endTime: Date;
+  capitalTotalLoot: number;
+  raidsCompleted: number;
+  totalAttacks: number;
+  enemyDistrictsDestroyed: number;
+  offensiveReward: number;
+  defensiveReward: number;
+  sourceFetchedAt: Date;
+  members: CapitalRaidSeasonMemberRecord[];
+}
+
+export interface CapitalRaidSeasonReader {
+  listCapitalRaidSeasonsForGuild: (input: {
+    guildId: string;
+    clanTag?: string;
+    weekStart?: Date;
+    weekEnd?: Date;
+    limit?: number;
+  }) => Promise<CapitalRaidSeasonRecord[]>;
+}
+
 export interface ClanGamesProgressDeltaInput {
   initialPoints: number;
   previousCurrentPoints: number;
@@ -5091,6 +5126,91 @@ export function createCapitalRaidSeasonStore(database: Database): CapitalRaidSea
 
         return { status: 'processed', seasonsUpserted, memberRowsUpserted };
       });
+    },
+  };
+}
+
+export function createCapitalRaidSeasonReader(database: Database): CapitalRaidSeasonReader {
+  return {
+    listCapitalRaidSeasonsForGuild: async (input) => {
+      const limit = input.limit ?? 50;
+      if (!Number.isInteger(limit) || limit <= 0 || limit > 100) {
+        throw new Error('Capital raid season reader limit must be an integer between 1 and 100.');
+      }
+
+      const filters: SQL[] = [eq(schema.capitalRaidSeasonSnapshots.guildId, input.guildId)];
+      if (input.clanTag) {
+        filters.push(eq(schema.capitalRaidSeasonSnapshots.clanTag, input.clanTag));
+      }
+      if (input.weekStart) {
+        filters.push(gte(schema.capitalRaidSeasonSnapshots.startTime, input.weekStart));
+      }
+      if (input.weekEnd) {
+        filters.push(lte(schema.capitalRaidSeasonSnapshots.startTime, input.weekEnd));
+      }
+
+      const seasons = await database
+        .select({
+          clanTag: schema.capitalRaidSeasonSnapshots.clanTag,
+          seasonKey: schema.capitalRaidSeasonSnapshots.seasonKey,
+          state: schema.capitalRaidSeasonSnapshots.state,
+          startTime: schema.capitalRaidSeasonSnapshots.startTime,
+          endTime: schema.capitalRaidSeasonSnapshots.endTime,
+          capitalTotalLoot: schema.capitalRaidSeasonSnapshots.capitalTotalLoot,
+          raidsCompleted: schema.capitalRaidSeasonSnapshots.raidsCompleted,
+          totalAttacks: schema.capitalRaidSeasonSnapshots.totalAttacks,
+          enemyDistrictsDestroyed: schema.capitalRaidSeasonSnapshots.enemyDistrictsDestroyed,
+          offensiveReward: schema.capitalRaidSeasonSnapshots.offensiveReward,
+          defensiveReward: schema.capitalRaidSeasonSnapshots.defensiveReward,
+          sourceFetchedAt: schema.capitalRaidSeasonSnapshots.sourceFetchedAt,
+        })
+        .from(schema.capitalRaidSeasonSnapshots)
+        .where(and(...filters))
+        .orderBy(desc(schema.capitalRaidSeasonSnapshots.startTime))
+        .limit(limit);
+
+      if (seasons.length === 0) return [];
+
+      const seasonKeys = seasons.map((season) => season.seasonKey);
+      const members = await database
+        .select({
+          seasonKey: schema.capitalRaidMemberSnapshots.seasonKey,
+          playerTag: schema.capitalRaidMemberSnapshots.playerTag,
+          playerName: schema.capitalRaidMemberSnapshots.playerName,
+          attacks: schema.capitalRaidMemberSnapshots.attacks,
+          attackLimit: schema.capitalRaidMemberSnapshots.attackLimit,
+          bonusAttackLimit: schema.capitalRaidMemberSnapshots.bonusAttackLimit,
+          capitalResourcesLooted: schema.capitalRaidMemberSnapshots.capitalResourcesLooted,
+        })
+        .from(schema.capitalRaidMemberSnapshots)
+        .where(
+          and(
+            eq(schema.capitalRaidMemberSnapshots.guildId, input.guildId),
+            inArray(schema.capitalRaidMemberSnapshots.seasonKey, seasonKeys),
+          ),
+        )
+        .orderBy(
+          desc(schema.capitalRaidMemberSnapshots.capitalResourcesLooted),
+          schema.capitalRaidMemberSnapshots.playerName,
+        );
+      const membersBySeason = new Map<string, CapitalRaidSeasonMemberRecord[]>();
+      for (const member of members) {
+        const bucket = membersBySeason.get(member.seasonKey) ?? [];
+        bucket.push({
+          playerTag: member.playerTag,
+          playerName: member.playerName,
+          attacks: member.attacks,
+          attackLimit: member.attackLimit,
+          bonusAttackLimit: member.bonusAttackLimit,
+          capitalResourcesLooted: member.capitalResourcesLooted,
+        });
+        membersBySeason.set(member.seasonKey, bucket);
+      }
+
+      return seasons.map((season) => ({
+        ...season,
+        members: membersBySeason.get(season.seasonKey) ?? [],
+      }));
     },
   };
 }
