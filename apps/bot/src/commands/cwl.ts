@@ -149,8 +149,16 @@ interface CwlEntry {
 
 interface CwlSnapshotSourceContext {
   readonly scannedCount: number;
+  readonly matchedCount?: number;
   readonly latestFetchedAt: Date | null;
   readonly season: string | null;
+}
+
+interface CwlDiagnosticInput {
+  readonly clan?: CwlLinkedClan | null;
+  readonly user?: User | null;
+  readonly season: string | null;
+  readonly linkedPlayerTagCount?: number;
 }
 
 export function createCwlSlashCommand(options: CwlCommandOptions): SlashCommandDefinition {
@@ -211,6 +219,7 @@ async function executeCwl(
           clan,
           user,
           season: interaction.options.getString('season'),
+          linkedPlayerTagCount: playerTags.length,
         }),
       );
       return;
@@ -221,6 +230,7 @@ async function executeCwl(
           clan,
           user,
           season: interaction.options.getString('season'),
+          linkedPlayerTagCount: playerTags.length,
         }),
       ],
     });
@@ -241,13 +251,15 @@ async function executeCwl(
     .filter((entry): entry is CwlEntry => Boolean(entry.war))
     .filter((entry) => playerTags.length === 0 || warIncludesPlayer(entry.war, playerTags));
   const entry = chooseCwlEntry(entries);
+  const resolvedSnapshotContext = { ...snapshotContext, matchedCount: entries.length };
   if (!entry) {
     await interaction.editReply(
       noDataMessage('war snapshots', {
         clan,
         user,
         season: interaction.options.getString('season'),
-        snapshotContext,
+        linkedPlayerTagCount: playerTags.length,
+        snapshotContext: resolvedSnapshotContext,
       }),
     );
     return;
@@ -261,8 +273,9 @@ async function executeCwl(
           clan,
           user,
           season: interaction.options.getString('season'),
+          linkedPlayerTagCount: playerTags.length,
         },
-        snapshotContext,
+        resolvedSnapshotContext,
       ),
     ],
   });
@@ -312,7 +325,7 @@ export function filterCwlClanChoices(
 export function buildCwlSnapshotEmbed(
   subcommand: CwlSubcommand,
   entry: CwlEntry,
-  input: { clan?: CwlLinkedClan | null; user?: User | null; season: string | null } | string | null,
+  input: CwlDiagnosticInput | string | null,
   sourceContext?: CwlSnapshotSourceContext,
 ): EmbedBuilder {
   const season = typeof input === 'string' || input === null ? input : input.season;
@@ -354,7 +367,7 @@ export function buildCwlSnapshotEmbed(
 export function buildCwlHistoryEmbed(
   subcommand: CwlSubcommand,
   rows: readonly CwlWarAttackHistoryRow[],
-  input: { clan: CwlLinkedClan | null; user: User | null; season: string | null },
+  input: CwlDiagnosticInput,
 ): EmbedBuilder {
   const totals = rows.reduce(
     (acc, row) => ({ attacks: acc.attacks + row.attackCount, stars: acc.stars + row.totalStars }),
@@ -362,6 +375,7 @@ export function buildCwlHistoryEmbed(
   );
   const filters = formatAcceptedFilters(input);
   const latestAttack = maxDate(rows.map((row) => row.lastAttackedAt));
+  const shownCount = Math.min(rows.length, MAX_ROWS);
   const description = rows
     .slice(0, MAX_ROWS)
     .map(
@@ -378,6 +392,7 @@ export function buildCwlHistoryEmbed(
         name: 'Source',
         value: [
           `Persisted-only: scanned ${rows.length} stored attack ${rows.length === 1 ? 'row' : 'rows'} · ${totals.attacks} stored attack ${totals.attacks === 1 ? 'event' : 'events'}`,
+          `showing ${shownCount} of ${rows.length} ${rows.length === 1 ? 'row' : 'rows'}`,
           latestAttack ? `latest event ${time(latestAttack, 'R')}` : '',
           filters ? `filters ${filters}` : 'filters all linked clans',
           'Exact CWL-only filtering may be approximate; classification and season filtering use stored war data',
@@ -563,17 +578,12 @@ function warIncludesPlayer(war: WarData, tags: readonly string[]): boolean {
 }
 function noDataMessage(
   source: string,
-  input: {
-    clan: CwlLinkedClan | null;
-    user: User | null;
-    season: string | null;
-    snapshotContext?: CwlSnapshotSourceContext;
-  },
+  input: CwlDiagnosticInput & { snapshotContext?: CwlSnapshotSourceContext },
 ): string {
   const filters = formatAcceptedFilters(input);
   const coverage = input.snapshotContext
-    ? ` Scanned ${input.snapshotContext.scannedCount} persisted war ${input.snapshotContext.scannedCount === 1 ? 'snapshot' : 'snapshots'}${input.snapshotContext.latestFetchedAt ? `; latest snapshot ${time(input.snapshotContext.latestFetchedAt, 'R')}` : ''}.`
-    : ' Scanned 0 stored attack summary rows for this filter.';
+    ? ` Scanned ${input.snapshotContext.scannedCount} persisted war ${input.snapshotContext.scannedCount === 1 ? 'snapshot' : 'snapshots'}; ${input.snapshotContext.matchedCount ?? 0} matched the accepted filters${input.snapshotContext.latestFetchedAt ? `; latest snapshot ${time(input.snapshotContext.latestFetchedAt, 'R')}` : ''}.`
+    : ' Scanned 0 stored attack summary rows for this filter; showing 0 rows.';
   return [
     `No CWL ${source} data is available for the accepted filters${filters ? ` (${filters})` : ''}.`,
     `${coverage} Persisted-only: no live Clash API fallback and no on-demand polling were used. CWL-only classification and season filtering are approximate until stored CWL round metadata is available.`,
@@ -602,11 +612,12 @@ function buildSnapshotSourceContext(
 function buildSnapshotSourceField(
   entry: CwlEntry,
   context: CwlSnapshotSourceContext,
-  input: { clan?: CwlLinkedClan | null; user?: User | null; season: string | null } | string | null,
+  input: CwlDiagnosticInput | string | null,
 ): { name: string; value: string; inline: false } {
   const filters = typeof input === 'string' || input === null ? '' : formatAcceptedFilters(input);
   const details = [
     `Persisted-only: scanned ${context.scannedCount} stored war ${context.scannedCount === 1 ? 'snapshot' : 'snapshots'}`,
+    `showing 1 of ${context.matchedCount ?? 1} matched ${context.matchedCount === 1 ? 'snapshot' : 'snapshots'}`,
     formatLatestDate('latest fetched', context.latestFetchedAt).replace(/^; /, ''),
     filters ? `filters ${filters}` : 'filters all linked clans',
     `state ${formatState(entry.war.state ?? entry.snapshot.state)}`,
@@ -638,14 +649,14 @@ function readRoundLabel(snapshot: unknown): string | null {
     readString(record.warRound)
   );
 }
-function formatAcceptedFilters(input: {
-  clan?: CwlLinkedClan | null;
-  user?: User | null;
-  season: string | null;
-}): string {
+function formatAcceptedFilters(input: CwlDiagnosticInput): string {
   return [
     ...(input.clan ? [`clan ${input.clan.alias ?? input.clan.name ?? input.clan.clanTag}`] : []),
-    ...(input.user ? [`user ${input.user.displayName}`] : []),
+    ...(input.user
+      ? [
+          `user ${input.user.displayName} (${input.linkedPlayerTagCount ?? 0} linked player ${input.linkedPlayerTagCount === 1 ? 'tag' : 'tags'})`,
+        ]
+      : []),
     ...(input.season ? [`season ${input.season}`] : []),
   ].join(', ');
 }
