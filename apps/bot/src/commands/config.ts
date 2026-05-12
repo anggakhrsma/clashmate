@@ -237,12 +237,12 @@ export function buildConfigEmbed(
       },
       {
         name: 'Webhook Limit',
-        value: `${view.webhookLimit} per channel (allowed ${MIN_WEBHOOK_LIMIT}-${MAX_WEBHOOK_LIMIT}; values outside the range are clamped before saving)`,
+        value: `${view.webhookLimit} per channel\nAllowed persisted range: ${MIN_WEBHOOK_LIMIT}-${MAX_WEBHOOK_LIMIT}. Out-of-range values are clamped before saving.`,
         inline: true,
       },
       {
         name: 'Color Code',
-        value: `${view.embedColor ?? 'None'}\nPreview color: ${formatColorPreview(effectiveColor)}`,
+        value: `${view.embedColor ?? 'None'}\nPreview color: ${formatColorPreview(effectiveColor)}\nUse a 6-digit hex value; clearing is unavailable until the config store supports nullable colors.`,
         inline: true,
       },
       {
@@ -253,6 +253,12 @@ export function buildConfigEmbed(
       {
         name: `Links Manager Roles (${view.linksManagerRoleIds.length})`,
         value: formatRoleList(view.linksManagerRoleIds),
+        inline: false,
+      },
+      {
+        name: 'Persisted Scope',
+        value:
+          'Settings are saved for this Discord server only. Diagnostics use the existing guild configuration read/update result and do not query Clash API data or enroll polling resources.',
         inline: false,
       },
       {
@@ -279,31 +285,54 @@ function formatUpdateStatus(
   before: ConfigView | undefined,
   attemptedUpdate: boolean,
 ): string {
-  if (!attemptedUpdate) return 'No updates requested; showing saved settings.';
+  if (!attemptedUpdate) {
+    return 'No updates requested; showing saved settings. Provide one or more options to persist changes.';
+  }
   if (!before) return 'Updated saved settings.';
 
   const changed: string[] = [];
   const unchanged: string[] = [];
-  collectStatus(changed, unchanged, 'color code', before.embedColor, view.embedColor);
-  collectStatus(changed, unchanged, 'webhook limit', before.webhookLimit, view.webhookLimit);
+  collectStatus(
+    changed,
+    unchanged,
+    'color code',
+    before.embedColor,
+    view.embedColor,
+    formatNullable,
+  );
+  collectStatus(
+    changed,
+    unchanged,
+    'webhook limit',
+    before.webhookLimit,
+    view.webhookLimit,
+    String,
+  );
   collectStatus(
     changed,
     unchanged,
     'bot manager roles',
-    before.botManagerRoleIds.join(','),
-    view.botManagerRoleIds.join(','),
+    before.botManagerRoleIds,
+    view.botManagerRoleIds,
+    formatRoleCount,
   );
   collectStatus(
     changed,
     unchanged,
     'links manager roles',
-    before.linksManagerRoleIds.join(','),
-    view.linksManagerRoleIds.join(','),
+    before.linksManagerRoleIds,
+    view.linksManagerRoleIds,
+    formatRoleCount,
   );
 
+  const summary = changed.length
+    ? `Updated: ${changed.join(', ')}.`
+    : 'No effective changes were saved; requested values already matched the persisted configuration.';
+
   return [
-    `Updated: ${changed.length ? changed.join(', ') : 'none'}.`,
+    summary,
     `Saved unchanged: ${unchanged.join(', ') || 'none'}.`,
+    'Only fields included in this command invocation are changed; omitted settings keep their current values.',
   ].join('\n');
 }
 
@@ -311,9 +340,30 @@ function collectStatus(
   changed: string[],
   unchanged: string[],
   label: string,
-  before: string | number | null,
-  after: string | number | null,
+  before: string | number | null | readonly string[],
+  after: string | number | null | readonly string[],
+  format: (value: string | number | null | readonly string[]) => string,
 ): void {
-  if (before === after) unchanged.push(label);
-  else changed.push(label);
+  const beforeText = format(before);
+  const afterText = format(after);
+  if (isStatusValueEqual(before, after)) unchanged.push(`${label} (${afterText})`);
+  else changed.push(`${label} (${beforeText} → ${afterText})`);
+}
+
+function isStatusValueEqual(
+  before: string | number | null | readonly string[],
+  after: string | number | null | readonly string[],
+): boolean {
+  if (Array.isArray(before) && Array.isArray(after)) {
+    return before.length === after.length && before.every((value, index) => value === after[index]);
+  }
+  return before === after;
+}
+
+function formatNullable(value: string | number | null | readonly string[]): string {
+  return value === null ? 'none' : String(value);
+}
+
+function formatRoleCount(value: string | number | null | readonly string[]): string {
+  return Array.isArray(value) ? `${value.length} configured` : String(value);
 }
