@@ -1,6 +1,7 @@
 import { ClashMateCocClient } from '@clashmate/coc';
 import { loadConfig } from '@clashmate/config';
 import {
+  createCapitalRaidSeasonStore,
   createClanGamesEventStore,
   createClanMemberEventStore,
   createClanMemberSnapshotReader,
@@ -110,6 +111,7 @@ const pollingLeases = createPollingLeaseStore(database);
 const clanSnapshots = createClanSnapshotStore(database);
 const clanMemberSnapshots = createClanMemberSnapshotReader(database);
 const clanMemberEvents = createClanMemberEventStore(database);
+const capitalRaidSeasons = createCapitalRaidSeasonStore(database);
 const clanGames = createClanGamesEventStore(database);
 const playerSnapshots = createPlayerSnapshotStore(database);
 const warSnapshots = createWarSnapshotStore(database);
@@ -129,6 +131,7 @@ const clanPollerHandler = createClanPollerHandler({
   coc,
   snapshots: clanSnapshots,
   memberEvents: clanMemberEvents,
+  capitalRaidSeasons,
 });
 const playerPollerHandler = createPlayerPollerHandler({
   coc,

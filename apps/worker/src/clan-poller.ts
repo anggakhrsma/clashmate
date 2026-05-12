@@ -1,5 +1,7 @@
-import type { ClashMateCocClient } from '@clashmate/coc';
+import type { ClashCapitalRaidSeasonsResult, ClashMateCocClient } from '@clashmate/coc';
 import type {
+  CapitalRaidSeasonSnapshotInput,
+  CapitalRaidSeasonStore,
   ClaimedPollingLease,
   ClanMemberEventStore,
   ClanMemberSnapshotInput,
@@ -7,13 +9,19 @@ import type {
 } from '@clashmate/database';
 
 export interface ClanPollerHandlerOptions {
-  readonly coc: Pick<ClashMateCocClient, 'getClan'>;
+  readonly coc: Pick<ClashMateCocClient, 'getClan'> &
+    Partial<Pick<ClashMateCocClient, 'getCapitalRaidSeasons'>>;
   readonly snapshots: ClanSnapshotStore;
   readonly memberEvents?: ClanMemberEventStore;
+  readonly capitalRaidSeasons?: CapitalRaidSeasonStore;
   readonly now?: () => Date;
 }
 
 export type ClanMemberEventSkipReason = 'clan_not_linked' | 'member_event_store_unavailable';
+export type CapitalRaidSeasonSkipReason =
+  | 'clan_not_linked'
+  | 'capital_raid_store_unavailable'
+  | 'capital_raid_api_unavailable';
 
 export interface ClanPollerResult {
   readonly status: 'snapshot_updated' | 'not_linked';
@@ -30,6 +38,12 @@ export interface ClanPollerResult {
   readonly memberEventProcessingStatus: 'processed' | 'not_linked' | 'skipped';
   readonly memberEventSkipReason?: ClanMemberEventSkipReason;
   readonly memberEventSkipContext?: ClanMemberEventSkipContext;
+  readonly capitalRaidSeasonProcessingRan: boolean;
+  readonly capitalRaidSeasonProcessingStatus: 'processed' | 'not_linked' | 'skipped';
+  readonly capitalRaidSeasonSkipReason?: CapitalRaidSeasonSkipReason;
+  readonly capitalRaidSeasonsFetched?: number;
+  readonly capitalRaidSeasonsUpserted?: number;
+  readonly capitalRaidMemberRowsUpserted?: number;
   readonly joined?: number;
   readonly left?: number;
   readonly donationEvents?: number;
@@ -94,6 +108,26 @@ export function createClanPollerHandler(options: ClanPollerHandlerOptions) {
             fetchedAt,
             members,
           });
+    const capitalRaidStore = options.capitalRaidSeasons;
+    const capitalRaidSkipReason = getCapitalRaidSeasonSkipReason({
+      snapshotStatus: result.status,
+      store: capitalRaidStore,
+      getCapitalRaidSeasons: options.coc.getCapitalRaidSeasons,
+    });
+    const capitalRaidSeasons =
+      capitalRaidSkipReason || !capitalRaidStore || !options.coc.getCapitalRaidSeasons
+        ? []
+        : extractCapitalRaidSeasonSnapshots(
+            await options.coc.getCapitalRaidSeasons({ clanTag: clan.tag, limit: 10 }),
+          );
+    const capitalRaidResult =
+      capitalRaidSkipReason || !capitalRaidStore
+        ? null
+        : await capitalRaidStore.processCapitalRaidSeasons({
+            clanTag: clan.tag,
+            fetchedAt,
+            seasons: capitalRaidSeasons,
+          });
 
     return {
       status: result.status === 'upserted' ? 'snapshot_updated' : 'not_linked',
@@ -122,6 +156,16 @@ export function createClanPollerHandler(options: ClanPollerHandlerOptions) {
             },
           }
         : {}),
+      capitalRaidSeasonProcessingRan: !capitalRaidSkipReason,
+      capitalRaidSeasonProcessingStatus: capitalRaidResult?.status ?? 'skipped',
+      ...(capitalRaidSkipReason ? { capitalRaidSeasonSkipReason: capitalRaidSkipReason } : {}),
+      ...(!capitalRaidSkipReason ? { capitalRaidSeasonsFetched: capitalRaidSeasons.length } : {}),
+      ...(capitalRaidResult
+        ? {
+            capitalRaidSeasonsUpserted: capitalRaidResult.seasonsUpserted,
+            capitalRaidMemberRowsUpserted: capitalRaidResult.memberRowsUpserted,
+          }
+        : {}),
       ...(memberResult?.status === 'processed'
         ? {
             joined: memberResult.joined,
@@ -132,6 +176,17 @@ export function createClanPollerHandler(options: ClanPollerHandlerOptions) {
         : {}),
     };
   };
+}
+
+function getCapitalRaidSeasonSkipReason(input: {
+  readonly snapshotStatus: 'upserted' | 'not_linked';
+  readonly store: CapitalRaidSeasonStore | undefined;
+  readonly getCapitalRaidSeasons: ClashMateCocClient['getCapitalRaidSeasons'] | undefined;
+}): CapitalRaidSeasonSkipReason | null {
+  if (input.snapshotStatus !== 'upserted') return 'clan_not_linked';
+  if (!input.store) return 'capital_raid_store_unavailable';
+  if (!input.getCapitalRaidSeasons) return 'capital_raid_api_unavailable';
+  return null;
 }
 
 function getClanMemberEventSkipReason(
@@ -166,8 +221,86 @@ interface RawClanMember {
   readonly donationsRecieved?: unknown;
 }
 
+interface RawCapitalRaidSeason {
+  readonly capitalTotalLoot?: unknown;
+  readonly raidsCompleted?: unknown;
+  readonly totalAttacks?: unknown;
+  readonly enemyDistrictsDestroyed?: unknown;
+  readonly offensiveReward?: unknown;
+  readonly defensiveReward?: unknown;
+  readonly members?: unknown;
+}
+
+interface RawCapitalRaidMember {
+  readonly tag?: unknown;
+  readonly name?: unknown;
+  readonly attacks?: unknown;
+  readonly attackLimit?: unknown;
+  readonly bonusAttackLimit?: unknown;
+  readonly capitalResourcesLooted?: unknown;
+}
+
+const MAX_CAPITAL_RAID_COUNTER = 1_000_000;
+
 export function extractClanMemberSnapshots(clan: unknown): ClanMemberSnapshotInput[] {
   return extractClanMemberSnapshotsFromList(getClanMemberList(clan));
+}
+
+export function extractCapitalRaidSeasonSnapshots(
+  result: ClashCapitalRaidSeasonsResult,
+): CapitalRaidSeasonSnapshotInput[] {
+  return result.items.map((season) => {
+    const rawSeason = isRecord(season.data) ? (season.data as RawCapitalRaidSeason) : {};
+    return {
+      state: season.state,
+      startTime: new Date(season.startTime),
+      endTime: new Date(season.endTime),
+      capitalTotalLoot:
+        asNonNegativeIntegerInRange(rawSeason.capitalTotalLoot, MAX_CAPITAL_RAID_COUNTER) ?? 0,
+      raidsCompleted:
+        asNonNegativeIntegerInRange(rawSeason.raidsCompleted, MAX_CAPITAL_RAID_COUNTER) ?? 0,
+      totalAttacks:
+        asNonNegativeIntegerInRange(rawSeason.totalAttacks, MAX_CAPITAL_RAID_COUNTER) ?? 0,
+      enemyDistrictsDestroyed:
+        asNonNegativeIntegerInRange(rawSeason.enemyDistrictsDestroyed, MAX_CAPITAL_RAID_COUNTER) ??
+        0,
+      offensiveReward:
+        asNonNegativeIntegerInRange(rawSeason.offensiveReward, MAX_CAPITAL_RAID_COUNTER) ?? 0,
+      defensiveReward:
+        asNonNegativeIntegerInRange(rawSeason.defensiveReward, MAX_CAPITAL_RAID_COUNTER) ?? 0,
+      rawSeason: season.data,
+      members: extractCapitalRaidMemberSnapshots(rawSeason.members),
+    };
+  });
+}
+
+function extractCapitalRaidMemberSnapshots(
+  members: unknown,
+): CapitalRaidSeasonSnapshotInput['members'] {
+  if (!Array.isArray(members)) return [];
+
+  return members.filter(isRecord).flatMap((member) => {
+    const rawMember = member as RawCapitalRaidMember;
+    const playerTag = normalizeNonBlankString(rawMember.tag);
+    const playerName = normalizeNonBlankString(rawMember.name);
+    if (!playerTag || !playerName) return [];
+
+    return [
+      {
+        playerTag,
+        playerName,
+        attacks: asNonNegativeIntegerInRange(rawMember.attacks, MAX_CAPITAL_RAID_COUNTER) ?? 0,
+        attackLimit:
+          asNonNegativeIntegerInRange(rawMember.attackLimit, MAX_CAPITAL_RAID_COUNTER) ?? 0,
+        bonusAttackLimit:
+          asNonNegativeIntegerInRange(rawMember.bonusAttackLimit, MAX_CAPITAL_RAID_COUNTER) ?? 0,
+        capitalResourcesLooted:
+          asNonNegativeIntegerInRange(rawMember.capitalResourcesLooted, MAX_CAPITAL_RAID_COUNTER) ??
+          0,
+        rawMember: member,
+      },
+    ];
+  });
 }
 
 function extractClanMemberSnapshotsFromList(
