@@ -312,7 +312,7 @@ async function executeRemaining(
         buildPlayerRemainingEmbed(rows, user ?? undefined, {
           scannedSnapshots: snapshots.length,
           persistedOnly: true,
-          selectedSource: 'current',
+          selectedSource: 'latest persisted current snapshot (not retained history)',
           ...buildLatestFetchedAtContext(snapshots),
           ...buildSnapshotCoverage(snapshots),
           rowsShown: rows.length,
@@ -368,7 +368,7 @@ async function executeRemaining(
     snapshot,
     false,
     {
-      selectedSource: 'latest current snapshot',
+      selectedSource: 'latest persisted current snapshot (not retained history)',
       snapshotsConsidered: 1,
       linkedClansConsidered: clanContext.linkedClanCount,
       ...(clanOption ? { clanFilter: clanOption } : {}),
@@ -766,7 +766,7 @@ function buildWarCoverage(
 }
 
 function formatSelectedHistoricalSource(warKey: string): string {
-  return `${warKey.includes('cwl') ? 'cwl' : 'historical'} war_id:${warKey}`;
+  return `retained ${warKey.includes('cwl') ? 'CWL' : 'historical'} snapshot for war_id:${warKey} (not latest current)`;
 }
 
 export function buildClanRemainingEmbed(summary: RemainingWarSummary): EmbedBuilder {
@@ -809,8 +809,9 @@ export function buildClanRemainingEmbed(summary: RemainingWarSummary): EmbedBuil
     embed.addFields({
       name: 'Source',
       value: [
-        `Selected: ${summary.source.selectedSource}; fetched ${time(summary.source.fetchedAt, 'R')}${summary.source.updatedAt ? `; updated ${time(summary.source.updatedAt, 'R')}` : ''}.`,
-        `Considered: ${summary.source.snapshotsConsidered} snapshot${summary.source.snapshotsConsidered === 1 ? '' : 's'}${summary.source.linkedClansConsidered === undefined ? '' : ` across ${summary.source.linkedClansConsidered} linked clan${summary.source.linkedClansConsidered === 1 ? '' : 's'}`}; rows shown: ${summary.source.rowsShown}/${summary.source.rosterMembers}.`,
+        `Selected: ${summary.source.selectedSource}.`,
+        `Freshness: fetched ${time(summary.source.fetchedAt, 'R')}${summary.source.updatedAt ? `; updated ${time(summary.source.updatedAt, 'R')}` : ''}.`,
+        `Considered: ${summary.source.snapshotsConsidered} persisted snapshot${summary.source.snapshotsConsidered === 1 ? '' : 's'}${summary.source.linkedClansConsidered === undefined ? '' : ` across ${summary.source.linkedClansConsidered} linked clan${summary.source.linkedClansConsidered === 1 ? '' : 's'}`}; roster rows shown: ${summary.source.rowsShown}/${summary.source.rosterMembers}.`,
         `Attacks: ${summary.source.attacksUsed}/${summary.source.attacksPossible}; state: ${formatWarStateLabel(summary.source.snapshotState || summary.state)}.`,
         formatFilterContext(summary.source),
         'Persisted snapshots only; no live fallback or on-demand polling.',
@@ -867,9 +868,10 @@ export function buildPlayerRemainingEmbed(
     embed.addFields({
       name: 'Source',
       value: [
-        `Scanned ${context.scannedSnapshots} stored war/CWL snapshot${context.scannedSnapshots === 1 ? '' : 's'} from this server's linked/configured clans.`,
-        `Selected: ${context.selectedSource}${context.latestFetchedAt ? `; latest fetched ${time(context.latestFetchedAt, 'R')}` : ''}.`,
-        `Rows shown: ${context.rowsShown}/${context.rosterMembers}; attacks: ${context.attacksUsed}/${context.attacksPossible}.`,
+        `Scanned ${context.scannedSnapshots} persisted war/CWL snapshot${context.scannedSnapshots === 1 ? '' : 's'} from this server's linked/configured clans.`,
+        `Selected: ${context.selectedSource}.`,
+        `Freshness: ${context.latestFetchedAt ? `latest fetched ${time(context.latestFetchedAt, 'R')}` : 'no readable fetched timestamp'}.`,
+        `Roster rows shown: ${context.rowsShown}/${context.rosterMembers}; attacks: ${context.attacksUsed}/${context.attacksPossible}.`,
         formatFilterContext(context),
         context.persistedOnly
           ? 'Persisted snapshots only; no live fallback or on-demand polling.'
