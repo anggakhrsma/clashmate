@@ -181,6 +181,17 @@ function createPollingOutcomeLeaseDetail(
 ): PollingOutcomeLeaseDetail | undefined {
   if (!result.resourceId) return undefined;
   const diagnostics = createPollingOutcomeDiagnostics(result);
+  const summaryDiagnostics = {
+    ...(result.leaseSummary ? { leaseSummary: result.leaseSummary } : {}),
+    ...(result.skippedResources ? { skippedResources: result.skippedResources } : {}),
+    ...(result.familySummary ? { familySummary: result.familySummary } : {}),
+    ...(result.nextPoll ? { nextPoll: result.nextPoll } : {}),
+  };
+  const mergedDiagnostics = {
+    ...(diagnostics ?? {}),
+    ...summaryDiagnostics,
+  };
+  const hasDiagnostics = Object.keys(mergedDiagnostics).length > 0;
 
   return {
     resourceType: result.resourceType,
@@ -188,7 +199,7 @@ function createPollingOutcomeLeaseDetail(
     ...(result.durationMs !== undefined ? { durationMs: result.durationMs } : {}),
     ...(result.nextRunAt ? { nextRunAt: result.nextRunAt.toISOString() } : {}),
     ...(result.errorMessage ? { errorMessage: result.errorMessage } : {}),
-    ...(diagnostics ? { diagnostics } : {}),
+    ...(hasDiagnostics ? { diagnostics: mergedDiagnostics } : {}),
   };
 }
 
