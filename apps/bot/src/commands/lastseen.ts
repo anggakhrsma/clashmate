@@ -194,7 +194,7 @@ export function filterLastSeenClanChoices(
   query: string,
 ): ApplicationCommandOptionChoiceData<string>[] {
   const normalizedQuery = query.trim().toLowerCase();
-  return clans
+  return dedupeLastSeenClanChoices(clans)
     .filter((clan) => clanMatchesQuery(clan, normalizedQuery))
     .slice(0, 25)
     .map((clan) => ({ name: formatClanChoiceName(clan), value: clan.alias ?? clan.clanTag }));
@@ -210,6 +210,7 @@ export function filterLastSeenPlayerChoices(
     : normalizedQuery;
 
   return dedupeLastSeenPlayerTags(tags)
+    .sort(compareLastSeenPlayerTags)
     .filter((tag) => {
       const normalizedTag = tag.toUpperCase();
       const tagWithoutHash = normalizedTag.startsWith('#') ? normalizedTag.slice(1) : normalizedTag;
@@ -229,12 +230,55 @@ function dedupeLastSeenPlayerTags(tags: readonly string[]): string[] {
   for (const tag of tags) {
     const trimmed = tag.trim();
     if (!trimmed) continue;
-    const normalized = trimmed.toUpperCase();
+    const normalized = normalizeLastSeenChoiceTag(trimmed);
     if (seen.has(normalized)) continue;
     seen.add(normalized);
     deduped.push(trimmed);
   }
   return deduped;
+}
+
+function dedupeLastSeenClanChoices(clans: readonly LastSeenLinkedClan[]): LastSeenLinkedClan[] {
+  const seenValues = new Set<string>();
+  const seenTags = new Set<string>();
+  const deduped: LastSeenLinkedClan[] = [];
+  for (const clan of [...clans].sort(compareLastSeenClanChoices)) {
+    const value = clan.alias ?? clan.clanTag;
+    const valueKey = value.trim().toLowerCase();
+    const tagKey = normalizeLastSeenChoiceTag(clan.clanTag);
+    if (seenValues.has(valueKey) || seenTags.has(tagKey)) continue;
+    seenValues.add(valueKey);
+    seenTags.add(tagKey);
+    deduped.push(clan);
+  }
+  return deduped;
+}
+
+function compareLastSeenClanChoices(left: LastSeenLinkedClan, right: LastSeenLinkedClan): number {
+  const leftValue = left.alias ?? left.clanTag;
+  const rightValue = right.alias ?? right.clanTag;
+  return (
+    leftValue.localeCompare(rightValue, 'en', { sensitivity: 'base' }) ||
+    normalizeLastSeenChoiceTag(left.clanTag).localeCompare(
+      normalizeLastSeenChoiceTag(right.clanTag),
+    ) ||
+    formatClanChoiceName(left).localeCompare(formatClanChoiceName(right), 'en', {
+      sensitivity: 'base',
+    })
+  );
+}
+
+function compareLastSeenPlayerTags(left: string, right: string): number {
+  return (
+    normalizeLastSeenChoiceTag(left).localeCompare(normalizeLastSeenChoiceTag(right)) ||
+    left.localeCompare(right, 'en', { sensitivity: 'base' })
+  );
+}
+
+function normalizeLastSeenChoiceTag(tag: string): string {
+  const trimmed = tag.trim().toUpperCase();
+  const withoutHash = trimmed.startsWith('#') ? trimmed.slice(1) : trimmed;
+  return `#${withoutHash}`;
 }
 
 export async function executeLastSeen(
