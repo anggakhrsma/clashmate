@@ -99,6 +99,9 @@ export interface UsageView {
   loadedCommandCoverage?: UsageLoadedCommandCoverage;
   recentTrend?: UsageRecentTrend;
   totalUses: number;
+  visibleCommandCount: number;
+  totalCommandCount: number;
+  hiddenCommandCount: number;
   metricSource?: string;
   usageOwnerLimitNote?: string;
 }
@@ -109,6 +112,8 @@ export interface UsageLoadedCommandCoverage {
   withoutUsageCount: number;
   coveragePercent: number;
   unusedSample: string[];
+  recordedCommandCount: number;
+  staleUsageCount: number;
 }
 
 export interface UsageRecentTrend {
@@ -117,6 +122,7 @@ export interface UsageRecentTrend {
   previousDays: number;
   previousUses: number;
   change: number;
+  changePercent?: number;
 }
 
 export function createUsageSlashCommand(options: UsageCommandOptions): SlashCommandDefinition {
@@ -191,25 +197,28 @@ export async function collectUsageView(
       metricReader ? () => metricReader.listRecentDailyUsage(15) : undefined,
       options.logger,
     )) ?? [];
-  const loadedCommandTotals = (
+  const rawCommandTotals =
     (await safeRead(
       'commandTotals',
       metricReader ? () => metricReader.listCommandTotals() : undefined,
       options.logger,
-    )) ?? []
-  )
+    )) ?? [];
+  const loadedCommandTotals = rawCommandTotals
     .filter(
       (record) => loadedCommandNameSet.size === 0 || loadedCommandNameSet.has(record.commandName),
     )
     .sort((left, right) => right.uses - left.uses);
   const commandTotals = loadedCommandTotals.slice(0, 50);
+  const staleUsageCount = loadedCommandNameSet.size
+    ? rawCommandTotals.filter((record) => !loadedCommandNameSet.has(record.commandName)).length
+    : 0;
   const commandsWithUsage = new Set(
     loadedCommandTotals.filter((record) => record.uses > 0).map((record) => record.commandName),
   );
   const unusedLoadedCommandNames = loadedCommandNames.filter(
     (name) => !commandsWithUsage.has(name),
   );
-  const totalUses = commandTotals.reduce((sum, record) => sum + record.uses, 0);
+  const totalUses = loadedCommandTotals.reduce((sum, record) => sum + record.uses, 0);
   const botAvatarUrl = context.client.user?.displayAvatarURL({ extension: 'png' });
   const recentTrend = buildRecentUsageTrend(dailyUsage);
 
@@ -219,6 +228,9 @@ export async function collectUsageView(
     color: source.guild?.members.me?.displayColor || DEFAULT_USAGE_EMBED_COLOR,
     dailyUsage: dailyUsage.slice(0, 15),
     commandTotals,
+    visibleCommandCount: commandTotals.length,
+    totalCommandCount: loadedCommandTotals.length,
+    hiddenCommandCount: Math.max(0, loadedCommandTotals.length - commandTotals.length),
     ...(loadedCommandNames.length
       ? {
           loadedCommandCoverage: {
@@ -227,6 +239,8 @@ export async function collectUsageView(
             withoutUsageCount: unusedLoadedCommandNames.length,
             coveragePercent: Math.round((commandsWithUsage.size / loadedCommandNames.length) * 100),
             unusedSample: unusedLoadedCommandNames.slice(0, UNUSED_COMMAND_SAMPLE_LIMIT),
+            recordedCommandCount: rawCommandTotals.length,
+            staleUsageCount,
           },
         }
       : {}),
@@ -235,7 +249,8 @@ export async function collectUsageView(
     metricSource: metricReader
       ? 'Persisted PostgreSQL aggregates via UsageMetricReader.'
       : 'Unavailable; inject UsageMetricReader to enable persisted usage metrics.',
-    usageOwnerLimitNote: 'Owner-only diagnostic; no public usage endpoint is exposed.',
+    usageOwnerLimitNote:
+      'Owner-only diagnostic: use it for operator troubleshooting only; no public usage endpoint or server-admin access is exposed.',
   };
 }
 
@@ -261,6 +276,9 @@ export function formatUsageDescription(
     | 'commandTotals'
     | 'loadedCommandCoverage'
     | 'recentTrend'
+    | 'visibleCommandCount'
+    | 'totalCommandCount'
+    | 'hiddenCommandCount'
     | 'metricSource'
     | 'usageOwnerLimitNote'
   >,
@@ -285,6 +303,7 @@ export function formatUsageDescription(
     '#      Uses Command',
     ...commandRows,
     '```',
+    formatCommandCoverageContext(view),
     formatRecentUsageTrend(view.recentTrend),
     formatLoadedCommandCoverage(view.loadedCommandCoverage),
     view.usageOwnerLimitNote,
@@ -292,6 +311,19 @@ export function formatUsageDescription(
   ]
     .filter((line): line is string => typeof line === 'string')
     .join('\n');
+}
+
+function formatCommandCoverageContext(
+  view: Pick<UsageView, 'visibleCommandCount' | 'totalCommandCount' | 'hiddenCommandCount'>,
+): string {
+  if (view.totalCommandCount === 0) {
+    return 'Command coverage: no command totals are available from the metric source yet.';
+  }
+
+  const hidden = view.hiddenCommandCount
+    ? `; ${formatCount(view.hiddenCommandCount)} lower-usage commands are hidden by the top-50 display limit`
+    : '';
+  return `Command coverage: showing ${formatCount(view.visibleCommandCount)}/${formatCount(view.totalCommandCount)} commands with recorded usage${hidden}.`;
 }
 
 function formatLoadedCommandCoverage(coverage: UsageLoadedCommandCoverage | undefined): string {
@@ -302,14 +334,20 @@ function formatLoadedCommandCoverage(coverage: UsageLoadedCommandCoverage | unde
     ? ` Unused loaded commands: ${coverage.unusedSample.map((name) => `/${name}`).join(', ')}`
     : ' No loaded commands are currently unused.';
 
-  return `Loaded command coverage: ${formatCount(coverage.withUsageCount)}/${formatCount(coverage.loadedCount)} loaded commands have usage (${coverage.coveragePercent}%); ${formatCount(coverage.withoutUsageCount)} loaded commands have no usage.${sample}`;
+  const stale = coverage.staleUsageCount
+    ? ` ${formatCount(coverage.staleUsageCount)} recorded command totals are not currently loaded and are excluded.`
+    : '';
+
+  return `Loaded vs usage coverage: ${formatCount(coverage.withUsageCount)}/${formatCount(coverage.loadedCount)} loaded commands have usage (${coverage.coveragePercent}%); ${formatCount(coverage.withoutUsageCount)} loaded commands have no usage.${stale}${sample}`;
 }
 
 function formatRecentUsageTrend(trend: UsageRecentTrend | undefined): string | undefined {
   if (!trend) return undefined;
 
+  const percent =
+    trend.changePercent === undefined ? '' : ` (${formatSignedPercent(trend.changePercent)})`;
   const comparison = trend.previousDays
-    ? ` vs previous ${trend.previousDays}d ${formatSignedCount(trend.change)}`
+    ? ` vs previous ${trend.previousDays}d ${formatSignedCount(trend.change)}${percent}`
     : '';
   return `Recent usage trend: last ${trend.recentDays}d ${formatCount(trend.recentUses)} uses${comparison}.`;
 }
@@ -328,6 +366,9 @@ function buildRecentUsageTrend(records: readonly UsageDailyRecord[]): UsageRecen
     previousDays: previousRecords.length,
     previousUses,
     change: recentUses - previousUses,
+    ...(previousUses > 0
+      ? { changePercent: ((recentUses - previousUses) / previousUses) * 100 }
+      : {}),
   };
 }
 
@@ -376,6 +417,7 @@ async function buildUsageChartReply(limit: number, options: UsageCommandOptions)
   return [
     formatUsageGrowthTextChart(views),
     formatUsageGrowthContext(limit, records.length, views.length),
+    `Chart limits: limit must be ${MIN_USAGE_CHART_LIMIT}-${MAX_USAGE_CHART_LIMIT} days; default is ${DEFAULT_USAGE_CHART_LIMIT}.`,
     'Metrics source: persisted PostgreSQL growth aggregates via UsageMetricReader.',
   ].join('\n');
 }
@@ -427,6 +469,11 @@ function formatUsageGrowthContext(
 
 function formatSignedCount(value: number): string {
   return `${value >= 0 ? '+' : ''}${formatCompactCount(value)}`;
+}
+
+function formatSignedPercent(value: number): string {
+  const formatted = `${Math.abs(value).toFixed(Math.abs(value) >= 10 ? 0 : 1)}%`;
+  return `${value >= 0 ? '+' : '-'}${formatted}`;
 }
 
 function formatCompactCount(value: number): string {
