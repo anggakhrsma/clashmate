@@ -85,6 +85,12 @@ interface UpgradeProgressSummary {
   readonly maxLevels: number;
 }
 
+interface UpgradeFieldResult {
+  readonly fields: Array<{ name: string; value: string; inline: false }>;
+  readonly rowsShown: number;
+  readonly rowsAvailable: number;
+}
+
 export function createUpgradesSlashCommand(
   options: UpgradesCommandOptions,
 ): SlashCommandDefinition {
@@ -230,6 +236,8 @@ export function buildUpgradesEmbed(
   const progress = collectUpgradeProgress(player);
   const groups = collectRemainingUpgrades(player);
   const remainingLevels = countRemainingLevels(groups);
+  const remainingUnits = countRemainingUnits(groups);
+  const fieldResult = buildUpgradeFields(groups);
   const data = readRecord(player.data) ?? {};
   const townHall = readNumber(readValue(data, 'townHallLevel'));
   const builderHall = readNumber(readValue(data, 'builderHallLevel'));
@@ -248,7 +256,8 @@ export function buildUpgradesEmbed(
           "Accepted filters: `player` for an exact Clash tag, or `user` for that member's first linked account when no player tag is supplied.",
           'Tracking: this one-off lookup does not enroll the player for polling or long-lived tracking.',
           'Recommendation limits: ClashMate currently uses public API unit `maxLevel` data and simple remaining-level heuristics, not full TH/BH cost/time tables, lab availability, books, hammers, builders, or magic item planning. Some rows can include levels above the current hall until static hall caps are added.',
-          `Total remaining levels: **${remainingLevels.toLocaleString('en-US')}**`,
+          `Totals: **${remainingUnits.toLocaleString('en-US')}** upgrade rows with **${remainingLevels.toLocaleString('en-US')}** remaining levels/units.`,
+          `Rows shown: **${fieldResult.rowsShown.toLocaleString('en-US')}** of **${fieldResult.rowsAvailable.toLocaleString('en-US')}** available${fieldResult.rowsShown < fieldResult.rowsAvailable ? ' due to Discord embed limits' : ''}.`,
           formatRemainingCategoryCounts(groups),
           formatUpgradeProgressSummary(progress),
         ].join('\n'),
@@ -257,7 +266,7 @@ export function buildUpgradesEmbed(
       ),
     );
 
-  for (const field of buildUpgradeFields(groups)) embed.addFields(field);
+  for (const field of fieldResult.fields) embed.addFields(field);
   if (remainingLevels === 0)
     embed.addFields({
       name: 'Upgrades',
@@ -367,9 +376,11 @@ export function countRemainingLevels(groups: UpgradeGroups): number {
     .reduce((sum, unit) => sum + Math.max(0, unit.maxLevel - unit.level), 0);
 }
 
-function buildUpgradeFields(
-  groups: UpgradeGroups,
-): Array<{ name: string; value: string; inline: false }> {
+export function countRemainingUnits(groups: UpgradeGroups): number {
+  return Object.values(groups).flat().length;
+}
+
+function buildUpgradeFields(groups: UpgradeGroups): UpgradeFieldResult {
   const definitions = [
     ['Troops', groups.troops],
     ['Spells', groups.spells],
@@ -378,36 +389,39 @@ function buildUpgradeFields(
     ['Builder Base', groups.builderBase],
   ] as const;
   const fields: Array<{ name: string; value: string; inline: false }> = [];
+  let rowsShown = 0;
+  const rowsAvailable = definitions.reduce((sum, [, units]) => sum + units.length, 0);
 
   for (const [name, units] of definitions) {
     if (!units.length || fields.length >= EMBED_MAX_FIELDS) continue;
-    for (const value of chunkUnitRows(units)) {
+    for (const chunk of chunkUnitRows(units)) {
       if (fields.length >= EMBED_MAX_FIELDS) break;
       fields.push({
         name: fields.some((field) => field.name === name) ? `${name} (continued)` : name,
-        value,
+        value: chunk.value,
         inline: false,
       });
+      rowsShown += chunk.rows;
     }
   }
-  return fields;
+  return { fields, rowsShown, rowsAvailable };
 }
 
-function chunkUnitRows(units: readonly UpgradeUnit[]): string[] {
-  const chunks: string[] = [];
+function chunkUnitRows(units: readonly UpgradeUnit[]): Array<{ value: string; rows: number }> {
+  const chunks: Array<{ value: string; rows: number }> = [];
   let rows: string[] = [];
   let length = 0;
   for (const row of units.map(formatUpgradeUnit)) {
     const nextLength = length === 0 ? row.length : length + 1 + row.length;
     if (rows.length && nextLength > EMBED_FIELD_VALUE_LIMIT) {
-      chunks.push(rows.join('\n'));
+      chunks.push({ value: rows.join('\n'), rows: rows.length });
       rows = [];
       length = 0;
     }
     rows.push(row);
     length = length === 0 ? row.length : length + 1 + row.length;
   }
-  if (rows.length) chunks.push(rows.join('\n'));
+  if (rows.length) chunks.push({ value: rows.join('\n'), rows: rows.length });
   return chunks;
 }
 
