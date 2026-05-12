@@ -241,6 +241,20 @@ function formatSeasonChoiceName(year: number, month: number): string {
     .replace(',', '');
 }
 
+function getSummarySeasonRange(
+  season: string | null,
+): { readonly start: Date; readonly end: Date } | null {
+  const match = /^(\d{4})-(\d{2})$/.exec(season?.trim() ?? '');
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) return null;
+  const start = new Date(Date.UTC(year, month - 1, 1));
+  const end = new Date(Date.UTC(year, month, 1));
+  end.setUTCMilliseconds(end.getUTCMilliseconds() - 1);
+  return { start, end };
+}
+
 function formatRaidWeekChoiceName(date: Date): string {
   return new Intl.DateTimeFormat('en-GB', {
     day: '2-digit',
@@ -310,6 +324,15 @@ export interface SummaryMissedWarAttackRow {
   readonly latestOccurredAt: Date;
 }
 
+export interface SummaryWarSnapshotRecord {
+  readonly clanTag: string;
+  readonly state: string;
+  readonly snapshot: unknown;
+  readonly fetchedAt: Date;
+  readonly warKey?: string;
+  readonly trackedClan?: SummaryLinkedClan;
+}
+
 export interface SummaryStore {
   readonly listLinkedClans: (guildId: string) => Promise<SummaryLinkedClan[]>;
   readonly listClansForGuild: (guildId: string) => Promise<SummaryClanListRow[]>;
@@ -324,7 +347,19 @@ export interface SummaryStore {
   readonly listWarAttackHistoryForGuild: (input: {
     guildId: string;
     clanTags?: readonly string[];
+    warKeyPrefix?: string;
+    excludeWarKeyPrefix?: string;
+    since?: Date;
+    until?: Date;
   }) => Promise<SummaryWarAttackHistoryRow[]>;
+  readonly getLatestWarSnapshotsForGuild?: (guildId: string) => Promise<SummaryWarSnapshotRecord[]>;
+  readonly listRetainedEndedWarSnapshotsForGuild?: (input: {
+    guildId: string;
+    clanTag?: string;
+    since?: Date;
+    until?: Date;
+    limit?: number;
+  }) => Promise<SummaryWarSnapshotRecord[]>;
   readonly listMissedWarAttackSummaryForGuild: (input: {
     guildId: string;
     clanTags?: readonly string[];
@@ -494,6 +529,50 @@ export async function executeSummary(
           clanTag ? 1 : clans.length,
           rows.length,
           latestWarAttackAt(rows),
+          baseFilters,
+        ),
+      ),
+    );
+    return;
+  }
+  if (subcommand === 'cwl-ranks') {
+    const seasonRange = getSummarySeasonRange(interaction.options.getString('season'));
+    const rows = await options.store.listWarAttackHistoryForGuild({
+      guildId: interaction.guildId,
+      ...(clanTag ? { clanTags: [clanTag] } : {}),
+      warKeyPrefix: 'cwl:',
+      ...(seasonRange ? { since: seasonRange.start, until: seasonRange.end } : {}),
+    });
+    await interaction.editReply(
+      buildSummaryCwlRanksPayload(
+        rows,
+        buildRowsCoverage(
+          clans.length,
+          clanTag ? 1 : clans.length,
+          rows.length,
+          latestWarAttackAt(rows),
+          baseFilters,
+        ),
+      ),
+    );
+    return;
+  }
+  if (subcommand === 'cwl-status') {
+    if (!options.store.getLatestWarSnapshotsForGuild) {
+      await interaction.editReply({ content: unavailableSummaryMessage(subcommand, baseFilters) });
+      return;
+    }
+    const snapshots = (await options.store.getLatestWarSnapshotsForGuild(interaction.guildId))
+      .filter((snapshot) => !clanTag || snapshot.clanTag === clanTag)
+      .filter(isSummaryCwlSnapshot);
+    await interaction.editReply(
+      buildSummaryCwlStatusPayload(
+        snapshots,
+        buildRowsCoverage(
+          clans.length,
+          clanTag ? 1 : clans.length,
+          snapshots.length,
+          latestWarSnapshotAt(snapshots),
           baseFilters,
         ),
       ),
@@ -836,6 +915,84 @@ export function buildSummaryAttacksPayload(
           ),
           coverageField(coverage),
         ),
+    ],
+  };
+}
+
+export function buildSummaryCwlRanksPayload(
+  rows: readonly SummaryWarAttackHistoryRow[],
+  coverage?: SummaryCoverageContext,
+): { content?: string; embeds?: EmbedBuilder[] } {
+  if (rows.length === 0)
+    return {
+      content: noDataMessage('CWL-keyed war attack history rows', coverage),
+    };
+
+  const sorted = [...rows].sort(
+    (a, b) =>
+      b.totalStars - a.totalStars ||
+      b.attackCount - a.attackCount ||
+      b.averageDestruction - a.averageDestruction,
+  );
+  const totals = rows.reduce(
+    (acc, row) => ({
+      attacks: acc.attacks + row.attackCount,
+      stars: acc.stars + row.totalStars,
+      fresh: acc.fresh + row.freshAttackCount,
+    }),
+    { attacks: 0, stars: 0, fresh: 0 },
+  );
+
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setTitle('CWL Rank Summary')
+        .setDescription(truncate(formatAttackRows(sorted)))
+        .addFields(
+          {
+            name: 'Totals',
+            value: `${totals.attacks} CWL-keyed attacks · ${totals.stars} stars · ${totals.fresh} fresh hits · ${rows.length} attackers`,
+            inline: false,
+          },
+          sourceField(
+            'CWL rank source: persisted war attack history rows whose war keys start with `cwl:`. Older CWL rows captured before CWL war keys existed may be absent; no live Clash API lookup or polling enrollment is performed.',
+          ),
+          coverageField(coverage),
+        ),
+    ],
+  };
+}
+
+export function buildSummaryCwlStatusPayload(
+  snapshots: readonly SummaryWarSnapshotRecord[],
+  coverage?: SummaryCoverageContext,
+): { content?: string; embeds?: EmbedBuilder[] } {
+  if (snapshots.length === 0)
+    return {
+      content: noDataMessage('current CWL war snapshots', coverage),
+    };
+
+  const sorted = [...snapshots].sort((a, b) => b.fetchedAt.getTime() - a.fetchedAt.getTime());
+  const stateCounts = countSummaryWarStates(sorted);
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setTitle('CWL Status Summary')
+        .setDescription(truncate(formatCwlStatusRows(sorted)))
+        .addFields(
+          {
+            name: 'States',
+            value: formatStateCounts(stateCounts),
+            inline: false,
+          },
+          sourceField(
+            'CWL status source: latest persisted current-war snapshots that expose a CWL war tag/key. This is current retained status only; no live Clash API lookup, backfill, or polling enrollment is performed.',
+          ),
+          coverageField(coverage),
+        )
+        .setFooter({
+          text: `Showing ${Math.min(sorted.length, SUMMARY_ROW_LIMIT)}/${sorted.length} CWL snapshots`,
+        }),
     ],
   };
 }
@@ -1258,6 +1415,10 @@ function latestWarAttackAt(rows: readonly SummaryWarAttackHistoryRow[]): Date | 
   return latestDate(rows.map((row) => row.lastAttackedAt));
 }
 
+function latestWarSnapshotAt(rows: readonly SummaryWarSnapshotRecord[]): Date | undefined {
+  return latestDate(rows.map((row) => row.fetchedAt));
+}
+
 function latestMissedWarAttackAt(rows: readonly SummaryMissedWarAttackRow[]): Date | undefined {
   return latestDate(rows.map((row) => row.latestOccurredAt));
 }
@@ -1308,6 +1469,119 @@ function formatAttackRows(rows: readonly SummaryWarAttackHistoryRow[]): string {
         `${index + 1}. **${escapeMarkdown(row.attackerName ?? row.attackerTag)}** · ${row.attackCount} attacks · ${row.averageStars.toFixed(2)} avg ⭐ · ${row.averageDestruction.toFixed(2)}% avg`,
     )
     .join('\n');
+}
+
+function formatCwlStatusRows(rows: readonly SummaryWarSnapshotRecord[]): string {
+  return rows
+    .slice(0, SUMMARY_ROW_LIMIT)
+    .map((row, index) => {
+      const data = extractSummaryWarData(row.snapshot);
+      const clan = chooseSummaryPerspectiveClan(data, row.trackedClan?.clanTag ?? row.clanTag);
+      const opponent = clan === data?.clan ? data?.opponent : data?.clan;
+      const label = row.trackedClan?.alias ?? row.trackedClan?.name ?? clan?.name ?? row.clanTag;
+      return `${index + 1}. **${escapeMarkdown(label)}** (\`${row.clanTag}\`) · ${formatSummaryWarState(row.state)} · ${formatSummaryScore(clan, opponent)} · latest ${time(row.fetchedAt, 'R')}`;
+    })
+    .join('\n');
+}
+
+function formatSummaryScore(
+  clan: SummaryWarClan | undefined,
+  opponent: SummaryWarClan | undefined,
+): string {
+  return `${formatOptionalNumber(clan?.stars)}-${formatOptionalNumber(opponent?.stars)} ⭐ vs ${escapeMarkdown(opponent?.name ?? opponent?.tag ?? 'unknown opponent')}`;
+}
+
+function formatOptionalNumber(value: number | undefined): string {
+  return typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString('en-US') : '?';
+}
+
+function countSummaryWarStates(rows: readonly SummaryWarSnapshotRecord[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const state = formatSummaryWarState(row.state);
+    counts.set(state, (counts.get(state) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function formatStateCounts(counts: Map<string, number>): string {
+  return [...counts.entries()].map(([state, count]) => `${state}: ${count}`).join(' · ');
+}
+
+function formatSummaryWarState(value: string): string {
+  const normalized = value.replace(/_/g, '').toLowerCase();
+  if (normalized === 'preparation') return 'Preparation';
+  if (normalized === 'inwar') return 'In War';
+  if (normalized === 'warended') return 'War Ended';
+  if (normalized === 'notinwar') return 'Not In War';
+  return value || 'Unknown';
+}
+
+interface SummaryWarData {
+  readonly clan?: SummaryWarClan;
+  readonly opponent?: SummaryWarClan;
+  readonly warTag?: string;
+}
+
+interface SummaryWarClan {
+  readonly tag?: string;
+  readonly name?: string;
+  readonly stars?: number;
+}
+
+function isSummaryCwlSnapshot(row: SummaryWarSnapshotRecord): boolean {
+  if (row.warKey?.toLowerCase().startsWith('cwl:')) return true;
+  return Boolean(extractSummaryWarData(row.snapshot)?.warTag);
+}
+
+function extractSummaryWarData(snapshot: unknown): SummaryWarData | null {
+  const value = unwrapSummarySnapshot(snapshot);
+  if (!isRecord(value)) return null;
+  const clan = readSummaryWarClan(readRecordValue(value, 'clan'));
+  const opponent = readSummaryWarClan(readRecordValue(value, 'opponent'));
+  const warTagValue = readRecordValue(value, 'warTag');
+  const warTag = typeof warTagValue === 'string' ? warTagValue.trim() : '';
+  return {
+    ...(clan ? { clan } : {}),
+    ...(opponent ? { opponent } : {}),
+    ...(warTag ? { warTag } : {}),
+  };
+}
+
+function readSummaryWarClan(value: unknown): SummaryWarClan | undefined {
+  const clan = unwrapSummarySnapshot(value);
+  if (!isRecord(clan)) return undefined;
+  const tag = readRecordValue(clan, 'tag');
+  const name = readRecordValue(clan, 'name');
+  const stars = readRecordValue(clan, 'stars');
+  return {
+    ...(typeof tag === 'string' ? { tag } : {}),
+    ...(typeof name === 'string' ? { name } : {}),
+    ...(typeof stars === 'number' ? { stars } : {}),
+  };
+}
+
+function chooseSummaryPerspectiveClan(
+  data: SummaryWarData | null,
+  clanTag: string,
+): SummaryWarClan | undefined {
+  const normalized = clanTag.toUpperCase();
+  if (data?.clan?.tag?.toUpperCase() === normalized) return data.clan;
+  if (data?.opponent?.tag?.toUpperCase() === normalized) return data.opponent;
+  return data?.clan;
+}
+
+function unwrapSummarySnapshot(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  const data = readRecordValue(value, 'data');
+  if (isRecord(data)) return unwrapSummarySnapshot(data);
+  const snapshot = readRecordValue(value, 'snapshot');
+  if (isRecord(snapshot)) return unwrapSummarySnapshot(snapshot);
+  return value;
+}
+
+function readRecordValue(record: Record<string, unknown>, key: string): unknown {
+  return record[key];
 }
 
 function formatMissedWarRows(rows: readonly SummaryMissedWarAttackRow[]): string {

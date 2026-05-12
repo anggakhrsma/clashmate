@@ -228,11 +228,13 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
   },
   {
     name: 'summary',
-    usage: '/summary clans|donations|activity|attacks|compo|capital-raids [clans] [week]',
+    usage:
+      '/summary clans|donations|activity|attacks|cwl-ranks|cwl-status|compo|capital-raids [clans] [season|week]',
     description: 'Show persisted summaries for linked clans.',
     category: 'Player & Clan',
     details: [
-      'Reads existing linked clan, member, donation, war attack, and capital snapshot data without querying the Clash API.',
+      'Reads existing linked clan, member, donation, war attack, CWL-keyed attack, and capital snapshot data without querying the Clash API.',
+      'CWL ranks use persisted `cwl:` war keys; CWL status uses latest persisted current-war snapshots that expose a CWL tag/key.',
       'Capital raids summarizes the latest persisted capital snapshots and stored member capital contribution fields; `week` is accepted as a display label because raid-week attack logs and historical contribution are outside the current catalog data.',
       'Returns compact embeds with totals and top rows instead of legacy image charts.',
     ],

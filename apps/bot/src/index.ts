@@ -391,6 +391,7 @@ const commandRegistry = createBotCommandRegistry({
       listDonationSnapshotsForGuild: databaseDonationSnapshots.listDonationSnapshotsForGuild,
       listClanMemberSnapshotsForGuild: databaseClanMemberSnapshots.listClanMemberSnapshotsForGuild,
       listWarAttackHistoryForGuild: databaseWarAttackHistory.listWarAttackHistoryForGuild,
+      getLatestWarSnapshotsForGuild: databaseWarSnapshots.getLatestWarSnapshotsForGuild,
       listMissedWarAttackSummaryForGuild:
         databaseMissedWarAttacks.listMissedWarAttackSummaryForGuild,
     },
