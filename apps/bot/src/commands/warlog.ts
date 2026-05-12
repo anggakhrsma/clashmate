@@ -88,12 +88,18 @@ interface WarlogEntry {
 
 export interface WarlogOutputContext {
   readonly linkedClanCount: number;
+  readonly linkedClanLabels: readonly string[];
   readonly retainedSnapshotsScanned: number;
   readonly visibleEntries: number;
+  readonly displayLimit: number;
   readonly latestFetchedAt: Date | null;
   readonly latestEndedAt: Date | null;
   readonly clan?: WarlogTrackedClan;
-  readonly user?: { readonly id: string; readonly displayName: string };
+  readonly user?: {
+    readonly id: string;
+    readonly displayName: string;
+    readonly linkedPlayerTagCount: number;
+  };
 }
 
 export function createWarlogSlashCommand(options: WarlogCommandOptions): SlashCommandDefinition {
@@ -189,7 +195,11 @@ async function executeWarlog(
     : [];
   if (user && playerTags.length === 0) {
     await interaction.editReply(
-      'No linked player tags were found for that user. Use `/link create` to link a Clash account first.',
+      [
+        'No linked player tags were found for that user, so `/warlog` cannot match retained war snapshots to them.',
+        `Coverage: considered ${formatLinkedClanCoverageFromClans(linkedClans)}; retained snapshots were not scanned because the user filter has no linked Clash accounts.`,
+        'Guidance: use `/link create` to link a Clash account first, then rerun `/warlog` after linked clans have retained completed regular wars.',
+      ].join('\n'),
     );
     return;
   }
@@ -210,12 +220,22 @@ async function executeWarlog(
 
   const outputContext: WarlogOutputContext = {
     linkedClanCount: linkedClans.length,
+    linkedClanLabels: linkedClans.map(formatTrackedClan),
     retainedSnapshotsScanned: snapshots.length,
     visibleEntries: entries.length,
+    displayLimit: WARLOG_LIMIT,
     latestFetchedAt,
     latestEndedAt,
     ...(clan ? { clan } : {}),
-    ...(user ? { user: { id: user.id, displayName: user.displayName } } : {}),
+    ...(user
+      ? {
+          user: {
+            id: user.id,
+            displayName: user.displayName,
+            linkedPlayerTagCount: playerTags.length,
+          },
+        }
+      : {}),
   };
 
   if (entries.length === 0) {
@@ -467,12 +487,33 @@ export function buildWarlogEmbed(
 function formatWarlogContextLine(context: WarlogOutputContext): string {
   const filters = [
     context.clan ? `clan ${formatTrackedClan(context.clan)}` : null,
-    context.user ? `user ${context.user.displayName} (${context.user.id})` : null,
+    context.user
+      ? `user ${context.user.displayName} (${context.user.id}; ${context.user.linkedPlayerTagCount} linked player tag${context.user.linkedPlayerTagCount === 1 ? '' : 's'})`
+      : null,
   ].filter((value): value is string => Boolean(value));
   const latest = context.latestFetchedAt ? time(context.latestFetchedAt, 'R') : 'none';
   const latestEnded = context.latestEndedAt ? time(context.latestEndedAt, 'R') : 'none';
 
-  return `Coverage: considered ${context.linkedClanCount} linked clan${context.linkedClanCount === 1 ? '' : 's'}; retained snapshots scanned ${context.retainedSnapshotsScanned}; showing ${context.visibleEntries}; latest ended ${latestEnded}; latest retained ${latest}; filters ${filters.length > 0 ? filters.join(', ') : 'none'}.`;
+  return `Coverage: considered ${formatLinkedClanCoverageFromContext(context)}; retained snapshots scanned ${context.retainedSnapshotsScanned}; showing ${context.visibleEntries}/${context.displayLimit} rows; latest retained war ended ${latestEnded}; latest retained snapshot fetched ${latest}; filters ${filters.length > 0 ? filters.join(', ') : 'none'}.`;
+}
+
+function formatLinkedClanCoverageFromClans(clans: readonly WarlogTrackedClan[]): string {
+  return formatLinkedClanCoverage(clans.length, clans.map(formatTrackedClan));
+}
+
+function formatLinkedClanCoverageFromContext(
+  context: Pick<WarlogOutputContext, 'linkedClanCount' | 'linkedClanLabels'>,
+): string {
+  return formatLinkedClanCoverage(context.linkedClanCount, context.linkedClanLabels);
+}
+
+function formatLinkedClanCoverage(linkedClanCount: number, labels: readonly string[]): string {
+  const noun = `linked clan${linkedClanCount === 1 ? '' : 's'}`;
+  if (labels.length === 0) return `0 ${noun}`;
+
+  const visibleLabels = labels.slice(0, 3).join(', ');
+  const remaining = labels.length - 3;
+  return `${linkedClanCount} ${noun} (${visibleLabels}${remaining > 0 ? `, +${remaining} more` : ''})`;
 }
 
 function formatTrackedClan(clan: WarlogTrackedClan): string {
