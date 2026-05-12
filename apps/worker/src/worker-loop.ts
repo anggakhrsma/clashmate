@@ -366,10 +366,11 @@ export function startWorkerPollingLoop(
       void runOnce()
         .catch((error: unknown) => {
           consecutiveIterationFailures += 1;
-          options.logger.error(
-            { error, ownerId: options.ownerId, consecutiveIterationFailures },
-            'Scheduled worker polling iteration failed',
+          options.logger.debug(
+            { ownerId: options.ownerId, consecutiveIterationFailures },
+            'Scheduled worker polling iteration failure diagnostics updated',
           );
+          options.logger.error({ error }, 'Scheduled worker polling iteration failed');
         })
         .finally(scheduleNext);
     }, delay.delayMs);

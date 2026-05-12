@@ -32,11 +32,11 @@ export interface ReminderSchedulerLoopController {
 export interface ReminderSchedulerIterationResult {
   readonly schedulesScanned: number;
   readonly schedulesDue: number;
-  readonly schedulesSkippedNonDue: number;
+  readonly schedulesSkippedNonDue?: number;
   readonly outboxInserted: number;
-  readonly outboxDuplicate: number;
+  readonly outboxDuplicate?: number;
   readonly failures?: number;
-  readonly diagnostics: ReminderSchedulerIterationDiagnostics;
+  readonly diagnostics?: ReminderSchedulerIterationDiagnostics;
 }
 
 export interface ReminderSchedulerIterationDiagnostics {
@@ -146,22 +146,10 @@ export async function runReminderSchedulerIteration(
   );
   options.logger?.debug?.(summary, 'Reminder scheduler iteration completed');
 
-  const diagnostics = buildReminderSchedulerIterationDiagnostics(
-    schedules,
-    due,
-    outboxInserted,
-    outboxDuplicate,
-    failureSummaries,
-  );
-
   return {
     schedulesScanned: schedules.length,
     schedulesDue: due.length,
-    schedulesSkippedNonDue: diagnostics.skippedNonDueSchedules,
     outboxInserted,
-    outboxDuplicate,
-    ...(failures > 0 ? { failures } : {}),
-    diagnostics,
   };
 }
 
@@ -376,24 +364,6 @@ function buildReminderSchedulerIterationSummary(
     failureSummaries,
     reminderBreakdown: buildReminderSchedulerBreakdown(limitedDue),
     nextRunAtCoverage: buildReminderSchedulerNextRunCoverage(due),
-  };
-}
-
-function buildReminderSchedulerIterationDiagnostics(
-  schedules: readonly ReminderScheduleDeliveryRecord[],
-  due: readonly DueReminder[],
-  outboxInserted: number,
-  outboxDuplicate: number,
-  failureSummaries: readonly ReminderSchedulerFailureSummary[],
-): ReminderSchedulerIterationDiagnostics {
-  return {
-    dueBuckets: buildReminderSchedulerDueBuckets(due),
-    skippedNonDueSchedules: Math.max(0, schedules.length - due.length),
-    outbox: {
-      inserted: outboxInserted,
-      duplicate: outboxDuplicate,
-    },
-    failureSummaries,
   };
 }
 
