@@ -10,11 +10,11 @@ import {
 export const NICKNAME_COMMAND_NAME = 'nickname';
 export const NICKNAME_COMMAND_DESCRIPTION = 'Manage automatic nickname settings.';
 export const NICKNAME_FIRST_PASS_NOTE =
-  'ClashMate stores these server nickname preferences and previews nickname reconciliation for the invoking member only. It changes your nickname only when `change_nicknames` is set to `Yes` in this invocation and every safety check passes.';
+  'ClashMate stores these server nickname preferences and previews nickname reconciliation for the invoking member only, using saved config plus the current Discord member record. It changes your nickname only when `change_nicknames` is set to `Yes` in this invocation and every safety check passes.';
 export const NICKNAME_REFRESH_NOTE =
-  'Stored nickname preferences can be planned for background reconciliation, but broad Discord nickname mutation remains safety-gated; this command only changes the invoking member when explicitly requested and all checks pass.';
+  'Stored nickname preferences can be planned for later background reconciliation, but this command does not run that reconciliation and never performs broad Discord nickname mutation. It can only change the invoking member when explicitly requested and all checks pass.';
 export const NICKNAME_BACKGROUND_RECONCILIATION_LIMITATION =
-  'Background reconciliation can only use already stored linked-account and family-clan data. Search-only lookups and this preview do not enroll players for polling or create new tracking records.';
+  'Background reconciliation is limited to users, linked accounts, family-clan metadata, and snapshots already stored by ClashMate. Search-only lookups, previews, and omitted options do not enroll players for polling, create leases, call the live Clash API, or create new tracking records.';
 export const DISCORD_NICKNAME_MAX_LENGTH = 32;
 export const SUPPORTED_NICKNAME_PLACEHOLDERS = [
   '{NAME}',
@@ -265,6 +265,12 @@ export function buildNicknameConfigEmbed(
         inline: false,
       },
       {
+        name: 'Omitted options',
+        value:
+          'Any option left blank in `/nickname config` is not cleared or recomputed; ClashMate keeps the existing saved value for that option. To disable nickname changes, set `change_nicknames` to `No`.',
+        inline: false,
+      },
+      {
         name: 'Supported placeholders',
         value: [
           '`{NAME}` / `{PLAYER_NAME}` — linked player name',
@@ -279,7 +285,7 @@ export function buildNicknameConfigEmbed(
       {
         name: 'Linked player source',
         value:
-          'Nickname values are intended to come from Discord users who have linked Clash player accounts in ClashMate. Clan, alias, town hall, and role placeholders are based on stored linked-player/family-clan data; this command does not call the live Clash API or fall back to search-only lookups while previewing.',
+          'Nickname values are intended to come from Discord users who have linked Clash player accounts in ClashMate. Clan, alias, town hall, and role placeholders require stored linked-player/family-clan data; if no linked data exists for a member, background reconciliation cannot infer it from search results and this command will only show the self-preview values available from Discord.',
         inline: false,
       },
       {
@@ -364,7 +370,7 @@ function planInvokingMemberNicknameReconciliation(
   const desiredNickname = format ? buildMemberNicknamePreview(format, member) : null;
 
   if (!interaction.guild.members.me?.permissions.has(PermissionFlagsBits.ManageNicknames)) {
-    blockers.push('Manage Nicknames missing');
+    blockers.push('bot is missing Manage Nicknames');
   }
 
   if (!member.manageable) {
@@ -372,11 +378,13 @@ function planInvokingMemberNicknameReconciliation(
   }
 
   if (view.changeNicknames !== 'true') {
-    blockers.push('stored changeNicknames is disabled');
+    blockers.push('stored change_nicknames is not Yes');
   }
 
   if (!desiredNickname) {
-    blockers.push('no usable placeholder data');
+    blockers.push(
+      'configured format needs linked player/clan data that is not available in this self-preview',
+    );
   }
 
   const canRename = blockers.length === 0;
@@ -512,11 +520,12 @@ function formatDerivedNicknameDiagnostics(view: NicknameConfigView): string {
 
   return [
     `Configured formats: ${configuredFormats}/2 (${familyCoverage}; ${nonFamilyCoverage}).`,
-    `Length budget: ${formatLengthBudget('family', view.familyNicknameFormat)}; ${formatLengthBudget('non-family', view.nonFamilyNicknameFormat)}. Discord allows ${DISCORD_NICKNAME_MAX_LENGTH} characters, and previews/applies are clipped to that limit.`,
+    `Length budget: ${formatLengthBudget('family', view.familyNicknameFormat)}; ${formatLengthBudget('non-family', view.nonFamilyNicknameFormat)}. Format text is capped at ${DISCORD_NICKNAME_MAX_LENGTH} characters at save time; rendered nicknames can also expand to Discord's ${DISCORD_NICKNAME_MAX_LENGTH}-character nickname limit and are clipped before preview/apply.`,
     `Account preference: ${formatAccountPreference(view.accountPreferenceForNaming)} — ${formatAccountPreferenceDiagnostic(view.accountPreferenceForNaming)}.`,
     `change_nicknames gate: ${formatChangeNicknameGateDiagnostic(view.changeNicknames)}.`,
-    'Safety checks for any apply: Manage Nicknames permission, Discord role hierarchy, a configured format, usable placeholder data, and explicit `change_nicknames: Yes` on this invocation.',
-    'Background reconciliation limitation: stored config can guide future refreshes, but this command does not enroll search-only players, create polling leases, or perform broad Discord nickname mutation.',
+    'Self-preview/apply safety: the preview uses only the invoking member. Apply requires bot Manage Nicknames permission, Discord role hierarchy, a configured format that can render with available data, stored `change_nicknames: Yes`, and explicit `change_nicknames: Yes` on this invocation.',
+    'No-linked-data guidance: player/clan placeholders require existing linked-account and family-clan data. Without that stored data, reconciliation must skip those values rather than search, poll, or guess.',
+    'Background reconciliation limitation: stored config can guide future refreshes, but this command does not start a refresh, enroll search-only players, create polling leases, call the live Clash API, or perform broad Discord nickname mutation.',
   ].join('\n');
 }
 
@@ -568,7 +577,7 @@ function formatNicknamePreview(view: NicknameConfigView): string {
   ].filter((line) => line !== null);
 
   return previews.length > 0
-    ? `${previews.join('\n')}\nPreview source only: no live Clash API lookup is made. Nickname mutation is limited to explicit safe invocations.`
+    ? `${previews.join('\n')}\nExample preview only: placeholders are rendered from sample saved-data values, not live Clash API results. Actual self-apply still requires explicit opt-in plus all Discord safety checks.`
     : 'Set a nickname format to see an example. Preview source only: no live Clash API lookup is made; nickname mutation is limited to explicit safe invocations.';
 }
 
