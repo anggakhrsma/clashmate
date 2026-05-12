@@ -53,6 +53,7 @@ type UpgradesResolutionResult =
       readonly playerTag: string;
       readonly targetUser: User | null;
       readonly source: 'player_option' | 'linked_user' | 'linked_default';
+      readonly linkedAccountCount: number | null;
     }
   | { readonly status: 'invalid_tag' }
   | { readonly status: 'no_link'; readonly targetUser: User; readonly isSelf: boolean };
@@ -60,6 +61,8 @@ type UpgradesResolutionResult =
 interface UpgradesEmbedContext {
   readonly source: 'player_option' | 'linked_user' | 'linked_default';
   readonly targetUser: User | null;
+  readonly requestedTag?: string;
+  readonly linkedAccountCount: number | null;
 }
 
 export interface UpgradeUnit {
@@ -192,6 +195,8 @@ export async function executeUpgrades(
       buildUpgradesEmbed(player, {
         source: resolution.source,
         targetUser: resolution.targetUser,
+        requestedTag: resolution.playerTag,
+        linkedAccountCount: resolution.linkedAccountCount,
       }),
     ],
   });
@@ -211,6 +216,7 @@ export async function resolveUpgradesPlayerTag(input: {
         playerTag: normalizeClashTag(input.playerOption),
         targetUser: input.userOption,
         source: 'player_option',
+        linkedAccountCount: null,
       };
     } catch {
       return { status: 'invalid_tag' };
@@ -218,7 +224,8 @@ export async function resolveUpgradesPlayerTag(input: {
   }
 
   const targetUser = input.userOption ?? input.invokingUser;
-  const [playerTag] = await input.links.listPlayerTagsForUser(input.guildId, targetUser.id);
+  const playerTags = await input.links.listPlayerTagsForUser(input.guildId, targetUser.id);
+  const [playerTag] = playerTags;
   if (!playerTag)
     return { status: 'no_link', targetUser, isSelf: targetUser.id === input.invokingUser.id };
   return {
@@ -226,12 +233,18 @@ export async function resolveUpgradesPlayerTag(input: {
     playerTag,
     targetUser,
     source: input.userOption ? 'linked_user' : 'linked_default',
+    linkedAccountCount: playerTags.length,
   };
 }
 
 export function buildUpgradesEmbed(
   player: ClashPlayer,
-  context: UpgradesEmbedContext = { source: 'player_option', targetUser: null },
+  context: UpgradesEmbedContext = {
+    source: 'player_option',
+    targetUser: null,
+    requestedTag: player.tag,
+    linkedAccountCount: null,
+  },
 ): EmbedBuilder {
   const progress = collectUpgradeProgress(player);
   const groups = collectRemainingUpgrades(player);
@@ -250,12 +263,11 @@ export function buildUpgradesEmbed(
     .setDescription(
       truncateEmbedText(
         [
-          `First pass using public API \`maxLevel\` values${townHall ? ` for TH ${townHall}` : ''}${builderHall ? ` / BH ${builderHall}` : ''}.`,
+          `Source: live public Clash API player response for ${player.tag}; requested ${context.requestedTag ?? player.tag}. No cached snapshots or persisted upgrade history are used.`,
           formatUpgradesLookupSource(context),
-          'Freshness: current Clash API response only; no cached snapshots or persisted upgrade history are used.',
-          "Accepted filters: `player` for an exact Clash tag, or `user` for that member's first linked account when no player tag is supplied.",
+          formatLinkedAccountScope(context),
+          `Coverage: API categories returned now — ${formatUpgradeCoverage(progress)}. Availability uses public \`maxLevel\` values${townHall ? ` for TH ${townHall}` : ''}${builderHall ? ` / BH ${builderHall}` : ''}; hall-specific cost/time, lab availability, builders, books, hammers, and magic-item planning are not modeled.`,
           'Tracking: this one-off lookup does not enroll the player for polling or long-lived tracking.',
-          'Recommendation limits: ClashMate currently uses public API unit `maxLevel` data and simple remaining-level heuristics, not full TH/BH cost/time tables, lab availability, books, hammers, builders, or magic item planning. Some rows can include levels above the current hall until static hall caps are added.',
           `Totals: **${remainingUnits.toLocaleString('en-US')}** upgrade rows with **${remainingLevels.toLocaleString('en-US')}** remaining levels/units.`,
           `Rows shown: **${fieldResult.rowsShown.toLocaleString('en-US')}** of **${fieldResult.rowsAvailable.toLocaleString('en-US')}** available${fieldResult.rowsShown < fieldResult.rowsAvailable ? ' due to Discord embed limits' : ''}.`,
           formatRemainingCategoryCounts(groups),
@@ -318,6 +330,26 @@ function formatUpgradesLookupSource(context: UpgradesEmbedContext): string {
   }
 
   return 'Lookup source: explicit player tag.';
+}
+
+function formatLinkedAccountScope(context: UpgradesEmbedContext): string {
+  if (context.source === 'player_option') {
+    return 'Linked-account scope: not used for data selection because an explicit `player` tag was supplied.';
+  }
+
+  const count = context.linkedAccountCount ?? 0;
+  const accountText =
+    count === 1 ? '1 linked account' : `${count.toLocaleString('en-US')} linked accounts`;
+  return `Linked-account scope: selected the first saved player tag from ${accountText} for this Discord user in this server.`;
+}
+
+function formatUpgradeCoverage(summaries: readonly UpgradeProgressSummary[]): string {
+  return summaries
+    .map((summary) => {
+      const coverage = summary.maxLevels > 0 ? 'available' : 'not returned';
+      return `${summary.label} ${coverage}${summary.incompleteUnits > 0 ? ` (${summary.incompleteUnits.toLocaleString('en-US')} incomplete)` : ''}`;
+    })
+    .join(' • ');
 }
 
 function formatRemainingCategoryCounts(groups: UpgradeGroups): string {
