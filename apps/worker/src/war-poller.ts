@@ -30,10 +30,21 @@ export interface WarPollerResult {
   readonly status: 'snapshot_updated' | 'not_linked';
   readonly clanTag: string;
   readonly state: string;
+  readonly warKey: string;
+  readonly attackEventsGenerated: number;
   readonly attackEventsInserted: number;
+  readonly stateEventsGenerated: number;
   readonly stateEventsInserted: number;
+  readonly missedAttackEventsGenerated: number;
   readonly missedAttackEventsInserted: number;
+  readonly retentionRan: boolean;
+  readonly retentionSkipReason?: WarPollerSkipReason;
+  readonly attackEventsSkipReason?: WarPollerSkipReason;
+  readonly stateEventsSkipReason?: WarPollerSkipReason;
+  readonly missedAttackEventsSkipReason?: WarPollerSkipReason;
 }
+
+export type WarPollerSkipReason = 'snapshot_not_upserted' | 'store_unavailable' | 'no_events';
 
 export function createWarPollerHandler(options: WarPollerHandlerOptions) {
   return async (lease: ClaimedPollingLease): Promise<WarPollerResult> => {
@@ -53,7 +64,9 @@ export function createWarPollerHandler(options: WarPollerHandlerOptions) {
       fetchedAt,
     });
     const warKey = buildCurrentWarKey(war);
-    if (result.status === 'upserted' && options.snapshots.retainWarSnapshot) {
+    const snapshotWasUpserted = result.status === 'upserted';
+    let retentionRan = false;
+    if (snapshotWasUpserted && options.snapshots.retainWarSnapshot) {
       await options.snapshots.retainWarSnapshot({
         clanTag: resolvedClanTag,
         warKey,
@@ -61,33 +74,76 @@ export function createWarPollerHandler(options: WarPollerHandlerOptions) {
         snapshot: war,
         fetchedAt,
       });
+      retentionRan = true;
     }
 
     const attacks = detectWarAttackEvents(war, fetchedAt);
+    const attackEventsSkipReason = getWarPollerStoreSkipReason(
+      snapshotWasUpserted,
+      options.attackEvents,
+      attacks.length,
+    );
     const attackResult =
-      result.status === 'upserted' && options.attackEvents
+      snapshotWasUpserted && options.attackEvents
         ? await options.attackEvents.insertWarAttackEvents(attacks)
         : { inserted: 0 };
     const stateEvent = detectWarStateTransitionEvent(previousSnapshot, war, fetchedAt);
+    const stateEvents = stateEvent ? [stateEvent] : [];
+    const stateEventsSkipReason = getWarPollerStoreSkipReason(
+      snapshotWasUpserted,
+      options.stateEvents,
+      stateEvents.length,
+    );
     const stateResult =
-      result.status === 'upserted' && stateEvent && options.stateEvents
-        ? await options.stateEvents.insertWarStateEvents([stateEvent])
+      snapshotWasUpserted && stateEvent && options.stateEvents
+        ? await options.stateEvents.insertWarStateEvents(stateEvents)
         : { inserted: 0 };
     const missedAttacks = detectMissedWarAttackEvents(war, fetchedAt);
+    const missedAttackEventsSkipReason = getWarPollerStoreSkipReason(
+      snapshotWasUpserted,
+      options.missedAttackEvents,
+      missedAttacks.length,
+    );
     const missedAttackResult =
-      result.status === 'upserted' && options.missedAttackEvents
+      snapshotWasUpserted && options.missedAttackEvents
         ? await options.missedAttackEvents.insertMissedWarAttackEvents(missedAttacks)
         : { inserted: 0 };
 
     return {
-      status: result.status === 'upserted' ? 'snapshot_updated' : 'not_linked',
+      status: snapshotWasUpserted ? 'snapshot_updated' : 'not_linked',
       clanTag: resolvedClanTag,
       state: war.state,
+      warKey,
+      attackEventsGenerated: attacks.length,
       attackEventsInserted: attackResult.inserted,
+      stateEventsGenerated: stateEvents.length,
       stateEventsInserted: stateResult.inserted,
+      missedAttackEventsGenerated: missedAttacks.length,
       missedAttackEventsInserted: missedAttackResult.inserted,
+      retentionRan,
+      ...(!retentionRan
+        ? {
+            retentionSkipReason: snapshotWasUpserted
+              ? ('store_unavailable' as const)
+              : ('snapshot_not_upserted' as const),
+          }
+        : {}),
+      ...(attackEventsSkipReason ? { attackEventsSkipReason } : {}),
+      ...(stateEventsSkipReason ? { stateEventsSkipReason } : {}),
+      ...(missedAttackEventsSkipReason ? { missedAttackEventsSkipReason } : {}),
     };
   };
+}
+
+function getWarPollerStoreSkipReason(
+  snapshotWasUpserted: boolean,
+  store: unknown,
+  generatedCount: number,
+): WarPollerSkipReason | undefined {
+  if (!snapshotWasUpserted) return 'snapshot_not_upserted';
+  if (!store) return 'store_unavailable';
+  if (generatedCount === 0) return 'no_events';
+  return undefined;
 }
 
 export function detectWarStateTransitionEvent(
