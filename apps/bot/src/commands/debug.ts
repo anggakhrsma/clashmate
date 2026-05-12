@@ -418,19 +418,26 @@ async function readReconciliationPlanningOutcomes(
 
 function renderPollerDiagnostics(pollers: DebugPollerDiagnostics | undefined): string {
   if (!pollers) return 'Unavailable';
+  const totalLeases = countTotalLeases(pollers);
+  const activeLeases = Math.max(0, totalLeases - pollers.dueLeases);
 
   return [
+    `Total leases: ${totalLeases}`,
     `Clan leases: ${pollers.clanLeases}`,
     `Player leases: ${pollers.playerLeases}`,
     `War leases: ${pollers.warLeases}`,
-    `Due leases: ${pollers.dueLeases}`,
+    `Due leases: ${pollers.dueLeases} due / ${totalLeases} total (${activeLeases} not due)`,
   ].join('\n');
 }
 
 function renderPollerSummary(pollers: DebugPollerDiagnostics | undefined): string {
   if (!pollers) return 'unavailable';
-  const totalLeases = pollers.clanLeases + pollers.playerLeases + pollers.warLeases;
+  const totalLeases = countTotalLeases(pollers);
   return `${pollers.dueLeases} due / ${totalLeases} leased (${pollers.clanLeases} clan, ${pollers.playerLeases} player, ${pollers.warLeases} war)`;
+}
+
+function countTotalLeases(pollers: DebugPollerDiagnostics): number {
+  return pollers.clanLeases + pollers.playerLeases + pollers.warLeases;
 }
 
 function renderConfigDiagnostics(config: DebugConfigDiagnostics | undefined): string {
@@ -450,9 +457,23 @@ function renderReconciliationPlanning(
   if (!outcomes) return 'Unavailable';
   if (outcomes.length === 0) return 'No recent planning outcomes.';
 
-  return (['autorole', 'nickname'] as const)
-    .map((feature) => renderReconciliationFeature(feature, outcomes))
-    .join('\n');
+  const latest = outcomes.reduce((current, row) =>
+    row.plannedAt.getTime() > current.plannedAt.getTime() ? row : current,
+  );
+  const candidateActionCount = outcomes.reduce(
+    (total, outcome) => total + outcome.candidateActionCount,
+    0,
+  );
+  const shouldRunCount = outcomes.filter((outcome) => outcome.shouldRun).length;
+  const featureLines = (['autorole', 'nickname'] as const).map((feature) =>
+    renderReconciliationFeature(feature, outcomes),
+  );
+
+  return [
+    `Latest planning: ${formatPlanningAge(latest.plannedAt)} (${latest.feature})`,
+    `Candidate actions: ${candidateActionCount} across ${outcomes.length} outcomes; runnable ${shouldRunCount}/${outcomes.length}`,
+    ...featureLines,
+  ].join('\n');
 }
 
 function renderReconciliationFeature(
@@ -469,7 +490,20 @@ function renderReconciliationFeature(
   const skipReasons = summarizeSkipReasons(rows);
   const latestStatus = latest.shouldRun ? 'run' : `skip:${latest.reason}`;
 
-  return `${feature}: latest ${latest.plannedAt.toISOString()} ${latestStatus}; should_run ${shouldRunCount}/${rows.length}; skips ${skipReasons}; latest snapshots ${latest.snapshotClanCount} clans/${latest.snapshotMemberCount} members/${latest.candidateActionCount} actions`;
+  const candidateActionCount = rows.reduce((total, row) => total + row.candidateActionCount, 0);
+
+  return `${feature}: latest ${latest.plannedAt.toISOString()} (${formatPlanningAge(
+    latest.plannedAt,
+  )}) ${latestStatus}; should_run ${shouldRunCount}/${rows.length}; candidate actions ${candidateActionCount} total/${latest.candidateActionCount} latest; skips ${skipReasons}; latest snapshots ${latest.snapshotClanCount} clans/${latest.snapshotMemberCount} members`;
+}
+
+function formatPlanningAge(plannedAt: Date): string {
+  const ageMs = Date.now() - plannedAt.getTime();
+  const age = formatDurationMs(ageMs);
+  if (age === '...') return 'just now, fresh';
+  if (ageMs <= 15 * 60_000) return `${age} ago, fresh`;
+  if (ageMs <= 60 * 60_000) return `${age} ago, recent`;
+  return `${age} ago, stale`;
 }
 
 function summarizeSkipReasons(outcomes: readonly DebugReconciliationPlanningOutcome[]): string {
