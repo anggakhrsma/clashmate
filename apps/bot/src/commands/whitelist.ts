@@ -111,7 +111,7 @@ export async function executeWhitelistInteraction(
   if (shouldList || (!mentionable && !commandName)) {
     const entries = await options.store.listCommandWhitelist(interaction.guildId);
     await interaction.reply({
-      content: formatWhitelistList(entries),
+      content: formatWhitelistList(entries, options.loadedCommandNames),
       ephemeral: true,
       allowedMentions: { parse: [] },
     });
@@ -162,13 +162,19 @@ export async function executeWhitelistInteraction(
         ? [
             `### Successfully cleared the whitelist for ${formatMention(mentionable.id, isRole)} on \`/${commandName}\``,
             '',
-            `The change was saved for this server and an audit entry was recorded. Remaining \`/${commandName}\` whitelist entries: \`${Math.max(commandEntryCount - 1, 0)}\`.`,
+            formatCommandValidationContext(commandName, options.loadedCommandNames),
+            `Target type: \`${isRole ? 'role' : 'user'}\` • Persisted scope: \`this server\``,
+            `Removed entry. Remaining \`/${commandName}\` whitelist entries: \`${Math.max(commandEntryCount - 1, 0)}\` • Total entries: \`${result.entries.length}\`.`,
+            'The change was saved and an audit entry was recorded.',
           ].join('\n')
         : [
             `No matching whitelist entry existed for ${formatMention(mentionable.id, isRole)} on \`/${commandName}\`. Nothing changed.`,
+            formatCommandValidationContext(commandName, options.loadedCommandNames),
+            `Target type: \`${isRole ? 'role' : 'user'}\` • Persisted scope: \`this server\``,
             commandEntryCount === 0
               ? `\`/${commandName}\` is not currently restricted by command whitelist entries.`
               : `\`/${commandName}\` still has \`${commandEntryCount}\` other whitelist entr${commandEntryCount === 1 ? 'y' : 'ies'}.`,
+            'Use `/whitelist` without options, or with `list: True`, to review saved entries.',
           ].join('\n'),
       ephemeral: true,
       allowedMentions: { parse: [] },
@@ -181,6 +187,9 @@ export async function executeWhitelistInteraction(
       content: [
         `${formatMention(mentionable.id, isRole)} is already whitelisted for \`/${commandName}\`. Nothing changed.`,
         '',
+        formatCommandValidationContext(commandName, options.loadedCommandNames),
+        `Target type: \`${isRole ? 'role' : 'user'}\` • Persisted scope: \`this server\``,
+        `Total entries: \`${existingEntries.length}\``,
         `When a command has whitelist entries, only whitelisted users, whitelisted roles, server members with Manage Server, configured bot manager roles, and bot owners can use it.`,
       ].join('\n'),
       ephemeral: true,
@@ -189,7 +198,7 @@ export async function executeWhitelistInteraction(
     return;
   }
 
-  await options.store.addCommandWhitelistEntry({
+  const entries = await options.store.addCommandWhitelistEntry({
     guildId: interaction.guildId,
     guildName: interaction.guild.name,
     actorDiscordUserId: interaction.user.id,
@@ -200,6 +209,9 @@ export async function executeWhitelistInteraction(
     content: [
       `### Successfully whitelisted ${formatMention(mentionable.id, isRole)} for \`/${commandName}\``,
       '',
+      formatCommandValidationContext(commandName, options.loadedCommandNames),
+      `Target type: \`${isRole ? 'role' : 'user'}\` • Persisted scope: \`this server\``,
+      `Total entries: \`${entries.length}\``,
       '- This entry was saved for this server and an audit entry was recorded.',
       '- Once a command has whitelist entries, only whitelisted users, whitelisted roles, server members with Manage Server, configured bot manager roles, and bot owners can use it.',
       '- The whitelist is limited to slash commands and does not extend to buttons or select menus.',
@@ -220,12 +232,18 @@ export function filterCommandChoices(
     .map((name) => ({ name: `/${name}`, value: name }));
 }
 
-export function formatWhitelistList(entries: readonly CommandWhitelistEntry[]): string {
+export function formatWhitelistList(
+  entries: readonly CommandWhitelistEntry[],
+  loadedCommandNames: readonly string[] = [],
+): string {
+  const loadedNames = normalizedLoadedCommandNames(loadedCommandNames);
   if (entries.length === 0) {
     return [
       '### Whitelisted Commands, Users and Roles',
       '',
       'Total entries: `0` • Commands: `0` • Users: `0` • Roles: `0`',
+      `Loaded command coverage: \`0/${loadedNames.length}\` commands have whitelist entries.`,
+      'Persisted scope: `this server`',
       '',
       'No whitelisted users or roles.',
       '',
@@ -236,6 +254,11 @@ export function formatWhitelistList(entries: readonly CommandWhitelistEntry[]): 
   const commandNames = [...new Set(entries.map((entry) => entry.commandName))].sort((a, b) =>
     a.localeCompare(b),
   );
+  const loadedCommandSet = new Set(loadedNames);
+  const loadedCoveredCount = commandNames.filter((commandName) =>
+    loadedCommandSet.has(commandName),
+  ).length;
+  const unloadedSavedCount = commandNames.length - loadedCoveredCount;
   const userCount = entries.filter((entry) => !entry.isRole).length;
   const roleCount = entries.length - userCount;
   const lines = commandNames.flatMap((commandName) => {
@@ -259,12 +282,22 @@ export function formatWhitelistList(entries: readonly CommandWhitelistEntry[]): 
       '### Whitelisted Commands, Users and Roles',
       '',
       `Total entries: \`${entries.length}\` • Commands: \`${commandNames.length}\` • Users: \`${userCount}\` • Roles: \`${roleCount}\``,
+      `Shown entries: \`${entries.length}\` • Loaded command coverage: \`${loadedCoveredCount}/${loadedNames.length}\` • Saved commands not currently loaded: \`${unloadedSavedCount}\``,
+      'Persisted scope: `this server`',
       '',
       lines.join('\n'),
       '',
       'Command checks use these saved entries: if a command is listed here, access is limited to matching users/roles plus Manage Server members, configured bot manager roles, and bot owners.',
     ].join('\n'),
   );
+}
+
+function formatCommandValidationContext(
+  commandName: string,
+  loadedCommandNames: readonly string[],
+): string {
+  const loadedNames = normalizedLoadedCommandNames(loadedCommandNames);
+  return `Command validation: \`/${escapeInlineCode(commandName)}\` is loaded (${loadedNames.length} command${loadedNames.length === 1 ? '' : 's'} available).`;
 }
 
 export function normalizeCommandName(value: string | null): string | undefined {
