@@ -39,6 +39,7 @@ export interface ReminderSchedulerIterationResult {
 interface DueReminder {
   readonly schedule: ReminderScheduleDeliveryRecord;
   readonly bucket: string;
+  readonly nextRunAt: string;
 }
 
 interface ReminderDuration {
@@ -86,25 +87,26 @@ export async function runReminderSchedulerIteration(
       options.logger?.error?.(
         {
           error,
-          guildId: item.schedule.guildId,
           scheduleId: item.schedule.id,
+          guildId: item.schedule.guildId,
+          channelId: item.schedule.channelId,
+          reminderType: item.schedule.type,
           bucket: item.bucket,
+          nextRunAt: item.nextRunAt,
         },
         'Reminder scheduler failed to process due reminder',
       );
     }
   }
 
-  options.logger?.debug?.(
-    {
-      schedulesScanned: schedules.length,
-      schedulesDue: due.length,
-      schedulesProcessed: limitedDue.length,
-      outboxInserted,
-      failures,
-    },
-    'Reminder scheduler iteration completed',
+  const summary = buildReminderSchedulerIterationSummary(
+    schedules,
+    due,
+    limitedDue,
+    outboxInserted,
+    failures,
   );
+  options.logger?.debug?.(summary, 'Reminder scheduler iteration completed');
 
   return {
     schedulesScanned: schedules.length,
@@ -164,7 +166,15 @@ function collectDueReminder(schedule: ReminderScheduleDeliveryRecord, now: Date)
   if (elapsedMs < duration.milliseconds) return [];
   const bucketNumber = Math.floor(elapsedMs / duration.milliseconds);
   if (bucketNumber < 1) return [];
-  return [{ schedule, bucket: String(bucketNumber) }];
+  return [
+    {
+      schedule,
+      bucket: String(bucketNumber),
+      nextRunAt: new Date(
+        createdAt.getTime() + (bucketNumber + 1) * duration.milliseconds,
+      ).toISOString(),
+    },
+  ];
 }
 
 async function buildReminderPayload(
@@ -293,4 +303,77 @@ function validateReminderSchedulerLoopOptions(options: ReminderSchedulerLoopOpti
   if (!Number.isFinite(options.interval.jitterSeconds) || options.interval.jitterSeconds < 0) {
     throw new Error('Reminder scheduler jitter interval cannot be negative.');
   }
+}
+
+function buildReminderSchedulerIterationSummary(
+  schedules: readonly ReminderScheduleDeliveryRecord[],
+  due: readonly DueReminder[],
+  limitedDue: readonly DueReminder[],
+  outboxInserted: number,
+  failures: number,
+): Record<string, unknown> {
+  const skipped = Math.max(0, limitedDue.length - outboxInserted - failures);
+  return {
+    schedulesScanned: schedules.length,
+    schedulesDue: due.length,
+    schedulesProcessed: limitedDue.length,
+    outboxInserted,
+    outboxSkipped: skipped,
+    failures,
+    reminderBreakdown: buildReminderSchedulerBreakdown(limitedDue),
+    nextRunAtCoverage: buildReminderSchedulerNextRunCoverage(due),
+  };
+}
+
+function buildReminderSchedulerBreakdown(due: readonly DueReminder[]): {
+  readonly guilds: readonly { guildId: string; due: number }[];
+  readonly channels: readonly { channelId: string; due: number }[];
+  readonly types: readonly { type: string; due: number }[];
+} {
+  const guilds = new Map<string, number>();
+  const channels = new Map<string, number>();
+  const types = new Map<string, number>();
+
+  for (const item of due) {
+    incrementCount(guilds, item.schedule.guildId);
+    incrementCount(channels, item.schedule.channelId ?? 'unknown');
+    incrementCount(types, item.schedule.type);
+  }
+
+  return {
+    guilds: mapCountEntries(guilds, 'guildId'),
+    channels: mapCountEntries(channels, 'channelId'),
+    types: mapCountEntries(types, 'type'),
+  };
+}
+
+function buildReminderSchedulerNextRunCoverage(due: readonly DueReminder[]): {
+  readonly earliest?: string;
+  readonly latest?: string;
+} {
+  if (due.length === 0) return {};
+  const sorted = [...due].sort((left, right) => left.nextRunAt.localeCompare(right.nextRunAt));
+  const first = sorted[0];
+  const last = sorted[sorted.length - 1];
+  if (!first || !last) return {};
+  return {
+    earliest: first.nextRunAt,
+    latest: last.nextRunAt,
+  };
+}
+
+function incrementCount(map: Map<string, number>, key: string): void {
+  map.set(key, (map.get(key) ?? 0) + 1);
+}
+
+function mapCountEntries<TKey extends string>(
+  map: Map<string, number>,
+  keyName: TKey,
+): readonly ({ [P in TKey]: string } & { due: number })[] {
+  return [...map.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(
+      ([value, count]) =>
+        ({ [keyName]: value, due: count }) as { [P in TKey]: string } & { due: number },
+    );
 }
