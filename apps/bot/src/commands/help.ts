@@ -116,9 +116,10 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     category: 'Player & Clan',
     details: [
       'Reads current linked-clan and member snapshots without querying the Clash API.',
-      '`/capital raids user:<user>` filters clans using linked player tags and persisted member snapshots.',
-      'Raid-week attack logs are not persisted yet, so raids shows a compact current capital overview/ranking rather than per-attack raid history.',
-      'Contribution reads stored member `capitalContribution` and `capitalGold` fields when polling snapshots include them; historical raid-week contribution history is not implemented.',
+      'Accepts clan, user, and week display filters; user filters resolve through linked player tags and persisted member snapshots.',
+      'Raid-week attack logs are outside the current catalog data, so raids shows a compact current capital overview/ranking rather than per-attack raid history.',
+      'Contribution reads stored member `capitalContribution` and `capitalGold` fields when polling snapshots include them; raid-week contribution history is unavailable until stored in snapshots.',
+      'No export, live feed, or polling enrollment behavior is performed.',
     ],
   },
   {
@@ -141,7 +142,7 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     category: 'Setup & Logs',
     details: [
       'Create, list, rename, or delete stored categories used by linked clans on this server.',
-      'Requires Manage Server permission. `/category` only renames stored rows; it does not provide a category reordering UI.',
+      'Requires Manage Server permission. `/category edit` renames stored rows only; list order follows saved catalog data and has no drag/drop or reorder controls.',
       '`/category list` shows visible and hidden counts for stored categories, and empty states explain that linked clans fall back to Uncategorized until categories are created.',
       'Duplicate category names are matched by normalized saved configuration only, so autocomplete is the safest way to pick the intended row.',
     ],
@@ -216,12 +217,13 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
   {
     name: 'cwl',
     usage: '/cwl roster|round|lineup|stars|attacks|stats|members [clan] [user] [season]',
-    description: 'Show first-pass CWL views from persisted war data.',
+    description: 'Show CWL views from persisted war snapshots and attack history.',
     category: 'Player & Clan',
     details: [
-      'Reads retained/current war snapshots for roster, round, lineup, and members views.',
+      'Reads persisted retained/current war snapshots for roster, round, lineup, and members views.',
       'Reads persisted war attack history for stars, attacks, and stats views.',
-      'Does not query the Clash API; CWL-only filtering is approximate until stored events include CWL metadata.',
+      'Accepts clan, user, and season display filters; no live Clash API lookup, export, feed, or enrollment behavior is performed.',
+      'CWL-only filtering is approximate until stored events include CWL metadata.',
     ],
   },
   {
@@ -231,8 +233,8 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     category: 'Player & Clan',
     details: [
       'Reads existing linked clan, member, donation, war attack, and capital snapshot data without querying the Clash API.',
-      'Capital raids summarizes the latest persisted capital snapshots and stored member capital contribution fields; `week` is accepted as a display label only because raid-week attack logs and historical capital contribution are not implemented.',
-      'First pass returns compact embeds with totals and top rows instead of image charts.',
+      'Capital raids summarizes the latest persisted capital snapshots and stored member capital contribution fields; `week` is accepted as a display label because raid-week attack logs and historical contribution are outside the current catalog data.',
+      'Returns compact embeds with totals and top rows instead of legacy image charts.',
     ],
   },
   {
@@ -325,9 +327,9 @@ export const HELP_CATALOG: readonly HelpCatalogEntry[] = [
     details: [
       'Leaderboard and stats read linked-clan member snapshots without querying the Clash API.',
       'Leaderboard shows rows considered, snapshot freshness, stored league-name coverage, and the current Legend thresholds from persisted member data.',
-      'Attacks and days use persisted snapshots only to resolve accepted clan/player/user/day filters, then return honest no-data guidance until Legend attack/day history is stored.',
+      'Attacks and days use persisted snapshots only to resolve accepted clan, player, user, and day display filters, then return no-data guidance until Legend attack/day history is stored.',
       '`/legend stats reference_date:<YYYY-MM-DD>` accepts the date label for parity, but current persisted snapshots are still used.',
-      'Live Legend feeds, exports, auto-updating boards, external feeds, and polling enrollment are not implemented.',
+      'No live Legend feeds, exports, auto-updating boards, external feeds, or polling enrollment behavior is performed.',
     ],
   },
   {
