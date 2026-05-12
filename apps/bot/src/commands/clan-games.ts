@@ -235,6 +235,7 @@ async function executeClanGames(
 }
 
 interface ClanGamesCoverageContext {
+  readonly linkedClanScoreboardCount: number;
   readonly linkedClanSnapshotCount: number;
   readonly latestSnapshotUpdatedAt: Date | null;
   readonly latestSnapshotSeasonId: string | null;
@@ -252,6 +253,7 @@ function createClanGamesCoverageContext(
   }, null);
 
   return {
+    linkedClanScoreboardCount: choices.length,
     linkedClanSnapshotCount: choices.filter((choice) => choice.updatedAt).length,
     latestSnapshotUpdatedAt: latestChoice?.updatedAt ?? null,
     latestSnapshotSeasonId: latestChoice?.seasonId ?? null,
@@ -270,6 +272,8 @@ function filterScoreboardForUser(
   const members = scoreboard.members.filter((member) =>
     linkedTags.has(member.playerTag.toUpperCase()),
   );
+  const linkedTagLabel = `${playerTags.length.toLocaleString()} linked player tag${playerTags.length === 1 ? '' : 's'}`;
+  const matchedMemberLabel = `${members.length.toLocaleString()} matched member${members.length === 1 ? '' : 's'}`;
   return {
     ...scoreboard,
     members,
@@ -277,8 +281,8 @@ function filterScoreboardForUser(
     totalStoredMembers: scoreboard.members.length,
     userFilterNote:
       members.length === 0
-        ? `Filtered to linked players for **${escapeMarkdown(user.displayName)}** (${playerTags.length.toLocaleString()} linked tag${playerTags.length === 1 ? '' : 's'}, 0 matched members). No linked players are present in this stored scoreboard.`
-        : `Filtered to linked players for **${escapeMarkdown(user.displayName)}** (${playerTags.length.toLocaleString()} linked tag${playerTags.length === 1 ? '' : 's'}, ${members.length.toLocaleString()} matched member${members.length === 1 ? '' : 's'}).`,
+        ? `User filter: **${escapeMarkdown(user.displayName)}** resolved to ${linkedTagLabel}; 0 matched members in this stored scoreboard.`
+        : `User filter: **${escapeMarkdown(user.displayName)}** resolved to ${linkedTagLabel}; ${matchedMemberLabel}.`,
   };
 }
 
@@ -302,14 +306,21 @@ export function buildClanGamesEmbed(
     : scoreboard.seasonId;
   const visibleMembers = scoreboard.members.slice(0, SCOREBOARD_MEMBER_LIMIT);
   const totalStoredMembers = scoreboard.totalStoredMembers ?? scoreboard.members.length;
+  const linkedClanAvailability = formatLinkedClanAvailability(coverage);
+  const rowCountContext = formatClanGamesRowCountContext(
+    scoreboard,
+    visibleMembers,
+    totalStoredMembers,
+  );
   const descriptionLines = [
-    'This scoreboard is built from persisted Clan Games snapshots collected by ClashMate polling; it is not a live Clash API lookup.',
+    'Persisted Clan Games snapshots only; no live Clash API lookup or on-demand polling enrollment.',
     mentionSelectedClan
       ? `Using latest stored snapshot for **${escapeMarkdown(clanLabel)}**.`
       : null,
-    `Season: **${escapeMarkdown(seasonLabel)}**${scoreboard.seasonId === getCurrentClanGamesSeasonId(new Date()) ? ' · current Clan Games season' : ''}${context?.usedCurrentSeasonDefault ? ' · defaulted because no season option was provided' : ''}`,
-    `Snapshot source fetched: ${time(scoreboard.sourceFetchedAt, 'R')} · Persisted update: ${time(scoreboard.updatedAt, 'R')}`,
-    `Snapshot coverage: ${formatLinkedClanSnapshotCount(coverage)} · ${totalStoredMembers.toLocaleString()} stored member${totalStoredMembers === 1 ? '' : 's'} · ${visibleMembers.length.toLocaleString()} visible${scoreboard.members.length !== totalStoredMembers ? ` · ${scoreboard.members.length.toLocaleString()} after filters` : ''}`,
+    `Season: **${escapeMarkdown(seasonLabel)}**${scoreboard.seasonId === getCurrentClanGamesSeasonId(new Date()) ? ' · current season' : ''}${context?.usedCurrentSeasonDefault ? ' · defaulted because no season was provided' : ''}`,
+    `Scoreboard availability: ${linkedClanAvailability}.`,
+    `Snapshot coverage: ${formatLinkedClanSnapshotCount(coverage)} · source fetched ${time(scoreboard.sourceFetchedAt, 'R')} · stored update ${time(scoreboard.updatedAt, 'R')}`,
+    `Member rows: ${rowCountContext}.`,
     `Points summary: ${formatClanGamesCompletionSummary(scoreboard)}`,
     scoreboard.userFilterNote ?? null,
     '',
@@ -374,20 +385,31 @@ function formatClanGamesNoDataMessage(input: {
   readonly user: User | null;
   readonly coverage: ClanGamesCoverageContext;
 }): string {
+  const seasonLabel = input.seasonId ?? getCurrentClanGamesSeasonId(new Date());
+  const seasonDefaultNote = input.usedCurrentSeasonDefault
+    ? ' (defaulted to the current season)'
+    : '';
   const filters = [
     `clan: ${input.clan ? `\`${escapeMarkdown(input.clan)}\`` : '`latest linked clan`'}`,
-    `season: ${input.seasonId ? `\`${escapeMarkdown(input.seasonId)}\`${input.usedCurrentSeasonDefault ? ' (current Clan Games season default)' : ''}` : '`current Clan Games season`'}`,
+    `season: \`${escapeMarkdown(seasonLabel)}\`${seasonDefaultNote}`,
     `user: ${input.user ? `**${escapeMarkdown(input.user.displayName)}**` : '`not filtered`'}`,
   ];
 
   return [
     CLAN_GAMES_NO_DATA_MESSAGE,
     `Filters checked: ${filters.join(' · ')}.`,
+    `Scoreboard availability: ${formatLinkedClanAvailability(input.coverage)}.`,
     `Stored coverage: ${formatLinkedClanSnapshotCount(input.coverage)} · latest snapshot ${formatLatestSnapshotContext(input.coverage)}.`,
-    'Data source: persisted Clan Games snapshots for linked/configured clans only; no live Clash API fallback and no on-demand enrollment.',
-    'Season choices follow the Clan Games cycle: before the monthly event window, the previous month remains the current season.',
+    'Data source: persisted Clan Games snapshots for linked/configured clans only; no live Clash API fallback or on-demand enrollment.',
+    'Season choice note: before the monthly event window opens, the previous month remains the current season.',
     'Next: link/configure the clan if needed, enable worker polling, then wait for a Clan Games snapshot for the requested season.',
   ].join('\n');
+}
+
+function formatLinkedClanAvailability(coverage?: ClanGamesCoverageContext): string {
+  const scoreboardCount = coverage?.linkedClanScoreboardCount ?? 0;
+  const snapshotCount = coverage?.linkedClanSnapshotCount ?? 0;
+  return `${scoreboardCount.toLocaleString()} linked scoreboard${scoreboardCount === 1 ? '' : 's'} · ${snapshotCount.toLocaleString()} with stored snapshots`;
 }
 
 function formatLinkedClanSnapshotCount(coverage?: ClanGamesCoverageContext): string {
@@ -413,6 +435,23 @@ function formatScoreboardRows(
     const points = member.points.toLocaleString('en-US').padStart(6, ' ');
     return `${rank}. ${points}  ${member.playerName} (${member.playerTag})`;
   });
+}
+
+function formatClanGamesRowCountContext(
+  scoreboard: ClanGamesScoreboardSnapshot,
+  visibleMembers: readonly ClanGamesScoreboardSnapshot['members'][number][],
+  totalStoredMembers: number,
+): string {
+  const displayedCount = visibleMembers.length;
+  const visibleLabel = `${displayedCount.toLocaleString()} visible row${displayedCount === 1 ? '' : 's'}`;
+  const storedLabel = `${totalStoredMembers.toLocaleString()} stored member${totalStoredMembers === 1 ? '' : 's'}`;
+  const filteredLabel =
+    scoreboard.members.length === totalStoredMembers
+      ? null
+      : `${scoreboard.members.length.toLocaleString()} after user filter`;
+  return [visibleLabel, storedLabel, filteredLabel]
+    .filter((value): value is string => value !== null)
+    .join(' · ');
 }
 
 function truncateDescription(description: string): string {
