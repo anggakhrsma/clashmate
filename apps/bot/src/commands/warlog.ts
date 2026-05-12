@@ -90,6 +90,7 @@ export interface WarlogOutputContext {
   readonly linkedClanCount: number;
   readonly linkedClanLabels: readonly string[];
   readonly retainedSnapshotsScanned: number;
+  readonly retainedSnapshotsWithWarData: number;
   readonly visibleEntries: number;
   readonly displayLimit: number;
   readonly latestFetchedAt: Date | null;
@@ -222,6 +223,7 @@ async function executeWarlog(
     linkedClanCount: linkedClans.length,
     linkedClanLabels: linkedClans.map(formatTrackedClan),
     retainedSnapshotsScanned: snapshots.length,
+    retainedSnapshotsWithWarData: parsedEntries.length,
     visibleEntries: entries.length,
     displayLimit: WARLOG_LIMIT,
     latestFetchedAt,
@@ -494,7 +496,7 @@ function formatWarlogContextLine(context: WarlogOutputContext): string {
   const latest = context.latestFetchedAt ? time(context.latestFetchedAt, 'R') : 'none';
   const latestEnded = context.latestEndedAt ? time(context.latestEndedAt, 'R') : 'none';
 
-  return `Coverage: considered ${formatLinkedClanCoverageFromContext(context)}; retained snapshots scanned ${context.retainedSnapshotsScanned}; showing ${context.visibleEntries}/${context.displayLimit} rows; latest retained war ended ${latestEnded}; latest retained snapshot fetched ${latest}; filters ${filters.length > 0 ? filters.join(', ') : 'none'}.`;
+  return `Coverage: considered ${formatLinkedClanCoverageFromContext(context)}; retained snapshots scanned ${context.retainedSnapshotsScanned} (${context.retainedSnapshotsWithWarData} with readable war data); showing ${context.visibleEntries}/${context.displayLimit} rows; latest retained war ended ${latestEnded}; latest retained snapshot fetched ${latest}; filters ${filters.length > 0 ? filters.join(', ') : 'none'}.`;
 }
 
 function formatLinkedClanCoverageFromClans(clans: readonly WarlogTrackedClan[]): string {
