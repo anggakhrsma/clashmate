@@ -344,14 +344,38 @@ function buildClansDiagnosticLines(input: {
   const snapshotPayloads = input.clans.filter((clan) => clan.snapshot != null).length;
   const snapshotStats = countClansWithSnapshotStats(input.clans);
   const categorySummary = formatCategorySummary(input.categories);
+  const coverage = summarizeCategoryCoverage(input.categories, input.clans);
+  const hiddenRows = Math.max(0, input.clans.length - input.shownClans.length);
 
   return [
-    `Filter: ${input.categoryFilterLabel}; shown ${input.shownClans.length}/${input.clans.length} linked clans.`,
-    `Configured categories: ${input.categories.length}${categorySummary}; aliases present: ${aliases}/${input.clans.length}.`,
-    `Snapshots: payloads ${snapshotPayloads}/${input.clans.length}; member/level stats ${snapshotStats}/${input.clans.length}; latest ${formatLatestSnapshotAge(input.clans)}.`,
+    `Filter: ${input.categoryFilterLabel}; shown ${input.shownClans.length}/${input.clans.length} active linked clans; inactive linked clans hidden by the store: 0.`,
+    `Categories: ${input.categories.length}${categorySummary}; assigned ${coverage.assigned}/${input.clans.length}, general ${coverage.general}, stale category refs ${coverage.stale}.`,
+    `Aliases: ${aliases}/${input.clans.length}; hidden by filter/display: ${hiddenRows} by filter, 0 by display limit.`,
+    `Snapshots: payloads ${snapshotPayloads}/${input.clans.length}; member/level stats ${snapshotStats}/${input.clans.length}; freshness ${formatSnapshotFreshness(input.clans)}.`,
     `Truncation: ${input.isTruncated ? 'additional clan rows continue in fields below' : 'none'}.`,
-    'Limitation: persisted linked-clan/category/snapshot metadata only; no live Clash API lookup or polling enrollment changes.',
+    'Guidance: persisted linked-clan/category/snapshot metadata only; no live Clash API lookup and no polling enrollment changes.',
   ];
+}
+
+function summarizeCategoryCoverage(
+  categories: readonly ClansCategory[],
+  clans: readonly ClansLinkedClan[],
+): { assigned: number; general: number; stale: number } {
+  const categoryIds = new Set(categories.map((category) => category.id));
+  let assigned = 0;
+  let general = 0;
+  let stale = 0;
+
+  for (const clan of clans) {
+    if (!clan.categoryId) {
+      general += 1;
+      continue;
+    }
+    if (categoryIds.has(clan.categoryId)) assigned += 1;
+    else stale += 1;
+  }
+
+  return { assigned, general, stale };
 }
 
 function formatCategorySummary(categories: readonly ClansCategory[]): string {
@@ -364,14 +388,23 @@ function formatCategorySummary(categories: readonly ClansCategory[]): string {
   return ` (${names.join(', ')}${remaining > 0 ? `, +${remaining} more` : ''})`;
 }
 
-function formatLatestSnapshotAge(clans: readonly ClansLinkedClan[]): string {
-  const latestFetchedAt = clans
+function formatSnapshotFreshness(clans: readonly ClansLinkedClan[]): string {
+  const fetchedAtValues = clans
     .map((clan) => parseSnapshotFetchedAt(clan.snapshotFetchedAt))
     .filter((value): value is Date => Boolean(value))
-    .sort((a, b) => b.getTime() - a.getTime())[0];
+    .sort((a, b) => a.getTime() - b.getTime());
 
-  if (!latestFetchedAt) return 'unavailable';
-  const ageMs = Math.max(0, Date.now() - latestFetchedAt.getTime());
+  if (fetchedAtValues.length === 0) return 'unavailable';
+
+  const oldest = formatSnapshotAge(fetchedAtValues[0]);
+  const latest = formatSnapshotAge(fetchedAtValues[fetchedAtValues.length - 1]);
+  const missing = Math.max(0, clans.length - fetchedAtValues.length);
+  return `latest ${latest}, oldest ${oldest}${missing > 0 ? `, ${missing} missing fetched time` : ''}`;
+}
+
+function formatSnapshotAge(fetchedAt: Date | undefined): string {
+  if (!fetchedAt) return 'unavailable';
+  const ageMs = Math.max(0, Date.now() - fetchedAt.getTime());
   const minuteMs = 60_000;
   const hourMs = 60 * minuteMs;
   const dayMs = 24 * hourMs;
