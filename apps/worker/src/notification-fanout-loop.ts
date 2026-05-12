@@ -41,6 +41,7 @@ export type NotificationFanOutSource =
 
 export interface NotificationFanOutSourceResultSummary {
   readonly source: NotificationFanOutSource;
+  readonly cursorSource: 'storeCursor' | 'sourceUnavailable';
   readonly attempted: number;
   readonly created: number;
   readonly skipped: number;
@@ -69,6 +70,21 @@ export interface NotificationFanOutIterationSummary {
   readonly sources: readonly NotificationFanOutSourceResultSummary[];
   readonly totals: NotificationFanOutTotalsSummary;
   readonly failedFamilies: readonly { source: NotificationFanOutSource; message: string }[];
+  readonly skippedSources: readonly { source: NotificationFanOutSource; message: string }[];
+  readonly sourceBreakdown: Readonly<
+    Record<
+      NotificationFanOutSource,
+      Pick<
+        NotificationFanOutSourceResultSummary,
+        | 'cursorSource'
+        | 'eventsScanned'
+        | 'insertedOutboxEntries'
+        | 'skipped'
+        | 'failed'
+        | 'cursorAdvanced'
+      >
+    >
+  >;
   readonly error: boolean;
   readonly errorMessage?: string;
 }
@@ -105,6 +121,7 @@ function summarizeNotificationFanOutSourceResult(
 ): NotificationFanOutSourceResultSummary {
   return {
     source,
+    cursorSource: 'storeCursor',
     attempted: result.eventsScanned,
     created: result.insertedOutboxEntries,
     skipped: Math.max(result.matchedTargets - result.insertedOutboxEntries, 0),
@@ -122,6 +139,7 @@ function summarizeNotificationFanOutSourceFailure(
 ): NotificationFanOutSourceResultSummary {
   return {
     source,
+    cursorSource: 'storeCursor',
     attempted: 0,
     created: 0,
     skipped: 0,
@@ -140,6 +158,7 @@ function summarizeSkippedNotificationFanOutSource(
 ): NotificationFanOutSourceResultSummary {
   return {
     source,
+    cursorSource: 'sourceUnavailable',
     attempted: 0,
     created: 0,
     skipped: 1,
@@ -155,6 +174,32 @@ function summarizeSkippedNotificationFanOutSource(
 function createNotificationFanOutIterationSummary(
   sources: readonly NotificationFanOutSourceResultSummary[],
 ): NotificationFanOutIterationSummary {
+  const skippedSources = sources
+    .filter((source) => source.skippedMessage !== undefined)
+    .map((source) => ({
+      source: source.source,
+      message: source.skippedMessage ?? 'Source skipped',
+    }));
+  const failedFamilies = sources
+    .filter((source) => source.failed > 0)
+    .map((source) => ({
+      source: source.source,
+      message: source.errorMessage ?? 'Unknown error',
+    }));
+  const sourceBreakdown = Object.fromEntries(
+    sources.map((source) => [
+      source.source,
+      {
+        cursorSource: source.cursorSource,
+        eventsScanned: source.eventsScanned,
+        insertedOutboxEntries: source.insertedOutboxEntries,
+        skipped: source.skipped,
+        failed: source.failed,
+        cursorAdvanced: source.cursorAdvanced,
+      },
+    ]),
+  ) as NotificationFanOutIterationSummary['sourceBreakdown'];
+
   return {
     sources,
     totals: sources.reduce<NotificationFanOutTotalsSummary>(
@@ -181,13 +226,10 @@ function createNotificationFanOutIterationSummary(
         insertedOutboxEntries: 0,
       },
     ),
-    failedFamilies: sources
-      .filter((source) => source.failed > 0)
-      .map((source) => ({
-        source: source.source,
-        message: source.errorMessage ?? 'Unknown error',
-      })),
-    error: sources.some((source) => source.failed > 0),
+    failedFamilies,
+    skippedSources,
+    sourceBreakdown,
+    error: failedFamilies.length > 0,
   };
 }
 
@@ -372,6 +414,8 @@ export async function runNotificationFanOutIteration(
     {
       sources: summary.sources,
       totals: summary.totals,
+      sourceBreakdown: summary.sourceBreakdown,
+      skippedSources: summary.skippedSources,
       failedFamilies: summary.failedFamilies,
     },
     'Notification fan-out iteration completed',
