@@ -76,9 +76,11 @@ describe('/blacklist access control and target validation', () => {
     const context = createContext(['owner', 'target-owner']);
 
     expect(validateBlacklistTarget('target-owner', context)).toBe(
-      'Bot owners cannot be blacklisted.',
+      'Bot owners cannot be blacklisted. This owner-only command will not block configured owners.',
     );
-    expect(validateBlacklistTarget('bot', context)).toBe('ClashMate cannot blacklist itself.');
+    expect(validateBlacklistTarget('bot', context)).toBe(
+      'ClashMate cannot blacklist itself. The bot user must keep command access available.',
+    );
     expect(validateBlacklistTarget('regular-user', context)).toBeUndefined();
   });
 });
@@ -111,7 +113,13 @@ describe('/blacklist toggle behavior', () => {
     ]);
     expect(replies).toEqual([
       {
-        content: "**Target User** has been blacklisted from using ClashMate's command.",
+        content: [
+          "Created: **Target User** is now on ClashMate's blacklist.",
+          'Command access: blocked from using ClashMate commands immediately.',
+          'Scope: owner-only global user access control.',
+          'Effect: persisted block applies across all guilds and DMs until toggled off.',
+          'Visibility: reply is ephemeral; review global access audit records for operator history.',
+        ].join('\n'),
         ephemeral: true,
       },
     ]);
@@ -124,6 +132,14 @@ describe('/blacklist toggle behavior', () => {
         targetDisplayName: 'Target User',
         botDisplayName: 'ClashMate',
       }),
-    ).toBe("**Target User** has been removed from the ClashMate's blacklist.");
+    ).toBe(
+      [
+        "Removed: **Target User** is no longer on ClashMate's blacklist.",
+        'Command access: restored for ClashMate commands unless another guard blocks them.',
+        'Scope: owner-only global user access control.',
+        'Effect: persisted block applies across all guilds and DMs until toggled off.',
+        'Visibility: reply is ephemeral; review global access audit records for operator history.',
+      ].join('\n'),
+    );
   });
 });

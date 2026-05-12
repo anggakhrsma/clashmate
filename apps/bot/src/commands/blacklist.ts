@@ -68,11 +68,11 @@ export function validateBlacklistTarget(
   context: Pick<CommandContext, 'client' | 'ownerIds'>,
 ): string | undefined {
   if (isOwner(targetUserId, context.ownerIds)) {
-    return 'Bot owners cannot be blacklisted.';
+    return 'Bot owners cannot be blacklisted. This owner-only command will not block configured owners.';
   }
 
   if (targetUserId === context.client.user?.id) {
-    return 'ClashMate cannot blacklist itself.';
+    return 'ClashMate cannot blacklist itself. The bot user must keep command access available.';
   }
 
   return undefined;
@@ -83,11 +83,25 @@ export function formatBlacklistToggleMessage(options: {
   targetDisplayName: string;
   botDisplayName: string;
 }): string {
+  const details = [
+    'Scope: owner-only global user access control.',
+    'Effect: persisted block applies across all guilds and DMs until toggled off.',
+    'Visibility: reply is ephemeral; review global access audit records for operator history.',
+  ];
+
   if (options.action === 'deleted') {
-    return `**${options.targetDisplayName}** has been removed from the ${options.botDisplayName}'s blacklist.`;
+    return [
+      `Removed: **${options.targetDisplayName}** is no longer on ${options.botDisplayName}'s blacklist.`,
+      'Command access: restored for ClashMate commands unless another guard blocks them.',
+      ...details,
+    ].join('\n');
   }
 
-  return `**${options.targetDisplayName}** has been blacklisted from using ${options.botDisplayName}'s command.`;
+  return [
+    `Created: **${options.targetDisplayName}** is now on ${options.botDisplayName}'s blacklist.`,
+    'Command access: blocked from using ClashMate commands immediately.',
+    ...details,
+  ].join('\n');
 }
 
 function getUserDisplayName(user: User): string {
