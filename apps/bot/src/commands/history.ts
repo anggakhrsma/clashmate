@@ -263,10 +263,23 @@ export function filterHistoryClanChoices(
   query: string,
 ): ApplicationCommandOptionChoiceData<string>[] {
   const normalizedQuery = query.trim().toLowerCase();
-  return clans
+  const seenAcceptedValues = new Set<string>();
+  const seenClanTags = new Set<string>();
+
+  return [...clans]
+    .sort(compareHistoryClanChoices)
     .filter((clan) => clanMatchesQuery(clan, normalizedQuery))
+    .filter((clan) => {
+      const acceptedValue = getHistoryClanChoiceValue(clan);
+      const acceptedValueKey = acceptedValue.trim().toLowerCase();
+      const clanTagKey = clan.clanTag.trim().toLowerCase();
+      if (seenAcceptedValues.has(acceptedValueKey) || seenClanTags.has(clanTagKey)) return false;
+      seenAcceptedValues.add(acceptedValueKey);
+      seenClanTags.add(clanTagKey);
+      return true;
+    })
     .slice(0, 25)
-    .map((clan) => ({ name: formatClanChoiceName(clan), value: clan.alias ?? clan.clanTag }));
+    .map((clan) => ({ name: formatClanChoiceName(clan), value: getHistoryClanChoiceValue(clan) }));
 }
 
 export async function executeHistory(
@@ -1226,8 +1239,27 @@ function clanMatchesQuery(clan: HistoryLinkedClan, normalizedQuery: string): boo
 }
 
 function formatClanChoiceName(clan: HistoryLinkedClan): string {
-  const label = clan.alias?.trim() || clan.name?.trim() || clan.clanTag;
-  return `${label} (${clan.clanTag})`.slice(0, 100);
+  const alias = clan.alias?.trim();
+  const name = clan.name?.trim();
+  const label = alias || name || clan.clanTag;
+  const context = name && alias && name.toLowerCase() !== alias.toLowerCase() ? ` · ${name}` : '';
+  const aliasContext = alias ? ' · alias' : '';
+  return `${label}${context} (${clan.clanTag}${aliasContext})`.slice(0, 100);
+}
+
+function getHistoryClanChoiceValue(clan: HistoryLinkedClan): string {
+  return clan.alias ?? clan.clanTag;
+}
+
+function compareHistoryClanChoices(a: HistoryLinkedClan, b: HistoryLinkedClan): number {
+  return (
+    formatClanChoiceName(a).localeCompare(formatClanChoiceName(b), 'en', { sensitivity: 'base' }) ||
+    getHistoryClanChoiceValue(a).localeCompare(getHistoryClanChoiceValue(b), 'en', {
+      sensitivity: 'base',
+    }) ||
+    a.clanTag.localeCompare(b.clanTag, 'en', { sensitivity: 'base' }) ||
+    a.id.localeCompare(b.id, 'en', { sensitivity: 'base' })
+  );
 }
 
 function truncateEmbedDescription(text: string): string {
