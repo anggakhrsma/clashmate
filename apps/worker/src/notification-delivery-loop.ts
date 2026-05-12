@@ -94,6 +94,18 @@ interface NotificationBatchFailureSummary {
   readonly message: string;
 }
 
+interface NotificationDeliveryLogContext {
+  readonly outboxId: string;
+  readonly guildId: string;
+  readonly sourceType: string;
+  readonly sourceId: string;
+  readonly notificationType: string;
+  readonly targetType: string;
+  readonly targetId: string;
+  readonly channelId?: string;
+  readonly attempts: number;
+}
+
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
 }
@@ -267,9 +279,16 @@ export async function runNotificationDeliveryIteration(
   }
 
   for (const entry of claimed) {
+    const logContext = buildNotificationDeliveryLogContext(entry);
     try {
+      options.logger?.debug?.(logContext, 'Attempting notification delivery');
+
       if (entry.targetType !== 'discord_channel') {
         unsupported += 1;
+        options.logger?.debug?.(
+          { ...logContext, skippedTargetReason: 'unsupported_target_type' },
+          'Skipping unsupported notification target type',
+        );
         throw new Error(`Unsupported notification target type: ${entry.targetType}`);
       }
 
@@ -297,7 +316,7 @@ export async function runNotificationDeliveryIteration(
       }
       await options.deliveryStore.markNotificationOutboxSent(entry.id, options.ownerId, new Date());
       sent += 1;
-      options.logger?.info?.({ outboxId: entry.id, targetId: entry.targetId }, 'Sent notification');
+      options.logger?.info?.(logContext, 'Sent notification');
     } catch (error) {
       const retryAt = computeNotificationRetryAt(new Date(), entry.attempts + 1, retryBaseSeconds);
       const exhausted = entry.attempts + 1 >= maxAttempts;
@@ -320,7 +339,20 @@ export async function runNotificationDeliveryIteration(
           message: formatNotificationBatchFailureMessage(error),
         });
       }
-      options.logger?.error?.({ error, outboxId: entry.id }, 'Failed to send notification');
+      options.logger?.error?.(
+        {
+          ...logContext,
+          error,
+          failureKind: classifyNotificationDeliveryFailure(error),
+          payloadValidationFailure: isNotificationPayloadValidationFailure(error),
+          discordTargetReason: getDiscordTargetFailureReason(error),
+          retryAt: retryAt.toISOString(),
+          nextAttempt: entry.attempts + 1,
+          maxAttempts,
+          exhausted,
+        },
+        'Failed to send notification',
+      );
     }
   }
 
@@ -357,6 +389,89 @@ export async function runNotificationDeliveryIteration(
   );
 
   return result;
+}
+
+function buildNotificationDeliveryLogContext(entry: {
+  readonly id: string;
+  readonly guildId: string;
+  readonly sourceType: string;
+  readonly sourceId: string;
+  readonly targetType: string;
+  readonly targetId: string;
+  readonly payload: unknown;
+  readonly attempts: number;
+}): NotificationDeliveryLogContext {
+  return {
+    outboxId: entry.id,
+    guildId: entry.guildId,
+    sourceType: entry.sourceType,
+    sourceId: entry.sourceId,
+    notificationType: readNotificationType(entry),
+    targetType: entry.targetType,
+    targetId: entry.targetId,
+    ...(entry.targetType === 'discord_channel' ? { channelId: entry.targetId } : {}),
+    attempts: entry.attempts,
+  };
+}
+
+function readNotificationType(entry: {
+  readonly sourceType: string;
+  readonly payload: unknown;
+}): string {
+  if (!isObjectRecord(entry.payload)) return entry.sourceType;
+  const payload = entry.payload as { readonly eventType?: unknown; readonly type?: unknown };
+  const eventType = payload.eventType;
+  if (typeof eventType === 'string' && eventType.trim()) return eventType.trim();
+  const type = payload.type;
+  if (typeof type === 'string' && type.trim()) return type.trim();
+  return entry.sourceType;
+}
+
+function classifyNotificationDeliveryFailure(error: unknown): string {
+  if (isNotificationPayloadValidationFailure(error)) return 'payload_validation';
+  if (getDiscordTargetFailureReason(error)) return 'discord_target';
+  return 'delivery_error';
+}
+
+function isNotificationPayloadValidationFailure(error: unknown): boolean {
+  const message = getErrorMessage(error);
+  return (
+    message.startsWith('Notification payload ') ||
+    message.includes(' notification payload ') ||
+    message.startsWith('Unsupported clan member notification event type:') ||
+    message.startsWith('Clan donation notification payload ') ||
+    message.startsWith('Clan Games notification payload ') ||
+    message.startsWith('Clan role change notification ') ||
+    message.startsWith('Missed war attack notification ')
+  );
+}
+
+function getDiscordTargetFailureReason(error: unknown): string | undefined {
+  const code = readErrorCode(error);
+  if (code === 10_003) return 'unknown_channel';
+  if (code === 50_001) return 'missing_access';
+  if (code === 50_013) return 'missing_permissions';
+
+  const message = getErrorMessage(error).toLowerCase();
+  if (message.includes('unknown channel')) return 'unknown_channel';
+  if (message.includes('missing access')) return 'missing_access';
+  if (message.includes('missing permissions')) return 'missing_permissions';
+  return undefined;
+}
+
+function readErrorCode(error: unknown): number | undefined {
+  if (!isObjectRecord(error)) return undefined;
+  const { code } = error as { readonly code?: unknown };
+  if (typeof code === 'number') return code;
+  if (typeof code === 'string') {
+    const parsed = Number.parseInt(code, 10);
+    if (Number.isInteger(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function summarizeNotificationTargetTypes(
