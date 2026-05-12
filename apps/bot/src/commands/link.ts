@@ -483,6 +483,10 @@ export function buildLinkListEmbed(
 ): EmbedBuilder {
   const rows = buildLinkListRows(members, links, guildMembers);
   const description = formatLinkListDescription(rows);
+  const shownRows = Math.min(
+    rows.length,
+    description.length > 4096 ? countRowsWithinLimit(rows) : rows.length,
+  );
   const badgeUrl = extractClanBadgeUrl(clan.data);
   const embed = new EmbedBuilder()
     .setAuthor(
@@ -492,7 +496,7 @@ export function buildLinkListEmbed(
     )
     .setDescription(description.slice(0, 4096))
     .setFooter({
-      text: 'Read-only lookup: this does not configure clan tracking or enroll players for polling.',
+      text: `Showing ${shownRows}/${rows.length} clan members (${links.length} linked rows matched). Read-only lookup: no clan enrollment or polling changes.`,
     });
 
   return embed;
@@ -523,6 +527,30 @@ function formatLinkListRow(row: LinkListRow): string {
   const townHall = row.townHallLevel === null ? '??' : String(row.townHallLevel).padStart(2, '0');
   const user = row.discordDisplayName ?? row.playerTag;
   return `${status} \`${townHall} ${row.playerName} ${user}\``;
+}
+
+function countRowsWithinLimit(rows: readonly LinkListRow[]): number {
+  let count = 0;
+  let length = 0;
+  const groups = [
+    { title: 'Players in the Server', rows: rows.filter((row) => row.isLinked && row.isInServer) },
+    {
+      title: 'Players not in the Server',
+      rows: rows.filter((row) => row.isLinked && !row.isInServer),
+    },
+    { title: 'Players not Linked', rows: rows.filter((row) => !row.isLinked) },
+  ];
+
+  for (const [index, group] of groups.entries()) {
+    if (index > 0) length += 2;
+    length += `**${group.title}: ${group.rows.length}**`.length;
+    for (const row of group.rows) {
+      length += formatLinkListRow(row).length + 1;
+      if (length > 4096) return count;
+      count += 1;
+    }
+  }
+  return count;
 }
 
 function isClanDataWithMembers(value: unknown): value is {
@@ -559,16 +587,17 @@ export function formatLinkCreateResult(
   targetUser: Pick<User, 'displayName'>,
 ): string {
   const playerLabel = `**${player.name} (${player.tag})**`;
+  const targetLabel = `**${targetUser.displayName}**`;
 
   switch (result.status) {
     case 'linked':
-      return `Successfully linked ${playerLabel} to **${targetUser.displayName}**.${result.wasDefault ? ' This is now the default account for ClashMate commands.' : ' Existing default-account preference was preserved.'} Use /verify with the in-game API token when you want to prove ownership or transfer a conflicting link.`;
+      return `Successfully linked ${playerLabel} to ${targetLabel}. ${result.wasDefault ? 'Default account: this player is now first for ClashMate commands.' : 'Default account: existing preference was preserved; use `is_default:Yes` to promote this player.'} This link is local to this server and does not enroll the player or clan for polling.`;
     case 'already_linked_to_user':
-      return `${playerLabel} is already linked. Use \`is_default:Yes\` to make it the default account.`;
+      return `${playerLabel} is already linked to ${targetLabel}. No new row was created; use \`is_default:Yes\` to make it the default account if needed.`;
     case 'already_linked_to_other_user':
-      return `${playerLabel} is already linked to another user. If you own this account, please use the /verify command.`;
+      return `${playerLabel} is already linked to <@${result.discordUserId}>. Conflict guidance: ask a links manager to remove the stale link, or use /verify with the in-game API token if you own this account.`;
     case 'max_accounts_reached':
-      return `The maximum account limit has been reached. (${result.maxAccounts} accounts/user)`;
+      return `${targetLabel} already has the maximum number of linked accounts (${result.maxAccounts} accounts/user). Delete an old link or choose another target user before linking more.`;
   }
 }
 
@@ -576,11 +605,13 @@ export function formatLinkDeleteResult(result: LinkDeleteStoreResult, playerTag:
   if (result.status === 'deleted') {
     const defaultNote = result.promotedDefaultTag
       ? ` **${result.promotedDefaultTag}** is now the default account for that user.`
-      : '';
-    return `Successfully deleted the link with the tag **${playerTag}**.${defaultNote}`;
+      : ' That user has no promoted replacement default account from this delete.';
+    return `Successfully deleted the link with the tag **${playerTag}** for <@${result.discordUserId}>.${defaultNote} This only removes the Discord link; it does not change polling enrollment.`;
   }
-  if (result.status === 'not_found') return `No matches were found with the tag **${playerTag}**`;
-  return "You can delete your own links here. Deleting another user's link requires Manage Server or a configured links manager role.";
+  if (result.status === 'not_found') {
+    return `No matches were found with the tag **${playerTag}**. Nothing was deleted; check the tag or list the clan links first.`;
+  }
+  return `Permission denied: **${playerTag}** belongs to <@${result.discordUserId}>. You can delete your own links here; deleting another user's link requires Manage Server or a configured links manager role.`;
 }
 
 export function formatLinkCreateDefaultClanResult(
@@ -588,7 +619,7 @@ export function formatLinkCreateDefaultClanResult(
   clan: Pick<ClashClan, 'name' | 'tag'>,
   targetUser: Pick<User, 'displayName'>,
 ): string {
-  return `Stored **${clan.name} (${clan.tag})** as **${targetUser.displayName}**'s default clan for ClashMate features. The preference is persisted for this server and audited, but it does not enroll the clan for polling unless the clan is separately linked or configured.`;
+  return `Stored **${clan.name} (${clan.tag})** as **${targetUser.displayName}**'s default clan for ClashMate features. Default clan: this server preference is now set for that user and audited. This does not link the clan to the server or enroll it for polling unless configured elsewhere.`;
 }
 
 export function formatLinkDeleteDefaultClanResult(
@@ -596,10 +627,12 @@ export function formatLinkDeleteDefaultClanResult(
   clanTag: string,
 ): string {
   if (result.status === 'deleted') {
-    return `Deleted the default clan link for **${clanTag}**. The preference change is audited and does not unlink or unenroll any configured clan polling.`;
+    return `Deleted the default clan link for **${clanTag}** from <@${result.discordUserId}>. The preference change is audited and does not unlink or unenroll any configured clan polling.`;
   }
-  if (result.status === 'not_found') return `No default clan link was found for **${clanTag}**.`;
-  return "You can delete your own default clan links here. Deleting another user's default clan link requires Manage Server or a configured links manager role.";
+  if (result.status === 'not_found') {
+    return `No default clan link was found for **${clanTag}**. Nothing was deleted; default clans are separate from server-linked clans.`;
+  }
+  return `Permission denied: the default clan **${clanTag}** belongs to <@${result.discordUserId}>. You can delete your own default clan links here; deleting another user's default clan link requires Manage Server or a configured links manager role.`;
 }
 
 export async function canManageLinks(
