@@ -271,6 +271,21 @@ export function buildStatusEmbed(view: StatusView): EmbedBuilder {
       value: formatOptionalCount(view.metrics.links),
       inline: false,
     },
+    {
+      name: 'Cache Health',
+      value: formatCacheHealth(view.metrics),
+      inline: false,
+    },
+    {
+      name: 'Metric Coverage',
+      value: formatMetricCoverage(view.metrics),
+      inline: false,
+    },
+    {
+      name: 'Ready / Live',
+      value: formatReadyLiveCheck(view.metrics),
+      inline: false,
+    },
     ...(view.metrics.reconciliationPlanning
       ? [
           {
@@ -283,6 +298,11 @@ export function buildStatusEmbed(view: StatusView): EmbedBuilder {
     {
       name: 'Runtime',
       value: view.metrics.runtime,
+      inline: false,
+    },
+    {
+      name: 'Build Metadata',
+      value: formatBuildMetadata(view.metrics),
       inline: false,
     },
     {
@@ -347,7 +367,7 @@ export function formatReconciliationPlanning(summary: StatusReconciliationPlanni
       : 'none';
   const latest = summary.latestPlannedAt?.toISOString() ?? 'Unavailable';
 
-  return `Recent ${formatCount(summary.totalRecentOutcomes)} outcomes; latest ${latest}; planned ${features}; skips ${topSkips}.`;
+  return `Recent ${formatCount(summary.totalRecentOutcomes)} outcomes; latest ${latest}; planned ${features}; top skips ${topSkips}.`;
 }
 
 export function formatClientHealth(
@@ -405,23 +425,74 @@ export function formatStatusDiagnostics(
     | 'cacheSource'
     | 'metricSource'
     | 'missingMetricReaders'
+    | 'version'
+    | 'commitSha'
+    | 'repositoryUrl'
+  >,
+): string {
+  return [
+    `Ready/live: ${formatReadyLiveCheck(metrics)}.`,
+    `Cache health: ${formatCacheHealth(metrics)}.`,
+    `Metric coverage: ${formatMetricCoverage(metrics)}.`,
+    `Build metadata: ${formatBuildMetadata(metrics)}.`,
+  ].join('\n');
+}
+
+export function formatCacheHealth(
+  metrics: Pick<
+    StatusMetrics,
+    'servers' | 'cachedGuilds' | 'cachedUsers' | 'cachedChannels' | 'cacheSource'
   >,
 ): string {
   const cachedGuilds = metrics.cachedGuilds ?? 0;
   const cachedUsers = metrics.cachedUsers ?? 0;
   const cachedChannels = metrics.cachedChannels ?? 0;
-  const cacheCoverage =
+  const guildCoverage =
     metrics.servers > 0
       ? `${Math.min(cachedGuilds, metrics.servers)}/${formatCount(metrics.servers)} guilds`
       : `${formatCount(cachedGuilds)} guilds`;
 
-  return [
-    `Gateway latency: ${formatLatency(metrics.websocketLatencyMs)}.`,
-    formatClientHealth(metrics),
-    `Coverage: server cache ${cacheCoverage}; user cache ${formatCount(cachedUsers)}; channel cache ${formatCount(cachedChannels)}.`,
-    `Cache source: ${metrics.cacheSource ?? 'Discord client cache.'}`,
-    formatMetricSource(metrics),
-  ].join('\n');
+  return `${guildCoverage}; users ${formatCount(cachedUsers)}; channels ${formatCount(cachedChannels)}; source ${metrics.cacheSource ?? 'Discord client cache'}`;
+}
+
+export function formatMetricCoverage(
+  metrics: Pick<StatusMetrics, 'metricSource' | 'missingMetricReaders'>,
+): string {
+  const missingMetricReaders = metrics.missingMetricReaders ?? [];
+  const availableReaders = 4 - missingMetricReaders.length;
+  const base = `${availableReaders}/4 readers available`;
+
+  if (missingMetricReaders.length === 0) {
+    return `${base}; ${metrics.metricSource ?? 'metric source unavailable'}`;
+  }
+
+  return `${base}; missing ${missingMetricReaders.join(', ')}; ${metrics.metricSource ?? 'metric source unavailable'}`;
+}
+
+export function formatReadyLiveCheck(
+  metrics: Pick<StatusMetrics, 'clientReady' | 'clientReadyAt' | 'websocketLatencyMs'>,
+): string {
+  const readyState = metrics.clientReady ? 'ready' : 'not ready';
+  const readyAt = metrics.clientReadyAt?.toISOString() ?? 'Unavailable';
+
+  return `${readyState}; live latency ${formatLatency(metrics.websocketLatencyMs)}; ready at ${readyAt}`;
+}
+
+export function formatBuildMetadata(
+  metrics: Pick<StatusMetrics, 'version' | 'commitSha' | 'repositoryUrl'>,
+): string {
+  const hasCommit = Boolean(metrics.commitSha);
+  const hasRepository = Boolean(metrics.repositoryUrl);
+
+  if (hasCommit && hasRepository) {
+    return `present (${formatVersion(metrics)})`;
+  }
+
+  if (hasCommit || hasRepository) {
+    return `partial (commit ${hasCommit ? 'present' : 'missing'}, repository ${hasRepository ? 'present' : 'missing'})`;
+  }
+
+  return `absent (${metrics.version})`;
 }
 
 export function formatDuration(totalSeconds: number): string {
