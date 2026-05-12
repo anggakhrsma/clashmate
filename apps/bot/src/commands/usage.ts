@@ -100,6 +100,7 @@ export interface UsageView {
   recentTrend?: UsageRecentTrend;
   totalUses: number;
   metricSource?: string;
+  usageOwnerLimitNote?: string;
 }
 
 export interface UsageLoadedCommandCoverage {
@@ -232,8 +233,9 @@ export async function collectUsageView(
     ...(recentTrend ? { recentTrend } : {}),
     totalUses,
     metricSource: metricReader
-      ? 'PostgreSQL aggregate metric reader'
-      : 'Not configured; inject UsageMetricReader to enable persisted usage metrics.',
+      ? 'Persisted PostgreSQL aggregates via UsageMetricReader.'
+      : 'Unavailable; inject UsageMetricReader to enable persisted usage metrics.',
+    usageOwnerLimitNote: 'Owner-only diagnostic; no public usage endpoint is exposed.',
   };
 }
 
@@ -255,7 +257,12 @@ export function buildUsageEmbed(view: UsageView): EmbedBuilder {
 export function formatUsageDescription(
   view: Pick<
     UsageView,
-    'dailyUsage' | 'commandTotals' | 'loadedCommandCoverage' | 'recentTrend' | 'metricSource'
+    | 'dailyUsage'
+    | 'commandTotals'
+    | 'loadedCommandCoverage'
+    | 'recentTrend'
+    | 'metricSource'
+    | 'usageOwnerLimitNote'
   >,
 ): string {
   const dailyRows = view.dailyUsage.length
@@ -280,6 +287,7 @@ export function formatUsageDescription(
     '```',
     formatRecentUsageTrend(view.recentTrend),
     formatLoadedCommandCoverage(view.loadedCommandCoverage),
+    view.usageOwnerLimitNote,
     view.metricSource ? `Metrics source: ${view.metricSource}` : undefined,
   ]
     .filter((line): line is string => typeof line === 'string')
@@ -291,10 +299,10 @@ function formatLoadedCommandCoverage(coverage: UsageLoadedCommandCoverage | unde
     return 'Loaded command coverage: not available (loaded command names not injected).';
 
   const sample = coverage.unusedSample.length
-    ? ` Sample unused: ${coverage.unusedSample.map((name) => `/${name}`).join(', ')}`
-    : ' No unused loaded commands.';
+    ? ` Unused loaded commands: ${coverage.unusedSample.map((name) => `/${name}`).join(', ')}`
+    : ' No loaded commands are currently unused.';
 
-  return `Loaded command coverage: ${coverage.coveragePercent}% (${formatCount(coverage.withUsageCount)}/${formatCount(coverage.loadedCount)}) with usage; ${formatCount(coverage.withoutUsageCount)} unused loaded.${sample}`;
+  return `Loaded command coverage: ${formatCount(coverage.withUsageCount)}/${formatCount(coverage.loadedCount)} loaded commands have usage (${coverage.coveragePercent}%); ${formatCount(coverage.withoutUsageCount)} loaded commands have no usage.${sample}`;
 }
 
 function formatRecentUsageTrend(trend: UsageRecentTrend | undefined): string | undefined {
@@ -363,7 +371,13 @@ async function buildUsageChartReply(limit: number, options: UsageCommandOptions)
     options.logger,
   );
 
-  return url ?? formatUsageGrowthTextChart(views);
+  if (url) return url;
+
+  return [
+    formatUsageGrowthTextChart(views),
+    formatUsageGrowthContext(limit, records.length, views.length),
+    'Metrics source: persisted PostgreSQL growth aggregates via UsageMetricReader.',
+  ].join('\n');
 }
 
 export function formatUsageGrowthTextChart(records: readonly UsageGrowthDailyView[]): string {
@@ -398,6 +412,17 @@ function formatUsageGrowthBar(record: UsageGrowthSummary, maxMagnitude: number):
     Math.round((Math.abs(record.net) / maxMagnitude) * USAGE_GROWTH_BAR_WIDTH),
   );
   return (record.net > 0 ? '+' : '-').repeat(width);
+}
+
+function formatUsageGrowthContext(
+  requestedLimit: number,
+  availableCount: number,
+  renderedCount: number,
+): string {
+  const coverage = `${formatCount(renderedCount)}/${formatCount(Math.min(requestedLimit, availableCount))}`;
+  const requested =
+    requestedLimit === renderedCount ? '' : ` Requested ${formatCount(requestedLimit)}.`;
+  return `Growth chart coverage: ${coverage} days rendered from ${formatCount(availableCount)} available growth records.${requested}`;
 }
 
 function formatSignedCount(value: number): string {
