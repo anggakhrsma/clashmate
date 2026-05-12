@@ -22,7 +22,16 @@ type BuildMetadata = {
   repositoryUrl?: string;
 };
 
+type SafeErrorDiagnostics = {
+  type: string;
+  code?: string;
+};
+
 const createTimestamp = () => new Date().toISOString();
+
+const getUptimeSeconds = () => Math.round(process.uptime());
+
+const getDurationMs = (started: bigint) => Number((process.hrtime.bigint() - started) / 1_000_000n);
 
 const createBuildMetadata = (env: NodeJS.ProcessEnv = process.env): BuildMetadata => {
   const { GIT_SHA: gitSha, SOURCE_REPOSITORY_URL: sourceRepositoryUrl } = env;
@@ -39,11 +48,39 @@ const createBuildMetadata = (env: NodeJS.ProcessEnv = process.env): BuildMetadat
   return metadata;
 };
 
+const hasBuildMetadata = (metadata: BuildMetadata) =>
+  Boolean(metadata.commitSha || metadata.repositoryUrl);
+
+const createRuntimeMetadata = (env: NodeJS.ProcessEnv = process.env) => {
+  const build = createBuildMetadata(env);
+
+  return {
+    uptimeSeconds: getUptimeSeconds(),
+    environment: config.NODE_ENV,
+    buildMetadataPresent: hasBuildMetadata(build),
+    ...build,
+  };
+};
+
+const createSafeErrorDiagnostics = (error: unknown): SafeErrorDiagnostics => {
+  if (error instanceof Error) {
+    const diagnostics: SafeErrorDiagnostics = { type: error.name || 'Error' };
+
+    if ('code' in error && typeof error.code === 'string' && error.code.length > 0) {
+      diagnostics.code = error.code;
+    }
+
+    return diagnostics;
+  }
+
+  return { type: typeof error };
+};
+
 const createServiceMetadata = (env: NodeJS.ProcessEnv = process.env) => ({
   ok: true,
   ...serviceStatus,
   timestamp: createTimestamp(),
-  ...createBuildMetadata(env),
+  ...createRuntimeMetadata(env),
 });
 
 const getHttpMessage = (statusCode: number) => STATUS_CODES[statusCode] ?? 'Request failed';
@@ -137,6 +174,9 @@ app.get('/health', async () => {
   return {
     ok: true,
     ...serviceStatus,
+    uptimeSeconds: getUptimeSeconds(),
+    environment: config.NODE_ENV,
+    buildMetadataPresent: hasBuildMetadata(createBuildMetadata()),
   };
 });
 
@@ -145,22 +185,32 @@ app.get('/live', async () => {
     ok: true,
     ...serviceStatus,
     timestamp: createTimestamp(),
+    uptimeSeconds: getUptimeSeconds(),
+    environment: config.NODE_ENV,
+    buildMetadataPresent: hasBuildMetadata(createBuildMetadata()),
   };
 });
 
 app.get('/ready', async (_request, reply) => {
   const timestamp = createTimestamp();
+  const started = process.hrtime.bigint();
 
   try {
     await database.execute('select 1');
+    const durationMs = getDurationMs(started);
 
     return {
       ok: true,
       ...serviceStatus,
       database: 'ready',
       timestamp,
+      uptimeSeconds: getUptimeSeconds(),
+      environment: config.NODE_ENV,
+      buildMetadataPresent: hasBuildMetadata(createBuildMetadata()),
+      readyCheckDurationMs: durationMs,
     };
   } catch (error) {
+    const durationMs = getDurationMs(started);
     logger.error({ err: error }, 'API readiness check failed');
 
     return reply.status(503).send({
@@ -168,6 +218,11 @@ app.get('/ready', async (_request, reply) => {
       ...serviceStatus,
       database: 'unavailable',
       timestamp,
+      uptimeSeconds: getUptimeSeconds(),
+      environment: config.NODE_ENV,
+      buildMetadataPresent: hasBuildMetadata(createBuildMetadata()),
+      readyCheckDurationMs: durationMs,
+      error: createSafeErrorDiagnostics(error),
     });
   }
 });
