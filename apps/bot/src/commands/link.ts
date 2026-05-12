@@ -104,6 +104,7 @@ export interface LinkCreateStore {
     canDeleteOtherUsers: boolean;
   }) => Promise<LinkDeleteDefaultClanStoreResult>;
   listPlayerLinksByTags: (playerTags: readonly string[]) => Promise<LinkListPlayerLink[]>;
+  listPlayerTagsForUser?: (guildId: string, discordUserId: string) => Promise<string[]>;
   deletePlayerLink: (input: LinkDeleteStoreInput) => Promise<LinkDeleteStoreResult>;
 }
 
@@ -127,6 +128,7 @@ export interface LinkListPlayerLink {
   readonly discordUserId: string;
   readonly playerTag: string;
   readonly isVerified: boolean;
+  readonly isDefault?: boolean;
 }
 
 export interface LinkListClanMember {
@@ -338,7 +340,8 @@ export async function executeLinkCreate(
     isDefault,
   });
 
-  await interaction.editReply(formatLinkCreateResult(result, player, targetUser));
+  const targetLinkCount = await countUserLinks(options.links, interaction.guildId, targetUser.id);
+  await interaction.editReply(formatLinkCreateResult(result, player, targetUser, targetLinkCount));
 }
 
 async function executeLinkCreateDefaultClan(
@@ -373,7 +376,10 @@ async function executeLinkCreateDefaultClan(
     clanName: clan.name,
   });
 
-  await interaction.editReply(formatLinkCreateDefaultClanResult(result, clan, targetUser));
+  const targetLinkCount = await countUserLinks(options.links, interaction.guildId, targetUser.id);
+  await interaction.editReply(
+    formatLinkCreateDefaultClanResult(result, clan, targetUser, targetLinkCount),
+  );
 }
 
 export async function executeLinkList(
@@ -483,6 +489,8 @@ export function buildLinkListEmbed(
 ): EmbedBuilder {
   const rows = buildLinkListRows(members, links, guildMembers);
   const description = formatLinkListDescription(rows);
+  const verifiedCount = links.filter((link) => link.isVerified).length;
+  const defaultCount = links.filter((link) => link.isDefault).length;
   const shownRows = Math.min(
     rows.length,
     description.length > 4096 ? countRowsWithinLimit(rows) : rows.length,
@@ -496,7 +504,7 @@ export function buildLinkListEmbed(
     )
     .setDescription(description.slice(0, 4096))
     .setFooter({
-      text: `Showing ${shownRows}/${rows.length} clan members (${links.length} linked rows matched). Read-only lookup: no clan enrollment or polling changes.`,
+      text: `Showing ${shownRows}/${rows.length} clan members (${links.length} links: ${verifiedCount} verified, ${defaultCount} default). Server-scoped read-only lookup; no clan linking or polling changes.`,
     });
 
   return embed;
@@ -585,15 +593,17 @@ export function formatLinkCreateResult(
   result: LinkCreateStoreResult,
   player: LinkCreatePlayer,
   targetUser: Pick<User, 'displayName'>,
+  targetLinkCount?: number,
 ): string {
   const playerLabel = `**${player.name} (${player.tag})**`;
   const targetLabel = `**${targetUser.displayName}**`;
+  const countNote = formatTargetLinkCount(targetLinkCount);
 
   switch (result.status) {
     case 'linked':
-      return `Successfully linked ${playerLabel} to ${targetLabel}. ${result.wasDefault ? 'Default account: this player is now first for ClashMate commands.' : 'Default account: existing preference was preserved; use `is_default:Yes` to promote this player.'} This link is local to this server and does not enroll the player or clan for polling.`;
+      return `Successfully linked ${playerLabel} to ${targetLabel}.${countNote} ${result.wasDefault ? 'Default account: this player is now first for ClashMate commands.' : 'Default account: existing preference was preserved; use `is_default:Yes` to promote this player.'} This link is local to this server and does not enroll the player or clan for polling.`;
     case 'already_linked_to_user':
-      return `${playerLabel} is already linked to ${targetLabel}. No new row was created; use \`is_default:Yes\` to make it the default account if needed.`;
+      return `${playerLabel} is already linked to ${targetLabel}.${countNote} Duplicate handling: no new server-scoped row was created; use \`is_default:Yes\` to make it the default account if needed.`;
     case 'already_linked_to_other_user':
       return `${playerLabel} is already linked to <@${result.discordUserId}>. Conflict guidance: ask a links manager to remove the stale link, or use /verify with the in-game API token if you own this account.`;
     case 'max_accounts_reached':
@@ -618,8 +628,9 @@ export function formatLinkCreateDefaultClanResult(
   _result: LinkDefaultClanStoreResult,
   clan: Pick<ClashClan, 'name' | 'tag'>,
   targetUser: Pick<User, 'displayName'>,
+  targetLinkCount?: number,
 ): string {
-  return `Stored **${clan.name} (${clan.tag})** as **${targetUser.displayName}**'s default clan for ClashMate features. Default clan: this server preference is now set for that user and audited. This does not link the clan to the server or enroll it for polling unless configured elsewhere.`;
+  return `Stored **${clan.name} (${clan.tag})** as **${targetUser.displayName}**'s default clan for ClashMate features.${formatTargetLinkCount(targetLinkCount)} Default clan: this server preference is now set for that user and audited. This does not link the clan to the server or enroll it for polling unless configured elsewhere.`;
 }
 
 export function formatLinkDeleteDefaultClanResult(
@@ -654,4 +665,19 @@ export function hasConfiguredManagerRole(input: {
 }): boolean {
   if (input.managerRoleIds.length === 0) return false;
   return input.memberRoleIds.some((roleId) => input.managerRoleIds.includes(roleId));
+}
+
+async function countUserLinks(
+  links: LinkCreateStore,
+  guildId: string,
+  discordUserId: string,
+): Promise<number | undefined> {
+  if (!links.listPlayerTagsForUser) return undefined;
+  const playerTags = await links.listPlayerTagsForUser(guildId, discordUserId);
+  return playerTags.length;
+}
+
+function formatTargetLinkCount(count: number | undefined): string {
+  if (count === undefined) return '';
+  return ` Target user now has ${count} linked player${count === 1 ? '' : 's'} in this server.`;
 }
