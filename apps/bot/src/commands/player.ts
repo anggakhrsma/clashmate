@@ -290,6 +290,7 @@ export function buildPlayerEmbed(
     .setDescription(
       [
         `TH **${formatTownHall(data.townHallLevel, data.townHallWeaponLevel)}**`,
+        `BH **${formatNumber(data.builderHallLevel)}**`,
         `XP **${formatNumber(data.expLevel)}**`,
         `Trophies **${formatNumber(data.trophies)}**`,
         `War Stars **${formatNumber(data.warStars)}**`,
@@ -312,9 +313,11 @@ export function buildPlayerEmbed(
       name: '**Other Stats**',
       value: [
         `**Best Trophies**\n${formatNumber(data.bestTrophies)}`,
+        `**Builder Trophies**\n${formatNumber(data.builderBaseTrophies)} current / ${formatNumber(data.bestBuilderBaseTrophies)} best`,
         data.clan
           ? `**Clan Info**\n[${escapeMarkdown(data.clan.name)}](${getClanUrl(data.clan.tag)}) (${formatRole(data.role)})`
           : '**Clan Info**\nNot in a clan',
+        `**League**\n${data.leagueName ? escapeMarkdown(data.leagueName) : 'Unranked or unavailable'}`,
         '**Last Seen**\nNo stored snapshot data',
       ]
         .filter((line): line is string => Boolean(line))
@@ -335,6 +338,10 @@ export function buildPlayerEmbed(
       value: embedContext.linkedDiscordUserId
         ? `Stored owner link: <@${embedContext.linkedDiscordUserId}>`
         : 'No stored owner link found for this player in ClashMate.',
+    },
+    {
+      name: '**Diagnostics**',
+      value: formatPlayerDiagnostics(data),
     },
     {
       name: '**Public Links**',
@@ -400,18 +407,36 @@ function formatPlayerSourceContext(context: PlayerEmbedContext): string {
   return `${source}\n${lookup}\n${owner}`;
 }
 
+function formatPlayerDiagnostics(data: PlayerDataView): string {
+  const clan = data.clan
+    ? `Clan: ${escapeMarkdown(data.clan.name)} (${data.clan.tag}) as ${formatRole(data.role)}.`
+    : 'Clan: not currently in a clan.';
+  const league = data.leagueName
+    ? `League: ${escapeMarkdown(data.leagueName)} with ${formatNumber(data.trophies)} trophies.`
+    : `League: unavailable with ${formatNumber(data.trophies)} trophies.`;
+  const halls = `Coverage: TH ${formatTownHall(data.townHallLevel, data.townHallWeaponLevel)} / BH ${formatNumber(data.builderHallLevel)}.`;
+  const builder = `Builder Base: ${formatNumber(data.builderBaseTrophies)} current / ${formatNumber(data.bestBuilderBaseTrophies)} best trophies.`;
+  const limitation = 'Live lookup only: no historical snapshots or polling enrollment are changed.';
+
+  return [clan, league, halls, builder, limitation].join('\n');
+}
+
 interface PlayerDataView {
   readonly townHallLevel: number | null;
   readonly townHallWeaponLevel: number | null;
+  readonly builderHallLevel: number | null;
   readonly expLevel: number | null;
   readonly trophies: number | null;
+  readonly builderBaseTrophies: number | null;
   readonly warStars: number | null;
   readonly donations: number | null;
   readonly donationsReceived: number | null;
   readonly attackWins: number | null;
   readonly defenseWins: number | null;
   readonly bestTrophies: number | null;
+  readonly bestBuilderBaseTrophies: number | null;
   readonly role: string | null;
+  readonly leagueName: string | null;
   readonly leagueIconUrl: string | null;
   readonly clan: { readonly name: string; readonly tag: string } | null;
   readonly achievements: ReadonlyMap<string, number>;
@@ -429,15 +454,19 @@ function readPlayerData(player: ClashPlayer): PlayerDataView {
   return {
     townHallLevel: readNumber(readValue(data, 'townHallLevel')),
     townHallWeaponLevel: readNumber(readValue(data, 'townHallWeaponLevel')),
+    builderHallLevel: readNumber(readValue(data, 'builderHallLevel')),
     expLevel: readNumber(readValue(data, 'expLevel')),
     trophies: readNumber(readValue(data, 'trophies')),
+    builderBaseTrophies: readNumber(readValue(data, 'builderBaseTrophies')),
     warStars: readNumber(readValue(data, 'warStars')),
     donations: readNumber(readValue(data, 'donations')),
     donationsReceived: readNumber(readValue(data, 'donationsReceived')),
     attackWins: readNumber(readValue(data, 'attackWins')),
     defenseWins: readNumber(readValue(data, 'defenseWins')),
     bestTrophies: readNumber(readValue(data, 'bestTrophies')),
+    bestBuilderBaseTrophies: readNumber(readValue(data, 'bestBuilderBaseTrophies')),
     role: readString(readValue(data, 'role')),
+    leagueName: readString(league ? readValue(league, 'name') : undefined),
     leagueIconUrl: readString(iconUrls ? readValue(iconUrls, 'small') : undefined),
     clan: clanName && clanTag ? { name: clanName, tag: clanTag } : null,
     achievements: readAchievements(readValue(data, 'achievements')),
