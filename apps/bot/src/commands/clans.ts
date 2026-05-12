@@ -13,6 +13,7 @@ const GENERAL_CATEGORY_ID = 'general';
 const GENERAL_CATEGORY_NAME = 'General';
 const EMBED_DESCRIPTION_LIMIT = 4096;
 const EMBED_FIELD_VALUE_LIMIT = 1024;
+const CATEGORY_SUMMARY_LIMIT = 5;
 
 export const clansCommandData = new SlashCommandBuilder()
   .setName(CLANS_COMMAND_NAME)
@@ -185,7 +186,13 @@ export function buildClansPayload(input: {
     return {
       content: [
         `Category filter: \`${input.categoryId}\` (not found).`,
-        `Linked clans: ${input.clans.length} · Current snapshot stats: ${countClansWithSnapshotStats(input.clans)}/${input.clans.length} · Latest snapshot: ${formatLatestSnapshotAge(input.clans)}.`,
+        ...buildClansDiagnosticLines({
+          categories: input.categories,
+          clans: input.clans,
+          shownClans: [],
+          categoryFilterLabel: 'not resolved',
+          isTruncated: false,
+        }),
         'Use category autocomplete to choose a stored category for this server. No live Clash API fallback is attempted, and no polling enrollment changes are made.',
       ].join('\n'),
     };
@@ -196,20 +203,47 @@ export function buildClansPayload(input: {
     : [...input.clans];
 
   if (hasCategoryFilter && clans.length === 0) {
-    return { content: 'No clans found for the specified category.' };
+    return {
+      content: [
+        `No clans found for category ${filteredCategory?.displayName ?? input.categoryId}.`,
+        ...buildClansDiagnosticLines({
+          categories: input.categories,
+          clans: input.clans,
+          shownClans: clans,
+          categoryFilterLabel: filteredCategory?.displayName ?? 'not resolved',
+          isTruncated: false,
+        }),
+      ].join('\n'),
+    };
   }
 
   const description = formatClanGroups(groupClansByCategory(clans, input.categories));
-  const [firstChunk = '', ...chunks] = splitText(description, EMBED_DESCRIPTION_LIMIT);
-  const clansWithSnapshotStats = countClansWithSnapshotStats(input.clans);
-  const coverageContext = [
-    `Coverage: linked clans ${input.clans.length}; shown ${clans.length}; current snapshot stats ${clansWithSnapshotStats}/${input.clans.length}; latest snapshot ${formatLatestSnapshotAge(input.clans)}.`,
-    'Source: persisted linked-clan records only. Missing stats show as Unknown; no live Clash API fallback or search-only polling enrollment occurs.',
-    'Category autocomplete shows stored categories for this server; the category option filters this linked list only. Use `/setup clan` to link clans for polling.',
-  ];
-  if (filteredCategory) {
-    coverageContext.unshift(`Category filter: ${filteredCategory.displayName}.`);
-  }
+  const baseCoverageContext = buildClansDiagnosticLines({
+    categories: input.categories,
+    clans: input.clans,
+    shownClans: clans,
+    categoryFilterLabel: filteredCategory?.displayName ?? 'all linked clans',
+    isTruncated: false,
+  });
+  const baseDiagnosticText = baseCoverageContext.join('\n');
+  const descriptionBudget = Math.max(1, EMBED_DESCRIPTION_LIMIT - baseDiagnosticText.length - 2);
+  const [firstChunk = '', ...chunks] = splitText(description, descriptionBudget);
+  const isTruncated = chunks.length > 0;
+  const coverageContext = isTruncated
+    ? buildClansDiagnosticLines({
+        categories: input.categories,
+        clans: input.clans,
+        shownClans: clans,
+        categoryFilterLabel: filteredCategory?.displayName ?? 'all linked clans',
+        isTruncated,
+      })
+    : baseCoverageContext;
+  const diagnosticText = coverageContext.join('\n');
+  const finalDescriptionBudget = EMBED_DESCRIPTION_LIMIT - diagnosticText.length - 2;
+  const visibleDescription =
+    firstChunk.length > finalDescriptionBudget
+      ? `${firstChunk.slice(0, Math.max(0, finalDescriptionBudget - 1))}…`
+      : firstChunk;
   const embed = new EmbedBuilder()
     .setAuthor({
       name: `${input.guildName} Clans`,
@@ -221,7 +255,7 @@ export function buildClansPayload(input: {
         : `Total ${input.clans.length}`,
     });
 
-  embed.setDescription([firstChunk || 'No clans found.', ...coverageContext].join('\n\n'));
+  embed.setDescription([visibleDescription || 'No clans found.', diagnosticText].join('\n\n'));
   for (const chunk of chunks.flatMap((value) => splitText(value, EMBED_FIELD_VALUE_LIMIT))) {
     embed.addFields({ name: '\u200b', value: chunk });
   }
@@ -308,6 +342,37 @@ function hasSnapshotStats(clan: ClansLinkedClan): boolean {
 
 function countClansWithSnapshotStats(clans: readonly ClansLinkedClan[]): number {
   return clans.filter(hasSnapshotStats).length;
+}
+
+function buildClansDiagnosticLines(input: {
+  readonly categories: readonly ClansCategory[];
+  readonly clans: readonly ClansLinkedClan[];
+  readonly shownClans: readonly ClansLinkedClan[];
+  readonly categoryFilterLabel: string;
+  readonly isTruncated: boolean;
+}): string[] {
+  const aliases = input.clans.filter((clan) => Boolean(clan.alias?.trim())).length;
+  const snapshotPayloads = input.clans.filter((clan) => clan.snapshot != null).length;
+  const snapshotStats = countClansWithSnapshotStats(input.clans);
+  const categorySummary = formatCategorySummary(input.categories);
+
+  return [
+    `Filter: ${input.categoryFilterLabel}; shown ${input.shownClans.length}/${input.clans.length} linked clans.`,
+    `Configured categories: ${input.categories.length}${categorySummary}; aliases present: ${aliases}/${input.clans.length}.`,
+    `Snapshots: payloads ${snapshotPayloads}/${input.clans.length}; member/level stats ${snapshotStats}/${input.clans.length}; latest ${formatLatestSnapshotAge(input.clans)}.`,
+    `Truncation: ${input.isTruncated ? 'additional clan rows continue in fields below' : 'none'}.`,
+    'Limitation: persisted linked-clan/category/snapshot metadata only; no live Clash API lookup or polling enrollment changes.',
+  ];
+}
+
+function formatCategorySummary(categories: readonly ClansCategory[]): string {
+  if (categories.length === 0) return '';
+  const names = [...categories]
+    .sort(compareCategoriesForAutocomplete)
+    .slice(0, CATEGORY_SUMMARY_LIMIT)
+    .map((category) => category.displayName);
+  const remaining = categories.length - names.length;
+  return ` (${names.join(', ')}${remaining > 0 ? `, +${remaining} more` : ''})`;
 }
 
 function formatLatestSnapshotAge(clans: readonly ClansLinkedClan[]): string {
