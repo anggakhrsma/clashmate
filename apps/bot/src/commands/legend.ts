@@ -506,10 +506,22 @@ export function filterLegendClanChoices(
   query: string,
 ): ApplicationCommandOptionChoiceData<string>[] {
   const normalizedQuery = query.trim().toLowerCase();
-  return clans
+  const seen = new Set<string>();
+  const choices: ApplicationCommandOptionChoiceData<string>[] = [];
+
+  for (const clan of [...clans]
     .filter((clan) => clanMatchesQuery(clan, normalizedQuery))
-    .slice(0, 25)
-    .map((clan) => ({ name: formatLegendClanChoiceName(clan), value: clan.alias ?? clan.clanTag }));
+    .sort(compareLegendClanChoiceRows)) {
+    const value = clan.alias ?? clan.clanTag;
+    const dedupeKeys = [clan.clanTag.toLowerCase(), value.toLowerCase()];
+    if (dedupeKeys.some((key) => seen.has(key))) continue;
+
+    for (const key of dedupeKeys) seen.add(key);
+    choices.push({ name: formatLegendClanChoiceName(clan), value });
+    if (choices.length >= 25) break;
+  }
+
+  return choices;
 }
 
 export function filterLegendPlayerChoices(
@@ -517,7 +529,10 @@ export function filterLegendPlayerChoices(
   query: string,
 ): ApplicationCommandOptionChoiceData<string>[] {
   const normalizedQuery = query.trim().toLowerCase();
-  return collectLegendRows(snapshots)
+  const seen = new Set<string>();
+  const choices: ApplicationCommandOptionChoiceData<string>[] = [];
+
+  for (const row of collectLegendRows(snapshots)
     .filter((row) => {
       if (!normalizedQuery) return true;
       return (
@@ -525,12 +540,42 @@ export function filterLegendPlayerChoices(
         row.member.playerTag.toLowerCase().includes(normalizedQuery)
       );
     })
-    .sort((a, b) => (b.member.trophies ?? -1) - (a.member.trophies ?? -1))
-    .slice(0, 25)
-    .map((row) => ({
+    .sort(compareLegendPlayerChoiceRows)) {
+    const value = row.member.playerTag;
+    const dedupeKey = value.toLowerCase();
+    if (seen.has(dedupeKey)) continue;
+
+    seen.add(dedupeKey);
+    choices.push({
       name: `${row.member.name} (${row.member.playerTag})`,
-      value: row.member.playerTag,
-    }));
+      value,
+    });
+    if (choices.length >= 25) break;
+  }
+
+  return choices;
+}
+
+function compareLegendClanChoiceRows(a: LegendLinkedClan, b: LegendLinkedClan): number {
+  return (
+    labelForLegendClan(a).localeCompare(labelForLegendClan(b)) ||
+    (a.alias ?? a.clanTag).localeCompare(b.alias ?? b.clanTag) ||
+    a.clanTag.localeCompare(b.clanTag) ||
+    a.id.localeCompare(b.id)
+  );
+}
+
+function compareLegendPlayerChoiceRows(
+  a: { readonly member: LegendMemberSnapshotRow; readonly clan: LegendLinkedClan },
+  b: { readonly member: LegendMemberSnapshotRow; readonly clan: LegendLinkedClan },
+): number {
+  return (
+    (b.member.trophies ?? -1) - (a.member.trophies ?? -1) ||
+    a.member.name.localeCompare(b.member.name) ||
+    a.member.playerTag.localeCompare(b.member.playerTag) ||
+    a.clan.clanTag.localeCompare(b.clan.clanTag) ||
+    a.clan.id.localeCompare(b.clan.id)
+  );
 }
 
 async function resolveLegendClanTag(
