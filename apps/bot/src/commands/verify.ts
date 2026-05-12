@@ -20,6 +20,18 @@ export const VERIFY_CONTEXT_MESSAGE =
 export const VERIFY_LIMITATION_MESSAGE =
   'Verification links the player to your Discord account only; it does not enroll the player or clan into polling, tracking, or clan setup.';
 
+function formatVerifyDiagnostics(lines: readonly string[]): string {
+  return lines.map((line) => `• ${line}`).join('\n');
+}
+
+function formatVerifyTargetScope(guildId: string, discordUserId: string): string {
+  return `Target user: <@${discordUserId}> in this server (${guildId}).`;
+}
+
+function formatNoPollingGuidance(): string {
+  return 'No polling/clan setup: this only saves a verified account link; use clan setup/link commands separately when you want server tracking.';
+}
+
 export const verifyCommandData = new SlashCommandBuilder()
   .setName(VERIFY_COMMAND_NAME)
   .setDescription(VERIFY_COMMAND_DESCRIPTION)
@@ -134,7 +146,19 @@ export async function executeVerify(
   try {
     playerTag = normalizeClashTag(playerOption);
   } catch {
-    await interaction.reply({ content: INVALID_PLAYER_MESSAGE, ephemeral: true });
+    await interaction.reply({
+      content: [
+        INVALID_PLAYER_MESSAGE,
+        formatVerifyDiagnostics([
+          `Player tag resolution: could not normalize \`${playerOption}\`.`,
+          'Verification status: not checked.',
+          'Failure guidance: enter the player tag exactly as shown in-game, including the leading # if available.',
+          formatVerifyTargetScope(interaction.guildId, interaction.user.id),
+          formatNoPollingGuidance(),
+        ]),
+      ].join('\n'),
+      ephemeral: true,
+    });
     return;
   }
 
@@ -145,7 +169,17 @@ export async function executeVerify(
     player = await options.coc.getPlayer(playerTag);
   } catch {
     await interaction.editReply(
-      `${INVALID_PLAYER_MESSAGE} Enter the player tag exactly as shown in-game, including the leading # if available.`,
+      [
+        INVALID_PLAYER_MESSAGE,
+        formatVerifyDiagnostics([
+          `Player tag resolution: \`${playerOption}\` normalized to \`${playerTag}\`, but no player was found.`,
+          'Verification status: not checked.',
+          'Linked account state: unchanged.',
+          'Failure guidance: check that this is a player tag, not a clan tag, and try `/verify` again.',
+          formatVerifyTargetScope(interaction.guildId, interaction.user.id),
+          formatNoPollingGuidance(),
+        ]),
+      ].join('\n'),
     );
     return;
   }
@@ -154,12 +188,36 @@ export async function executeVerify(
   try {
     isValidToken = await options.coc.verifyPlayerToken(player.tag, token);
   } catch {
-    await interaction.editReply(TOKEN_CHECK_UNAVAILABLE_MESSAGE);
+    await interaction.editReply(
+      [
+        TOKEN_CHECK_UNAVAILABLE_MESSAGE,
+        formatVerifyDiagnostics([
+          `Player tag resolution: \`${playerOption}\` resolved to **${player.name} (${player.tag})**.`,
+          'Verification status: Clash of Clans token check unavailable.',
+          'Linked account state: unchanged.',
+          'Failure guidance: wait a moment and try `/verify` again with the same in-game API token.',
+          formatVerifyTargetScope(interaction.guildId, interaction.user.id),
+          formatNoPollingGuidance(),
+        ]),
+      ].join('\n'),
+    );
     return;
   }
 
   if (!isValidToken) {
-    await interaction.editReply(INVALID_TOKEN_MESSAGE);
+    await interaction.editReply(
+      [
+        INVALID_TOKEN_MESSAGE,
+        formatVerifyDiagnostics([
+          `Player tag resolution: \`${playerOption}\` resolved to **${player.name} (${player.tag})**.`,
+          'Verification status: token rejected by Clash of Clans.',
+          'Linked account state: unchanged.',
+          'Failure guidance: copy the API Token from that exact player account and rerun `/verify`.',
+          formatVerifyTargetScope(interaction.guildId, interaction.user.id),
+          formatNoPollingGuidance(),
+        ]),
+      ].join('\n'),
+    );
     return;
   }
 
@@ -170,11 +228,23 @@ export async function executeVerify(
   });
 
   if (result.status === 'max_accounts_reached') {
-    await interaction.editReply(formatVerifyMaxAccountsFailure(player, result.maxAccounts));
+    await interaction.editReply(
+      formatVerifyMaxAccountsFailure(
+        player,
+        result.maxAccounts,
+        formatVerifyTargetScope(interaction.guildId, interaction.user.id),
+      ),
+    );
     return;
   }
 
-  await interaction.editReply(formatVerifySuccess(player, result));
+  await interaction.editReply(
+    formatVerifySuccess(
+      player,
+      result,
+      formatVerifyTargetScope(interaction.guildId, interaction.user.id),
+    ),
+  );
 }
 
 export function formatVerifySuccess(
@@ -183,39 +253,51 @@ export function formatVerifySuccess(
     status: 'verified',
     wasDefault: false,
   },
+  targetScope = 'Target user: you in this server.',
 ): string {
   const details: string[] = [];
-  details.push('Source: verified directly against the Clash of Clans API token endpoint.');
+  details.push(`Player tag resolution: saved canonical tag ${player.tag}.`);
+  details.push('Verification status: token accepted by Clash of Clans.');
 
   if (result.transferredFromUserId) {
     details.push(
-      `Transfer: ownership proof moved the verified link from <@${result.transferredFromUserId}> to you.`,
+      `Linked account state: moved the verified link from <@${result.transferredFromUserId}> to you.`,
     );
   } else {
-    details.push('Transfer: no existing verified owner was replaced.');
+    details.push(
+      'Linked account state: verified link saved; no existing verified owner was replaced.',
+    );
   }
 
   if (result.wasDefault) {
-    details.push('Default: this is now your default account.');
+    details.push('Default account: this is now your default account.');
   } else {
-    details.push('Default: your existing default account was not changed.');
+    details.push('Default account: your existing default account was not changed.');
   }
 
+  details.push(targetScope);
   details.push(VERIFY_CONTEXT_MESSAGE);
-  details.push(VERIFY_LIMITATION_MESSAGE);
+  details.push(formatNoPollingGuidance());
 
-  const suffix = details.length ? ` ${details.join(' ')}` : '';
+  const suffix = details.length ? `\n${formatVerifyDiagnostics(details)}` : '';
   return `Verification successful! **${player.name} (${player.tag})** ✅${suffix}`;
 }
 
 export function formatVerifyMaxAccountsFailure(
   player: Pick<ClashPlayer, 'name' | 'tag'>,
   maxAccounts: number,
+  targetScope = 'Target user: you in this server.',
 ): string {
   return [
     `Verification succeeded for **${player.name} (${player.tag})**, but the link was not saved because you already have the maximum account limit (${maxAccounts} accounts/user).`,
-    'Remove an old link before verifying another account.',
-    VERIFY_CONTEXT_MESSAGE,
-    VERIFY_LIMITATION_MESSAGE,
+    formatVerifyDiagnostics([
+      `Player tag resolution: saved canonical tag would be ${player.tag}.`,
+      'Verification status: token accepted by Clash of Clans.',
+      'Linked account state: unchanged because your account limit is full.',
+      'Failure guidance: remove an old link before verifying another account.',
+      targetScope,
+      VERIFY_CONTEXT_MESSAGE,
+      formatNoPollingGuidance(),
+    ]),
   ].join(' ');
 }
