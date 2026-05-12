@@ -95,6 +95,15 @@ interface WarEntry {
   readonly snapshot: WarSnapshotRecord;
   readonly war: WarData;
   readonly source: 'current' | 'historical';
+  readonly diagnostics?: WarDiagnostics;
+}
+
+interface WarDiagnostics {
+  readonly linkedClanCount: number;
+  readonly clanFilter: string | null;
+  readonly resolvedClan: WarTrackedClan | null;
+  readonly userMention?: string;
+  readonly linkedPlayerTagCount: number;
 }
 
 export function createWarSlashCommand(options: WarCommandOptions): SlashCommandDefinition {
@@ -261,16 +270,23 @@ async function executeWar(
   const clanOption = interaction.options.getString('clan');
   const warKey = interaction.options.getString('war_id')?.trim().toLowerCase() || null;
   const user = interaction.options.getUser('user');
+  const linkedClans = await options.store.listLinkedClans(interaction.guildId);
 
-  const clan = clanOption
-    ? await resolveWarClan(interaction.guildId, clanOption, options.store)
-    : null;
+  const clan = clanOption ? resolveWarClanFromList(clanOption, linkedClans) : null;
+  const baseDiagnostics: WarDiagnostics = {
+    linkedClanCount: linkedClans.length,
+    clanFilter: clanOption,
+    resolvedClan: clan,
+    ...(user ? { userMention: user.toString() } : {}),
+    linkedPlayerTagCount: 0,
+  };
   if (clanOption && !clan) {
     await interaction.editReply(
       buildWarNoDataMessage('No linked clan was found for the accepted clan filter.', {
         clan: clanOption,
         userMention: user?.toString(),
         warKey,
+        diagnostics: baseDiagnostics,
         action:
           'Choose a clan from autocomplete, use an exact linked clan tag/alias, or link/configure the clan before using `/war`.',
       }),
@@ -281,6 +297,10 @@ async function executeWar(
   const playerTags = user
     ? await options.store.getLinkedPlayerTags(interaction.guildId, user.id)
     : [];
+  const diagnostics: WarDiagnostics = {
+    ...baseDiagnostics,
+    linkedPlayerTagCount: playerTags.length,
+  };
   if (user && playerTags.length === 0) {
     await interaction.editReply(
       buildWarNoDataMessage(
@@ -289,6 +309,7 @@ async function executeWar(
           clan: clanOption,
           userMention: user.toString(),
           warKey,
+          diagnostics,
           action:
             'User filtering only checks persisted war rosters for Clash accounts linked to that Discord user. Link a player account, then wait for clan/war polling to capture a war snapshot that includes it.',
         },
@@ -309,6 +330,7 @@ async function executeWar(
           clan: clanOption,
           userMention: user?.toString(),
           warKey,
+          diagnostics,
           action:
             'Use a war_id from autocomplete for the selected linked clan, or wait until war polling captures and retains the target war. `/war` does not fetch missing wars live.',
         },
@@ -324,6 +346,7 @@ async function executeWar(
           clan: clanOption,
           userMention: user?.toString(),
           warKey,
+          diagnostics,
           action:
             'Current views use the latest persisted snapshot for linked/configured clans. Ensure the clan is linked and the worker war poller has run; this command will not perform a live Clash API fallback.',
         },
@@ -333,12 +356,11 @@ async function executeWar(
   }
 
   const entries = snapshots
-    .map((snapshot) => ({
-      snapshot,
-      war: extractWarData(snapshot.snapshot),
-      source: warKey ? 'historical' : 'current',
-    }))
-    .filter((entry): entry is WarEntry => Boolean(entry.war))
+    .flatMap((snapshot): WarEntry[] => {
+      const war = extractWarData(snapshot.snapshot);
+      if (!war) return [];
+      return [{ snapshot, war, source: warKey ? 'historical' : 'current', diagnostics }];
+    })
     .filter((entry) => playerTags.length === 0 || warIncludesPlayer(entry.war, playerTags));
 
   if (user && entries.length === 0) {
@@ -350,6 +372,7 @@ async function executeWar(
           userMention: user.toString(),
           warKey,
           ...optionalCoverage(snapshots),
+          diagnostics,
           action:
             "The user filter keeps only persisted snapshots where one of the user's linked player tags appears on either war roster. Verify links and wait for a fresh war poll if the snapshot is stale.",
         },
@@ -368,6 +391,7 @@ async function executeWar(
           userMention: user?.toString(),
           warKey,
           ...optionalCoverage(snapshots),
+          diagnostics,
           action:
             'The stored snapshot is missing required war fields. Wait for the next war poll or choose another retained war_id from autocomplete; no live Clash API fallback is used.',
         },
@@ -404,6 +428,13 @@ async function resolveWarClan(
   store: WarStore,
 ): Promise<WarTrackedClan | null> {
   const clans = await store.listLinkedClans(guildId);
+  return resolveWarClanFromList(clanOption, clans);
+}
+
+function resolveWarClanFromList(
+  clanOption: string,
+  clans: readonly WarTrackedClan[],
+): WarTrackedClan | null {
   let normalizedTag: string | null = null;
   try {
     normalizedTag = normalizeClashTag(clanOption);
@@ -579,12 +610,29 @@ function buildWarContextRows(entry: WarEntry, normalizedState: string, war: WarD
     '**Snapshot Context**',
     `Source: ${entry.source === 'historical' ? 'Historical retained snapshot' : 'Current latest snapshot'}`,
     formatSnapshotAge(entry.snapshot),
+    ...formatWarDiagnostics(entry.diagnostics),
     `Stored State: ${formatWarState(normalizeWarState(entry.snapshot.state))}`,
     `War State: ${formatWarState(normalizedState)}`,
     `Coverage: ${coverage}`,
     `Filters: ${formatWarSnapshotFilters(entry)}`,
     'Persisted only: no live Clash API lookup, fallback, or on-demand polling.',
     'If stale/incomplete, verify the clan is linked/configured and the worker war poller is running.',
+  ];
+}
+
+function formatWarDiagnostics(diagnostics: WarDiagnostics | undefined): string[] {
+  if (!diagnostics) return [];
+  const resolvedClan = diagnostics.resolvedClan
+    ? `${diagnostics.resolvedClan.name ?? diagnostics.resolvedClan.clanTag} (${diagnostics.resolvedClan.clanTag})`
+    : diagnostics.clanFilter
+      ? 'not resolved'
+      : 'not selected';
+  const user = diagnostics.userMention
+    ? `${diagnostics.userMention} (${diagnostics.linkedPlayerTagCount} linked player tag${diagnostics.linkedPlayerTagCount === 1 ? '' : 's'})`
+    : 'not selected';
+  return [
+    `Linked Clans: ${diagnostics.linkedClanCount}`,
+    `Filter Resolution: clan ${resolvedClan} • user ${user}`,
   ];
 }
 
@@ -637,6 +685,7 @@ function buildWarNoDataMessage(
     userMention: string | undefined;
     warKey: string | null;
     coverage?: string;
+    diagnostics?: WarDiagnostics;
     action?: string;
   },
 ): string {
@@ -644,6 +693,10 @@ function buildWarNoDataMessage(
   rows.push(`- clan: ${filters.clan ? `\`${filters.clan}\`` : 'not provided'}`);
   rows.push(`- user: ${filters.userMention ?? 'not provided'}`);
   rows.push(`- war_id: ${filters.warKey ? `\`${filters.warKey}\`` : 'not provided'}`);
+  if (filters.diagnostics) {
+    rows.push(`- linked clans: ${filters.diagnostics.linkedClanCount}`);
+    rows.push(`- linked player tags for user filter: ${filters.diagnostics.linkedPlayerTagCount}`);
+  }
   if (filters.coverage) rows.push(`Persisted snapshot coverage checked: ${filters.coverage}`);
   rows.push(
     '`/war` reads persisted current/latest and retained historical war snapshots only; no live Clash API fallback or on-demand polling is performed.',
