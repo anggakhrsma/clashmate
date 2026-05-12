@@ -34,6 +34,8 @@ const MENTION_RESOLUTION_NOTE =
   'Mentions resolve only for snapshot members linked to Discord users and are capped at 40 users.';
 const REMINDER_DUE_STATUS_NOTE =
   'Due/overdue status is computed from stored creation time and duration using the worker duration bucket logic; it does not confirm whether a due reminder has already been delivered.';
+const REMINDER_LIMITS_NOTE = `Channel must be an allowed server text/thread/announcement/media channel; messages are capped at ${MAX_MESSAGE_LENGTH} characters and mentions at ${MAX_MENTIONS} linked users.`;
+const DURATION_VALIDATION_NOTE = `Durations must be positive m/h/d values up to ${MAX_REMINDER_DURATION_MINUTES / (24 * 60)} days.`;
 
 const allowedReminderChannelTypes = [
   ChannelType.GuildText,
@@ -442,7 +444,7 @@ async function handleCreateReminder(
   const duration = parseReminderDuration(interaction.options.getString('duration', true));
   if (!duration) {
     await interaction.reply({
-      content: 'Provide a positive duration like `30m`, `1h`, `6h`, or `2d` up to 30 days.',
+      content: `Provide a positive duration like \`30m\`, \`1h\`, \`6h\`, or \`2d\` up to 30 days. ${DURATION_VALIDATION_NOTE}`,
       ephemeral: true,
     });
     return;
@@ -480,12 +482,15 @@ async function handleCreateReminder(
       schedule.channelId +
       '> at ' +
       formatReminderDurationForDisplay(schedule.duration) +
+      ` (validated; ${DURATION_VALIDATION_NOTE})` +
       '. Next due: ' +
       formatReminderNextDue(schedule) +
       '. ' +
       formatUnmatchedClanWarning(unmatchedClanInputs) +
       `Exclude participant list: ${schedule.excludeParticipantList ? 'yes' : 'no'}. ` +
       `${formatReminderPrerequisiteContext({ type: schedule.type, snapshots })} ` +
+      REMINDER_LIMITS_NOTE +
+      ' ' +
       STORAGE_ONLY_NOTE +
       ' ' +
       MENTION_RESOLUTION_NOTE +
@@ -518,8 +523,8 @@ async function handleListReminders(
   await interaction.reply({
     content:
       schedules.length === 0
-        ? `${formatReminderNoDataContext({ type, clanFilter, channelId, reminderId, totalForType })} ${formatReminderPrerequisiteContext({ type, snapshots })} ${STORAGE_ONLY_NOTE}`
-        : `${formatReminderList(schedules, compact)}\n\n${SUPPORTED_REMINDER_TYPES_NOTE} ${REMINDER_DUE_STATUS_NOTE} ${formatReminderPrerequisiteContext({ type, snapshots })} ${STORAGE_ONLY_NOTE} ${MENTION_RESOLUTION_NOTE} ${REMINDER_WORKER_NOTE}`,
+        ? `${formatReminderNoDataContext({ type, clanFilter, channelId, reminderId, totalForType })} ${formatReminderPrerequisiteContext({ type, snapshots })} ${REMINDER_LIMITS_NOTE} ${STORAGE_ONLY_NOTE}`
+        : `${formatReminderList(schedules, compact)}\n\n${SUPPORTED_REMINDER_TYPES_NOTE} ${REMINDER_DUE_STATUS_NOTE} ${formatReminderPrerequisiteContext({ type, snapshots })} ${REMINDER_LIMITS_NOTE} ${STORAGE_ONLY_NOTE} ${MENTION_RESOLUTION_NOTE} ${REMINDER_WORKER_NOTE}`,
     ephemeral: true,
   });
 }
@@ -536,7 +541,7 @@ async function handleEditReminder(
   const parsedDuration = parseReminderDuration(duration);
   if (!parsedDuration) {
     await interaction.reply({
-      content: 'Provide a positive duration like `30m`, `1h`, `6h`, or `2d` up to 30 days.',
+      content: `Provide a positive duration like \`30m\`, \`1h\`, \`6h\`, or \`2d\` up to 30 days. ${DURATION_VALIDATION_NOTE}`,
       ephemeral: true,
     });
     return;
@@ -553,7 +558,7 @@ async function handleEditReminder(
   });
   await interaction.reply({
     content: updated
-      ? `Updated reminder ${inlineCode(id)} duration to ${formatReminderDurationForDisplay(updated.duration)}. Next due: ${formatReminderNextDue(updated)}. ${STORAGE_ONLY_NOTE} ${REMINDER_WORKER_NOTE}`
+      ? `Updated ${formatReminderType(updated.type)} reminder ${inlineCode(id)} duration to ${formatReminderDurationForDisplay(updated.duration)} (validated; ${DURATION_VALIDATION_NOTE}). ${formatReminderDueStatus(updated)}. ${STORAGE_ONLY_NOTE} ${REMINDER_WORKER_NOTE}`
       : `No ${formatReminderType(type)} reminder was found with ID ${inlineCode(id)}. Use ${inlineCode('/reminders list')} for stored IDs and verify the selected type.`,
     ephemeral: true,
   });
@@ -578,7 +583,7 @@ async function handleDeleteReminder(
   });
   await interaction.reply({
     content: deleted
-      ? `Deleted reminder ${inlineCode(id)}. ${STORAGE_ONLY_NOTE}`
+      ? `Deleted ${formatReminderType(deleted.type)} reminder ${inlineCode(id)} for ${formatScheduleClans(deleted.clans)} from <#${deleted.channelId}>. Last known status before deletion: ${formatReminderDueStatus(deleted)}. Exclude participant list was ${deleted.excludeParticipantList ? 'enabled' : 'disabled'}. ${STORAGE_ONLY_NOTE}`
       : `No ${formatReminderType(type)} reminder was found with ID ${inlineCode(id)}. Use ${inlineCode('/reminders list')} for stored IDs and verify the selected type.`,
     ephemeral: true,
   });
@@ -601,8 +606,9 @@ async function handleReminderConfig(
     content:
       'Reminder ping exclusion is ' +
       (settings.reminderPingExclusion ? 'enabled' : 'disabled') +
-      '. When enabled, players covered by reminder ping exclusion config are skipped by reminder delivery; immediate pings still use linked player accounts from the latest member snapshot. ' +
-      STORAGE_ONLY_NOTE,
+      `. Schedule count: ${settings.schedules.length}. ` +
+      'When enabled, players covered by reminder ping exclusion config are skipped by reminder delivery; immediate pings still use linked player accounts from the latest member snapshot. ' +
+      `${MENTION_RESOLUTION_NOTE} ${REMINDER_LIMITS_NOTE} ${STORAGE_ONLY_NOTE}`,
     ephemeral: true,
   });
 }
