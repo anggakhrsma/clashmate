@@ -21,6 +21,18 @@ const AUTOROLE_EXCLUDED_GROUPS_NOTE =
   'Excluded groups: builder hall, builder leagues, wars, and EOS push roles are intentionally not supported in ClashMate.';
 const AUTOROLE_DATA_SOURCE_NOTE =
   'Refresh planning uses linked Discord accounts, linked clans, and persisted clan/member snapshots from polling. This command does not call the live Clash API as a fallback.';
+const AUTOROLE_PERMISSION_PREREQUISITES = [
+  'Invoker: Manage Server, configured bot-manager role, or bot owner.',
+  'Bot: Manage Roles permission in this server.',
+  'Hierarchy: ClashMate bot role must be above every configured role it may add or remove.',
+  'Targets: Discord members must be manageable by the bot; unmanageable members are skipped.',
+] as const;
+const AUTOROLE_MUTATION_LIMITATIONS = [
+  'Mutations run only for explicit `/autorole refresh is_test_run:false` requests.',
+  'Only configured, currently manageable Discord roles are added or removed.',
+  'Users without linked player tags are skipped; no live Clash API lookup is attempted.',
+  'Nicknames, unsupported role groups, and unavailable snapshot fields are not mutated.',
+] as const;
 
 const TOWN_HALL_LEVELS = Array.from({ length: 17 }, (_, index) => index + 1);
 const PLAYER_LEAGUES = [
@@ -808,6 +820,12 @@ export function buildAutoroleSettingsEmbed(
       { name: 'Family roles', value: formatRoles(view.familyRoles), inline: false },
       { name: 'Config', value: formatConfig(view), inline: false },
       { name: 'Readiness guidance', value: formatSettingsReadiness(counts), inline: false },
+      {
+        name: 'Permission and hierarchy prerequisites',
+        value: formatPermissionPrerequisites(),
+        inline: false,
+      },
+      { name: 'Safety-gated mutation limits', value: formatMutationLimitations(), inline: false },
       { name: 'Data sources', value: AUTOROLE_DATA_SOURCE_NOTE, inline: false },
       { name: 'No data?', value: formatNoDataActionability(counts), inline: false },
       {
@@ -903,6 +921,12 @@ export function buildAutoroleRefreshPreviewEmbed(
         value: plan.prerequisites.join('\n'),
         inline: false,
       },
+      {
+        name: 'Permission and hierarchy prerequisites',
+        value: formatPermissionPrerequisites(),
+        inline: false,
+      },
+      { name: 'Safety-gated mutation limits', value: formatMutationLimitations(), inline: false },
       { name: 'No data?', value: plan.actionabilityNotes.join('\n'), inline: false },
       { name: 'Last action', value: `/${AUTOROLE_COMMAND_NAME} refresh`, inline: false },
     );
@@ -932,7 +956,13 @@ function buildAutoroleRefreshResultEmbed(result: AutoroleReconcileResult): Embed
         inline: true,
       },
       { name: 'Failures', value: `${result.failed}`, inline: true },
+      { name: 'Safety-gated skips', value: formatAppliedSafetySummary(result), inline: false },
       { name: 'Notes', value: result.notes.join('\n').slice(0, 1024), inline: false },
+      {
+        name: 'Permission and hierarchy prerequisites',
+        value: formatPermissionPrerequisites(),
+        inline: false,
+      },
     );
 }
 
@@ -1299,6 +1329,28 @@ function formatRefreshReadiness(plan: AutoroleRefreshPlan): string {
     'Safety gate: non-test refreshes still skip unmanageable members, unmanageable roles, unlinked Discord users, and failed Discord mutations.',
   );
   return notes.join('\n').slice(0, 1024);
+}
+
+function formatPermissionPrerequisites(): string {
+  return AUTOROLE_PERMISSION_PREREQUISITES.join('\n').slice(0, 1024);
+}
+
+function formatMutationLimitations(): string {
+  return AUTOROLE_MUTATION_LIMITATIONS.join('\n').slice(0, 1024);
+}
+
+function formatAppliedSafetySummary(result: AutoroleReconcileResult): string {
+  const attempted = result.attemptedAdds + result.attemptedRemoves;
+  const applied = result.appliedAdds + result.appliedRemoves;
+  return [
+    `Attempted mutations: ${attempted}`,
+    `Applied mutations: ${applied}`,
+    `Skipped by safety/data gates: ${result.skipped}`,
+    `Failed Discord mutations: ${result.failed}`,
+    'Skip reasons include unmanageable members/roles, missing linked player tags, missing snapshot eligibility, and Discord API failures.',
+  ]
+    .join('\n')
+    .slice(0, 1024);
 }
 
 function formatNoDataActionability(counts: ReturnType<typeof getAutoroleConfigCounts>): string {
