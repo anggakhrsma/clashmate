@@ -28,16 +28,26 @@ export interface WarPollerHandlerOptions {
 
 export interface WarPollerResult {
   readonly status: 'snapshot_updated' | 'not_linked';
+  readonly linkedOutcome: 'upserted' | 'not_linked';
   readonly clanTag: string;
   readonly state: string;
+  readonly normalizedState: string | null;
   readonly warKey: string;
+  readonly snapshotSource: 'current-war';
+  readonly snapshotFreshnessMs: number | null;
+  readonly snapshotHadPrevious: boolean;
   readonly attackEventsGenerated: number;
   readonly attackEventsInserted: number;
+  readonly attackEventCoverage: WarPollerInsertionCoverage;
   readonly stateEventsGenerated: number;
   readonly stateEventsInserted: number;
+  readonly stateEventCoverage: WarPollerInsertionCoverage;
   readonly missedAttackEventsGenerated: number;
   readonly missedAttackEventsInserted: number;
+  readonly missedAttackEventCoverage: WarPollerInsertionCoverage;
   readonly retentionRan: boolean;
+  readonly retentionStatus: 'retained' | 'skipped';
+  readonly skipReasonContext: WarPollerSkipReasonContext;
   readonly retentionSkipReason?: WarPollerSkipReason;
   readonly attackEventsSkipReason?: WarPollerSkipReason;
   readonly stateEventsSkipReason?: WarPollerSkipReason;
@@ -45,6 +55,21 @@ export interface WarPollerResult {
 }
 
 export type WarPollerSkipReason = 'snapshot_not_upserted' | 'store_unavailable' | 'no_events';
+
+export type WarPollerInsertionCoverage =
+  | 'inserted_all'
+  | 'inserted_partial'
+  | 'inserted_none'
+  | 'none_generated'
+  | 'skipped';
+
+export interface WarPollerSkipReasonContext {
+  readonly snapshotUpserted: boolean;
+  readonly attackEventStoreAvailable: boolean;
+  readonly stateEventStoreAvailable: boolean;
+  readonly missedAttackEventStoreAvailable: boolean;
+  readonly retentionStoreAvailable: boolean;
+}
 
 export function createWarPollerHandler(options: WarPollerHandlerOptions) {
   return async (lease: ClaimedPollingLease): Promise<WarPollerResult> => {
@@ -65,6 +90,13 @@ export function createWarPollerHandler(options: WarPollerHandlerOptions) {
     });
     const warKey = buildCurrentWarKey(war);
     const snapshotWasUpserted = result.status === 'upserted';
+    const skipReasonContext = {
+      snapshotUpserted: snapshotWasUpserted,
+      attackEventStoreAvailable: Boolean(options.attackEvents),
+      stateEventStoreAvailable: Boolean(options.stateEvents),
+      missedAttackEventStoreAvailable: Boolean(options.missedAttackEvents),
+      retentionStoreAvailable: Boolean(options.snapshots.retainWarSnapshot),
+    } satisfies WarPollerSkipReasonContext;
     let retentionRan = false;
     if (snapshotWasUpserted && options.snapshots.retainWarSnapshot) {
       await options.snapshots.retainWarSnapshot({
@@ -111,16 +143,43 @@ export function createWarPollerHandler(options: WarPollerHandlerOptions) {
 
     return {
       status: snapshotWasUpserted ? 'snapshot_updated' : 'not_linked',
+      linkedOutcome: result.status,
       clanTag: resolvedClanTag,
       state: war.state,
+      normalizedState: normalizeState(war.state),
       warKey,
+      snapshotSource: 'current-war',
+      snapshotFreshnessMs: previousSnapshot
+        ? Math.max(0, fetchedAt.getTime() - previousSnapshot.fetchedAt.getTime())
+        : null,
+      snapshotHadPrevious: previousSnapshot !== null,
       attackEventsGenerated: attacks.length,
       attackEventsInserted: attackResult.inserted,
+      attackEventCoverage: getWarPollerInsertionCoverage(
+        snapshotWasUpserted,
+        options.attackEvents,
+        attacks.length,
+        attackResult.inserted,
+      ),
       stateEventsGenerated: stateEvents.length,
       stateEventsInserted: stateResult.inserted,
+      stateEventCoverage: getWarPollerInsertionCoverage(
+        snapshotWasUpserted,
+        options.stateEvents,
+        stateEvents.length,
+        stateResult.inserted,
+      ),
       missedAttackEventsGenerated: missedAttacks.length,
       missedAttackEventsInserted: missedAttackResult.inserted,
+      missedAttackEventCoverage: getWarPollerInsertionCoverage(
+        snapshotWasUpserted,
+        options.missedAttackEvents,
+        missedAttacks.length,
+        missedAttackResult.inserted,
+      ),
       retentionRan,
+      retentionStatus: retentionRan ? 'retained' : 'skipped',
+      skipReasonContext,
       ...(!retentionRan
         ? {
             retentionSkipReason: snapshotWasUpserted
@@ -144,6 +203,19 @@ function getWarPollerStoreSkipReason(
   if (!store) return 'store_unavailable';
   if (generatedCount === 0) return 'no_events';
   return undefined;
+}
+
+function getWarPollerInsertionCoverage(
+  snapshotWasUpserted: boolean,
+  store: unknown,
+  generatedCount: number,
+  insertedCount: number,
+): WarPollerInsertionCoverage {
+  if (!snapshotWasUpserted || !store) return 'skipped';
+  if (generatedCount === 0) return 'none_generated';
+  if (insertedCount === generatedCount) return 'inserted_all';
+  if (insertedCount > 0) return 'inserted_partial';
+  return 'inserted_none';
 }
 
 export function detectWarStateTransitionEvent(
