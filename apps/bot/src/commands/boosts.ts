@@ -21,6 +21,7 @@ const BOOSTS_CONTEXT_MESSAGE =
   'Source: current Clash player troop data for members in the latest stored clan member snapshot. `/boosts` performs one-off live lookups only; it does not enroll players into polling or persist boost results.';
 const BOOSTS_POLLING_PREREQUISITE_MESSAGE =
   'Prerequisites: link the clan with `/setup clan`, keep the clan poller running so member snapshots stay fresh, and allow live player lookups to complete.';
+const STALE_SNAPSHOT_WARNING_HOURS = 24;
 
 const EMBED_FIELD_VALUE_LIMIT = 1024;
 const MAX_PLAYER_FETCHES = 50;
@@ -195,7 +196,11 @@ export async function executeBoosts(
 
   if (!snapshots || snapshots.members.length === 0) {
     await interaction.editReply({
-      content: [BOOSTS_NO_SNAPSHOT_MESSAGE, BOOSTS_POLLING_PREREQUISITE_MESSAGE].join('\n'),
+      content: [
+        `Selected clan: ${formatSelectedClan(clan)}.`,
+        BOOSTS_NO_SNAPSHOT_MESSAGE,
+        BOOSTS_POLLING_PREREQUISITE_MESSAGE,
+      ].join('\n'),
     });
     return;
   }
@@ -207,7 +212,12 @@ export async function executeBoosts(
   const boosts = collectActiveBoosts(players);
   if (boosts.length === 0) {
     await interaction.editReply({
-      content: [BOOSTS_NO_ACTIVE_DATA_MESSAGE, coverageText, BOOSTS_CONTEXT_MESSAGE].join('\n'),
+      content: [
+        `Selected clan: ${formatSelectedClan(snapshots.clan)}.`,
+        BOOSTS_NO_ACTIVE_DATA_MESSAGE,
+        coverageText,
+        BOOSTS_CONTEXT_MESSAGE,
+      ].join('\n'),
     });
     return;
   }
@@ -255,11 +265,16 @@ function buildBoostsScanCoverage(
 
 export function formatBoostsScanCoverage(coverage: BoostsScanCoverage): string {
   const analyzedPercent = formatPercentage(coverage.fetchedPlayers, coverage.storedMembers);
+  const skippedPercent = formatPercentage(coverage.skippedPlayers, coverage.storedMembers);
+  const attemptedLookups = coverage.fetchedPlayers + coverage.failedLookups;
+  const failedPercent = formatPercentage(coverage.failedLookups, attemptedLookups);
   const snapshotText = coverage.latestSnapshotAt
-    ? `; latest snapshot ${formatSnapshotAge(coverage.latestSnapshotAt)} old`
+    ? `; latest snapshot ${formatSnapshotAge(coverage.latestSnapshotAt)} old${formatSnapshotGuidance(
+        coverage.latestSnapshotAt,
+      )}`
     : '';
   const notes = formatCoverageNotes(coverage);
-  return `Scan coverage: ${coverage.fetchedPlayers}/${coverage.storedMembers} member(s) fetched/analyzed (${analyzedPercent})${snapshotText}. ${notes}`;
+  return `Scan coverage: ${coverage.fetchedPlayers}/${coverage.storedMembers} member(s) fetched/analyzed (${analyzedPercent}); skipped ${coverage.skippedPlayers} (${skippedPercent}); failed ${coverage.failedLookups} (${failedPercent})${snapshotText}. ${notes}`;
 }
 
 export function collectActiveBoosts(players: readonly ClashPlayer[]): ActiveBoostGroup[] {
@@ -319,6 +334,18 @@ function formatSnapshotAge(snapshotAt: Date): string {
   return `${Math.floor(ageMs / dayMs)}d`;
 }
 
+function formatSnapshotGuidance(snapshotAt: Date): string {
+  const ageMs = Math.max(0, Date.now() - snapshotAt.getTime());
+  const staleMs = STALE_SNAPSHOT_WARNING_HOURS * 60 * 60 * 1000;
+  if (ageMs < staleMs) return '';
+  return '; snapshot may be stale, wait for the clan poller to refresh linked members';
+}
+
+function formatSelectedClan(clan: BoostsLinkedClan): string {
+  const label = clan.alias?.trim() || clan.name?.trim() || 'linked clan';
+  return `${label} (${clan.clanTag})`;
+}
+
 export function buildBoostsEmbed(
   clan: BoostsLinkedClan,
   boosts: readonly ActiveBoostGroup[],
@@ -331,7 +358,17 @@ export function buildBoostsEmbed(
   const embed = new EmbedBuilder()
     .setTitle('Currently Boosted Super Troops')
     .setAuthor({ name: `${clanName} (${clan.clanTag})` })
-    .setDescription([formatBoostsScanCoverage(coverage), BOOSTS_CONTEXT_MESSAGE].join('\n'))
+    .setDescription(
+      [
+        `Selected clan: ${formatSelectedClan(clan)}.`,
+        formatBoostsScanCoverage(coverage),
+        `Boosted coverage: ${boostedPlayers.size}/${coverage.storedMembers} stored member(s) (${formatPercentage(
+          boostedPlayers.size,
+          coverage.storedMembers,
+        )}) have at least one active boost in analyzed data.`,
+        BOOSTS_CONTEXT_MESSAGE,
+      ].join('\n'),
+    )
     .setFooter({
       text: `Total ${boostedPlayers.size}/${coverage.storedMembers} stored members with active boosts`,
     })
