@@ -37,6 +37,7 @@ interface MembersFilterContext {
   readonly clan?: MembersLinkedClan;
   readonly linkedClanLabels?: readonly string[];
   readonly linkedClanCount: number;
+  readonly linkedClanWithRowsCount: number;
   readonly latestSnapshotAt: Date | null;
   readonly storedMemberRowCount: number;
   readonly user: User | null;
@@ -206,6 +207,7 @@ export async function executeMembers(
       clan,
       linkedClanLabels: [formatLinkedClanDiagnosticLabel(clan)],
       linkedClanCount: clans.length,
+      linkedClanWithRowsCount: snapshots && snapshots.members.length > 0 ? 1 : 0,
       latestSnapshotAt: getLatestSnapshotTimeForSnapshot(snapshots),
       storedMemberRowCount: snapshots?.members.length ?? 0,
       user: userOption,
@@ -225,6 +227,7 @@ export async function executeMembers(
     await interaction.editReply({
       content: formatNoLinkedMembersMessage(userOption, {
         linkedClanCount: clans.length,
+        linkedClanWithRowsCount: countClansWithStoredMemberRows(snapshots),
         linkedClanLabels: formatLinkedClanDiagnosticLabels(clans),
         latestSnapshotAt: getLatestSnapshotTimeForSnapshots(snapshots),
         storedMemberRowCount: countStoredMemberRows(snapshots),
@@ -237,6 +240,7 @@ export async function executeMembers(
 
   await replyWithMembers(interaction, selected, {
     linkedClanCount: clans.length,
+    linkedClanWithRowsCount: countClansWithStoredMemberRows(snapshots),
     linkedClanLabels: formatLinkedClanDiagnosticLabels(clans),
     latestSnapshotAt: getLatestSnapshotTimeForSnapshots(snapshots),
     storedMemberRowCount: countStoredMemberRows(snapshots),
@@ -284,6 +288,7 @@ function formatNoLinkedMembersMessage(user: User | null, filters: MembersFilterC
 function formatMembersCoverageContext(filters: MembersFilterContext): string {
   const parts = [
     `linked clans: ${filters.linkedClanCount}`,
+    `with snapshots: ${filters.linkedClanWithRowsCount}`,
     `considered: ${formatLinkedClanDiagnosticList(filters.linkedClanLabels)}`,
     `stored member rows: ${filters.storedMemberRowCount}`,
     `latest snapshot: ${formatLatestMemberSnapshot(filters.latestSnapshotAt)}`,
@@ -381,6 +386,7 @@ export function buildMembersEmbed(
       clan: snapshots.clan,
       linkedClanLabels: [formatLinkedClanDiagnosticLabel(snapshots.clan)],
       linkedClanCount: 1,
+      linkedClanWithRowsCount: snapshots.members.length > 0 ? 1 : 0,
       latestSnapshotAt: latestFetchedAt,
       storedMemberRowCount: snapshots.members.length,
       user,
@@ -403,11 +409,12 @@ export function buildMembersEmbed(
     name: 'Coverage',
     value: [
       `View: ${formatMembersOptionLabel(option)}`,
-      `Linked clans considered: ${coverageContext.linkedClanCount}`,
+      `Linked clan coverage: ${coverageContext.linkedClanWithRowsCount}/${coverageContext.linkedClanCount} have stored member rows`,
       `Clan set: ${formatLinkedClanDiagnosticList(coverageContext.linkedClanLabels)}`,
       `Stored member rows considered: ${coverageContext.storedMemberRowCount}`,
       `Rows shown: ${members.length}/${snapshots.members.length} selected (limit ${MAX_MEMBER_ROWS})`,
-      `Latest snapshot: ${formatLatestMemberSnapshot(coverageContext.latestSnapshotAt)}`,
+      `Option coverage: ${formatMembersOptionCoverage(option, snapshots.members)}`,
+      `Snapshot freshness: ${formatMemberSnapshotFreshness(coverageContext.latestSnapshotAt)}`,
       formatMembersClanFilterSummary(coverageContext.clan),
       formatMembersUserFilterSummary(user),
       'Source: persisted clan-poller member snapshots only; no live Clash API lookup.',
@@ -484,6 +491,61 @@ function getLatestSnapshotTimeForSnapshots(
 
 function countStoredMemberRows(snapshots: readonly MembersClanSnapshots[]): number {
   return snapshots.reduce((total, snapshot) => total + snapshot.members.length, 0);
+}
+
+function countClansWithStoredMemberRows(snapshots: readonly MembersClanSnapshots[]): number {
+  return snapshots.filter((snapshot) => snapshot.members.length > 0).length;
+}
+
+function formatMemberSnapshotFreshness(latestFetchedAt: Date | null): string {
+  if (!latestFetchedAt) return 'not available';
+  const ageMs = Date.now() - latestFetchedAt.getTime();
+  const ageHours = Math.max(0, Math.floor(ageMs / 3_600_000));
+  const status = ageHours < 6 ? 'fresh' : ageHours < 24 ? 'aging' : 'stale';
+  return `${formatLatestMemberSnapshot(latestFetchedAt)} · ${status} persisted data`;
+}
+
+function formatMembersOptionCoverage(
+  option: MembersOption,
+  members: readonly MembersSnapshotRow[],
+): string {
+  const total = members.length;
+  if (total === 0) return 'no selected rows';
+
+  if (option === 'donations' || option === 'attacks') {
+    const donationRows = countRowsWithAnyValue(members, ['donations', 'donationsReceived']);
+    const suffix =
+      option === 'attacks' ? '; attack/defense totals are not persisted in member snapshots' : '';
+    return `${donationRows}/${total} rows include donation counters${suffix}`;
+  }
+  if (option === 'trophies') {
+    return `${countRowsWithAnyValue(members, ['trophies'])}/${total} rows include trophies`;
+  }
+  if (option === 'heroes' || option === 'progress') {
+    return `${countRowsWithAnyValue(members, ['expLevel', 'trophies', 'clanRank'])}/${total} rows include persisted progress fields; hero details are not in clan snapshots`;
+  }
+  if (option === 'join-date') {
+    return `${total}/${total} rows include first/last observed timestamps`;
+  }
+  if (option === 'link-list') {
+    return `${total}/${total} rows include player tags; Discord link mentions are read from linked-player data only when selecting a user`;
+  }
+  if (option === 'war-pref') {
+    const roleRows = members.filter((member) => member.role !== null).length;
+    return `${roleRows}/${total} rows include clan roles; war preference is not persisted in member snapshots`;
+  }
+  return `${total}/${total} rows include persisted member identity fields`;
+}
+
+type NullableNumberMemberKey = {
+  [Key in keyof MembersSnapshotRow]: MembersSnapshotRow[Key] extends number | null ? Key : never;
+}[keyof MembersSnapshotRow];
+
+function countRowsWithAnyValue(
+  members: readonly MembersSnapshotRow[],
+  keys: readonly NullableNumberMemberKey[],
+): number {
+  return members.filter((member) => keys.some((key) => member[key] !== null)).length;
 }
 
 function formatMembersOptionLabel(option: MembersOption): string {
