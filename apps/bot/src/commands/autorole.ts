@@ -602,8 +602,41 @@ export function filterAutoroleClanChoices(
   const normalizedQuery = query.trim().toLowerCase();
   return clans
     .filter((clan) => clanMatchesQuery(clan, normalizedQuery))
+    .sort(compareAutoroleClanChoices)
+    .filter(dedupeAutoroleClanChoices())
     .slice(0, 25)
     .map((clan) => ({ name: formatClanChoiceName(clan), value: clan.alias ?? clan.clanTag }));
+}
+
+function compareAutoroleClanChoices(left: AutoroleLinkedClan, right: AutoroleLinkedClan): number {
+  return (
+    clanChoiceSortKey(left).localeCompare(clanChoiceSortKey(right)) ||
+    left.clanTag.localeCompare(right.clanTag) ||
+    (left.alias ?? '').localeCompare(right.alias ?? '') ||
+    left.id.localeCompare(right.id)
+  );
+}
+
+function clanChoiceSortKey(clan: AutoroleLinkedClan): string {
+  return [clan.name ?? '', clan.clanTag, clan.alias ?? '', clan.alias ?? clan.clanTag]
+    .map((value) => value.trim().toLowerCase())
+    .join('\u0000');
+}
+
+function dedupeAutoroleClanChoices(): (clan: AutoroleLinkedClan) => boolean {
+  const seen = new Set<string>();
+  return (clan) => {
+    const acceptedValueKey = normalizeClanChoiceIdentity(clan.alias ?? clan.clanTag);
+    const tagKey = normalizeClanChoiceIdentity(clan.clanTag);
+    if (seen.has(acceptedValueKey) || seen.has(tagKey)) return false;
+    seen.add(acceptedValueKey);
+    seen.add(tagKey);
+    return true;
+  };
+}
+
+function normalizeClanChoiceIdentity(value: string): string {
+  return value.trim().replace(/^#/, '').toLowerCase();
 }
 
 function buildPatch(
@@ -1331,8 +1364,10 @@ function clanMatchesQuery(clan: AutoroleLinkedClan, normalizedQuery: string): bo
 }
 
 function formatClanChoiceName(clan: AutoroleLinkedClan): string {
-  const label = clan.alias?.trim() || clan.name?.trim() || clan.clanTag;
-  return `${escapeMarkdown(label)} (${clan.clanTag})`.slice(0, 100);
+  const name = clan.name?.trim() || 'Unnamed clan';
+  const alias = clan.alias?.trim();
+  const context = alias ? ` • ${clan.clanTag} • alias: ${alias}` : ` • ${clan.clanTag}`;
+  return `${escapeMarkdown(name)}${escapeMarkdown(context)}`.slice(0, 100);
 }
 
 function parseBooleanString(value: string | null): boolean | null {
