@@ -65,6 +65,11 @@ export interface StatusMetrics {
   freeMemoryMb: number;
   uptimeSeconds: number;
   servers: number;
+  clientReady?: boolean;
+  clientReadyAt?: Date;
+  cachedGuilds?: number;
+  cachedUsers?: number;
+  cachedChannels?: number;
   websocketLatencyMs?: number;
   commandsUsedLast30Days?: number;
   clans?: number;
@@ -175,9 +180,13 @@ export async function collectStatusView(options: {
     freeMemoryMb: os.freemem() / 1024 / 1024,
     uptimeSeconds: process.uptime(),
     servers: options.client.guilds.cache.size,
+    clientReady: options.client.isReady(),
+    cachedGuilds: options.client.guilds.cache.size,
+    cachedUsers: options.client.users.cache.size,
+    cachedChannels: options.client.channels.cache.size,
     runtime:
       'Single Discord gateway process; multi-process gateway metrics are intentionally not collected.',
-    cacheSource: 'Discord client guild cache for live server count.',
+    cacheSource: 'Discord client in-memory caches for live readiness and cache health.',
     metricSource: options.metricReader
       ? 'PostgreSQL aggregate metric reader for persisted bot metrics.'
       : 'No metric reader configured; persisted counts are unavailable.',
@@ -187,6 +196,7 @@ export async function collectStatusView(options: {
   if (Number.isFinite(options.client.ws.ping)) {
     metrics.websocketLatencyMs = options.client.ws.ping;
   }
+  if (options.client.readyAt) metrics.clientReadyAt = options.client.readyAt;
 
   if (typeof commandsUsedLast30Days === 'number') {
     metrics.commandsUsedLast30Days = commandsUsedLast30Days;
@@ -338,9 +348,26 @@ export function formatReconciliationPlanning(summary: StatusReconciliationPlanni
   const latest = summary.latestPlannedAt?.toISOString() ?? 'Unavailable';
 
   return [
-    `Recent outcomes: ${formatCount(summary.totalRecentOutcomes)}; latest: ${latest}.`,
+    `Recent outcomes: ${formatCount(summary.totalRecentOutcomes)}; freshness: latest planned at ${latest}.`,
     `Planned to run: ${features}.`,
     `Top skips: ${topSkips}.`,
+  ].join('\n');
+}
+
+export function formatClientHealth(
+  metrics: Pick<
+    StatusMetrics,
+    'clientReady' | 'clientReadyAt' | 'cachedGuilds' | 'cachedUsers' | 'cachedChannels'
+  >,
+): string {
+  const readyAt = metrics.clientReadyAt?.toISOString() ?? 'Unavailable';
+  const cachedGuilds = metrics.cachedGuilds ?? 0;
+  const cachedUsers = metrics.cachedUsers ?? 0;
+  const cachedChannels = metrics.cachedChannels ?? 0;
+
+  return [
+    `Ready: ${metrics.clientReady ? 'yes' : 'no'}; ready at: ${readyAt}.`,
+    `Cached: guilds ${formatCount(cachedGuilds)}, users ${formatCount(cachedUsers)}, channels ${formatCount(cachedChannels)}.`,
   ].join('\n');
 }
 
@@ -373,11 +400,20 @@ export function formatMetricSource(
 export function formatStatusDiagnostics(
   metrics: Pick<
     StatusMetrics,
-    'websocketLatencyMs' | 'cacheSource' | 'metricSource' | 'missingMetricReaders'
+    | 'websocketLatencyMs'
+    | 'clientReady'
+    | 'clientReadyAt'
+    | 'cachedGuilds'
+    | 'cachedUsers'
+    | 'cachedChannels'
+    | 'cacheSource'
+    | 'metricSource'
+    | 'missingMetricReaders'
   >,
 ): string {
   return [
     `Gateway latency: ${formatLatency(metrics.websocketLatencyMs)}.`,
+    formatClientHealth(metrics),
     `Cache: ${metrics.cacheSource ?? 'Discord client cache.'}`,
     formatMetricSource(metrics),
   ].join('\n');
