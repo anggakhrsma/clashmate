@@ -206,7 +206,13 @@ async function executeClanGames(
   }
 
   if (!user) {
-    await interaction.reply({ embeds: [buildClanGamesEmbed(scoreboard, !clan, coverage)] });
+    await interaction.reply({
+      embeds: [
+        buildClanGamesEmbed(scoreboard, !clan, coverage, {
+          usedCurrentSeasonDefault: !requestedSeasonId,
+        }),
+      ],
+    });
     return;
   }
 
@@ -221,7 +227,9 @@ async function executeClanGames(
 
   await interaction.reply({
     embeds: [
-      buildClanGamesEmbed(filterScoreboardForUser(scoreboard, user, playerTags), !clan, coverage),
+      buildClanGamesEmbed(filterScoreboardForUser(scoreboard, user, playerTags), !clan, coverage, {
+        usedCurrentSeasonDefault: !requestedSeasonId,
+      }),
     ],
   });
 }
@@ -281,6 +289,9 @@ export function buildClanGamesEmbed(
   },
   mentionSelectedClan: boolean,
   coverage?: ClanGamesCoverageContext,
+  context?: {
+    readonly usedCurrentSeasonDefault?: boolean;
+  },
 ): EmbedBuilder {
   const clanLabel = `${scoreboard.clanName ?? scoreboard.clanTag} (${scoreboard.clanTag})`;
   const seasonChoice = clanGamesSeasonChoices.find(
@@ -296,9 +307,10 @@ export function buildClanGamesEmbed(
     mentionSelectedClan
       ? `Using latest stored snapshot for **${escapeMarkdown(clanLabel)}**.`
       : null,
-    `Season: **${escapeMarkdown(seasonLabel)}**${scoreboard.seasonId === getCurrentClanGamesSeasonId(new Date()) ? ' · current Clan Games season' : ''}`,
+    `Season: **${escapeMarkdown(seasonLabel)}**${scoreboard.seasonId === getCurrentClanGamesSeasonId(new Date()) ? ' · current Clan Games season' : ''}${context?.usedCurrentSeasonDefault ? ' · defaulted because no season option was provided' : ''}`,
     `Snapshot source fetched: ${time(scoreboard.sourceFetchedAt, 'R')} · Persisted update: ${time(scoreboard.updatedAt, 'R')}`,
     `Snapshot coverage: ${formatLinkedClanSnapshotCount(coverage)} · ${totalStoredMembers.toLocaleString()} stored member${totalStoredMembers === 1 ? '' : 's'} · ${visibleMembers.length.toLocaleString()} visible${scoreboard.members.length !== totalStoredMembers ? ` · ${scoreboard.members.length.toLocaleString()} after filters` : ''}`,
+    `Points summary: ${formatClanGamesCompletionSummary(scoreboard)}`,
     scoreboard.userFilterNote ?? null,
     '',
     '```txt',
@@ -318,6 +330,11 @@ export function buildClanGamesEmbed(
       { name: 'Members', value: scoreboard.members.length.toLocaleString(), inline: true },
       { name: 'Average', value: average.toFixed(1), inline: true },
       {
+        name: 'Completion',
+        value: formatClanGamesCompletionSummary(scoreboard),
+        inline: false,
+      },
+      {
         name: 'Data Source',
         value:
           'Persisted snapshot from linked/configured clan polling only. No live Clash API fallback or on-demand enrollment; link/configure the clan and let worker pollers collect fresh season data.',
@@ -329,6 +346,25 @@ export function buildClanGamesEmbed(
     .setTimestamp(scoreboard.updatedAt);
 
   return embed;
+}
+
+function formatClanGamesCompletionSummary(
+  scoreboard: Pick<ClanGamesScoreboardSnapshot, 'eventMaxPoints' | 'members' | 'totalPoints'>,
+): string {
+  if (scoreboard.members.length === 0) return 'No stored member points to summarize.';
+  if (scoreboard.eventMaxPoints <= 0) {
+    return 'Event max points are unavailable in this stored snapshot; threshold completion cannot be calculated.';
+  }
+
+  const completedMembers = scoreboard.members.filter(
+    (member) => member.points >= scoreboard.eventMaxPoints,
+  ).length;
+  const possiblePoints = scoreboard.members.length * scoreboard.eventMaxPoints;
+  const remainingPoints = Math.max(0, possiblePoints - scoreboard.totalPoints);
+  const completionPercent =
+    possiblePoints === 0 ? 0 : (scoreboard.totalPoints / possiblePoints) * 100;
+
+  return `${completedMembers.toLocaleString()} of ${scoreboard.members.length.toLocaleString()} member${scoreboard.members.length === 1 ? '' : 's'} at ${scoreboard.eventMaxPoints.toLocaleString()} points · ${remainingPoints.toLocaleString()} points below stored roster max · ${completionPercent.toFixed(1)}% of stored threshold total.`;
 }
 
 function formatClanGamesNoDataMessage(input: {
