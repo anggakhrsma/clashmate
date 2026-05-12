@@ -69,6 +69,7 @@ export interface NotificationFanOutTotalsSummary {
 export interface NotificationFanOutIterationSummary {
   readonly sources: readonly NotificationFanOutSourceResultSummary[];
   readonly totals: NotificationFanOutTotalsSummary;
+  readonly diagnostics: NotificationFanOutIterationDiagnostics;
   readonly failedFamilies: readonly { source: NotificationFanOutSource; message: string }[];
   readonly skippedSources: readonly { source: NotificationFanOutSource; message: string }[];
   readonly sourceBreakdown: Readonly<
@@ -87,6 +88,23 @@ export interface NotificationFanOutIterationSummary {
   >;
   readonly error: boolean;
   readonly errorMessage?: string;
+}
+
+export interface NotificationFanOutIterationDiagnostics {
+  readonly activeSources: number;
+  readonly unavailableSources: number;
+  readonly failedSources: number;
+  readonly cursorAdvancementCoverage: {
+    readonly advanced: number;
+    readonly eligible: number;
+    readonly percent: number;
+  };
+  readonly outboxInsertionEfficiency: {
+    readonly matchedTargets: number;
+    readonly insertedOutboxEntries: number;
+    readonly percent: number;
+  };
+  readonly emptyIterationGuidance?: string;
 }
 
 type NotificationFanOutSourceStoreResult = Pick<
@@ -199,38 +217,88 @@ function createNotificationFanOutIterationSummary(
       },
     ]),
   ) as NotificationFanOutIterationSummary['sourceBreakdown'];
+  const totals = sources.reduce<NotificationFanOutTotalsSummary>(
+    (totals, source) => ({
+      attempted: totals.attempted + source.attempted,
+      created: totals.created + source.created,
+      skipped: totals.skipped + source.skipped,
+      failed: totals.failed + source.failed,
+      cursorsAdvanced: totals.cursorsAdvanced + (source.cursorAdvanced ? 1 : 0),
+      totalOutboxRowsCreated: totals.totalOutboxRowsCreated + source.insertedOutboxEntries,
+      eventsScanned: totals.eventsScanned + source.eventsScanned,
+      matchedTargets: totals.matchedTargets + source.matchedTargets,
+      insertedOutboxEntries: totals.insertedOutboxEntries + source.insertedOutboxEntries,
+    }),
+    {
+      attempted: 0,
+      created: 0,
+      skipped: 0,
+      failed: 0,
+      cursorsAdvanced: 0,
+      totalOutboxRowsCreated: 0,
+      eventsScanned: 0,
+      matchedTargets: 0,
+      insertedOutboxEntries: 0,
+    },
+  );
+  const activeSources = sources.filter((source) => source.cursorSource === 'storeCursor').length;
+  const unavailableSources = sources.length - activeSources;
+  const failedSources = failedFamilies.length;
+  const cursorCoveragePercent =
+    activeSources === 0 ? 0 : Math.round((totals.cursorsAdvanced / activeSources) * 100);
+  const outboxEfficiencyPercent =
+    totals.matchedTargets === 0
+      ? 0
+      : Math.round((totals.insertedOutboxEntries / totals.matchedTargets) * 100);
+  const emptyIterationGuidance = createEmptyNotificationFanOutIterationGuidance(
+    totals,
+    activeSources,
+    unavailableSources,
+    failedSources,
+  );
 
   return {
     sources,
-    totals: sources.reduce<NotificationFanOutTotalsSummary>(
-      (totals, source) => ({
-        attempted: totals.attempted + source.attempted,
-        created: totals.created + source.created,
-        skipped: totals.skipped + source.skipped,
-        failed: totals.failed + source.failed,
-        cursorsAdvanced: totals.cursorsAdvanced + (source.cursorAdvanced ? 1 : 0),
-        totalOutboxRowsCreated: totals.totalOutboxRowsCreated + source.insertedOutboxEntries,
-        eventsScanned: totals.eventsScanned + source.eventsScanned,
-        matchedTargets: totals.matchedTargets + source.matchedTargets,
-        insertedOutboxEntries: totals.insertedOutboxEntries + source.insertedOutboxEntries,
-      }),
-      {
-        attempted: 0,
-        created: 0,
-        skipped: 0,
-        failed: 0,
-        cursorsAdvanced: 0,
-        totalOutboxRowsCreated: 0,
-        eventsScanned: 0,
-        matchedTargets: 0,
-        insertedOutboxEntries: 0,
+    totals,
+    diagnostics: {
+      activeSources,
+      unavailableSources,
+      failedSources,
+      cursorAdvancementCoverage: {
+        advanced: totals.cursorsAdvanced,
+        eligible: activeSources,
+        percent: cursorCoveragePercent,
       },
-    ),
+      outboxInsertionEfficiency: {
+        matchedTargets: totals.matchedTargets,
+        insertedOutboxEntries: totals.insertedOutboxEntries,
+        percent: outboxEfficiencyPercent,
+      },
+      ...(emptyIterationGuidance === undefined ? {} : { emptyIterationGuidance }),
+    },
     failedFamilies,
     skippedSources,
     sourceBreakdown,
     error: failedFamilies.length > 0,
   };
+}
+
+function createEmptyNotificationFanOutIterationGuidance(
+  totals: NotificationFanOutTotalsSummary,
+  activeSources: number,
+  unavailableSources: number,
+  failedSources: number,
+): string | undefined {
+  if (failedSources > 0 || totals.eventsScanned > 0 || totals.insertedOutboxEntries > 0) {
+    return undefined;
+  }
+  if (activeSources === 0) {
+    return 'No notification fan-out sources are available; verify store capabilities.';
+  }
+  if (unavailableSources > 0) {
+    return 'No events scanned by active sources; unavailable optional sources were skipped.';
+  }
+  return 'No new notification events scanned; verify pollers are producing source events if this persists.';
 }
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
@@ -414,6 +482,7 @@ export async function runNotificationFanOutIteration(
     {
       sources: summary.sources,
       totals: summary.totals,
+      diagnostics: summary.diagnostics,
       sourceBreakdown: summary.sourceBreakdown,
       skippedSources: summary.skippedSources,
       failedFamilies: summary.failedFamilies,
