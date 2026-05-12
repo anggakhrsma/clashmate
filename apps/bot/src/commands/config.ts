@@ -12,6 +12,8 @@ export const CONFIG_COMMAND_DESCRIPTION = 'Configure ClashMate server settings.'
 export const DEFAULT_CONFIG_EMBED_COLOR = 0x5865f2;
 export const MIN_WEBHOOK_LIMIT = 3;
 export const MAX_WEBHOOK_LIMIT = 8;
+export const DISCORD_CHANNEL_WEBHOOK_LIMIT = 15;
+export const MAX_MANAGER_ROLES_PER_SETTING = 25;
 
 export const configCommandData = new SlashCommandBuilder()
   .setName(CONFIG_COMMAND_NAME)
@@ -227,7 +229,7 @@ export function buildConfigEmbed(
       {
         name: 'Permissions & Audit',
         value:
-          'Requires Discord Manage Server. Saved changes include the acting user for audit logs when the backing store records configuration history.',
+          'Requires Discord Manage Server. Bot manager roles can help ClashMate checks, but they do not bypass Discord server permissions. Saved changes include the acting user for audit/history when the backing store records configuration changes.',
         inline: false,
       },
       {
@@ -237,28 +239,40 @@ export function buildConfigEmbed(
       },
       {
         name: 'Webhook Limit',
-        value: `${view.webhookLimit} per channel\nAllowed persisted range: ${MIN_WEBHOOK_LIMIT}-${MAX_WEBHOOK_LIMIT}. Out-of-range values are clamped before saving.`,
+        value: formatWebhookLimit(view.webhookLimit),
         inline: true,
       },
       {
         name: 'Color Code',
-        value: `${view.embedColor ?? 'None'}\nPreview color: ${formatColorPreview(effectiveColor)}\nUse a 6-digit hex value; clearing is unavailable until the config store supports nullable colors.`,
+        value: formatColorDiagnostics(view.embedColor, effectiveColor),
         inline: true,
       },
       {
         name: `Bot Manager Roles (${view.botManagerRoleIds.length})`,
-        value: formatRoleList(view.botManagerRoleIds),
+        value: formatRoleDiagnostics(view.botManagerRoleIds),
         inline: false,
       },
       {
         name: `Links Manager Roles (${view.linksManagerRoleIds.length})`,
-        value: formatRoleList(view.linksManagerRoleIds),
+        value: formatRoleDiagnostics(view.linksManagerRoleIds),
+        inline: false,
+      },
+      {
+        name: 'Clear & Update Semantics',
+        value:
+          'Role clear options remove the saved role list for that setting. Setting a role replaces the saved list with the selected role. Omitted options keep their current persisted values. Color clearing is reported as unsupported until nullable color persistence is available.',
         inline: false,
       },
       {
         name: 'Persisted Scope',
         value:
-          'Settings are saved for this Discord server only. Diagnostics use the existing guild configuration read/update result and do not query Clash API data or enroll polling resources.',
+          'Settings are saved for this Discord server only and survive bot restarts through the configured store. Diagnostics use the existing guild configuration read/update result only; they do not query Discord/Clash live APIs or enroll polling resources.',
+        inline: false,
+      },
+      {
+        name: 'Discord Limitations',
+        value:
+          'Server-level settings such as slash command availability, integration permissions, role hierarchy, channel overwrites, and Discord webhook quotas are enforced by Discord and must be adjusted in Discord when they block ClashMate actions.',
         inline: false,
       },
       {
@@ -272,6 +286,37 @@ export function buildConfigEmbed(
 
 function formatRoleList(roleIds: readonly string[]): string {
   return roleIds.length ? roleIds.map((roleId) => `<@&${roleId}>`).join(' ') : 'None';
+}
+
+function formatRoleDiagnostics(roleIds: readonly string[]): string {
+  return [
+    formatRoleList(roleIds),
+    `Configured: ${roleIds.length}/${MAX_MANAGER_ROLES_PER_SETTING}.`,
+    'Deleted roles or role hierarchy/permission changes are controlled by Discord and may require updating this saved setting.',
+  ].join('\n');
+}
+
+function formatWebhookLimit(limit: number): string {
+  const reserved = Math.max(0, DISCORD_CHANNEL_WEBHOOK_LIMIT - limit);
+  return [
+    `${limit} per channel`,
+    `ClashMate cap: ${MIN_WEBHOOK_LIMIT}-${MAX_WEBHOOK_LIMIT}; Discord channel quota is ${DISCORD_CHANNEL_WEBHOOK_LIMIT} webhooks.`,
+    `Leaves at least ${reserved} webhook slot${reserved === 1 ? '' : 's'} for non-ClashMate uses when Discord's quota is otherwise empty.`,
+  ].join('\n');
+}
+
+function formatColorDiagnostics(
+  embedColor: string | null,
+  effectiveColor: ColorResolvable,
+): string {
+  return [
+    embedColor ?? 'None',
+    `Preview color: ${formatColorPreview(effectiveColor)}`,
+    embedColor
+      ? 'Set `color_code` to replace it; omitted color options keep this value.'
+      : 'Using the bot display/default color until a 6-digit hex `color_code` is saved.',
+    'Clearing is unavailable until the config store supports nullable colors.',
+  ].join('\n');
 }
 
 function formatColorPreview(color: ColorResolvable): string {
